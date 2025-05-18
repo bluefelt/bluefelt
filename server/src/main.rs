@@ -5,7 +5,8 @@ use axum::{
     Json, Router,
 };
 use axum::extract::ws::{Message, WebSocketUpgrade};
-use bluefelt_core::{Lobby, LobbyMap};
+use bluefelt_core::{Lobby, LobbyMap, User, UserMap, LobbyMembers};
+use dashmap::DashSet;
 use uuid::Uuid;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -14,9 +15,19 @@ use tokio::net::TcpListener;
 use tower_http::cors::{CorsLayer, Any};
 use serde::{Deserialize, Serialize};
 
+struct AppState {
+    lobbies: LobbyMap,
+    users: UserMap,
+    members: LobbyMembers,
+}
+
 #[tokio::main]
 async fn main() {
-    let lobbies = Arc::new(LobbyMap::new());
+    let state = Arc::new(AppState {
+        lobbies: LobbyMap::new(),
+        users: UserMap::new(),
+        members: LobbyMembers::new(),
+    });
     
     let cors = CorsLayer::new()
         .allow_origin(["http://localhost:5173".parse().unwrap()])
@@ -24,12 +35,15 @@ async fn main() {
         .allow_headers(Any);
     
     let app = Router::new()
+        .route("/register", post(register))
         .route("/lobbies", post(create_lobby))
         .route("/lobbies", get(list_lobbies))
+        .route("/lobbies/:id/join", post(join_lobby))
+        .route("/lobbies/:id/users", get(list_lobby_users))
         .route("/games", get(list_games))
         .route("/lobbies/:id/ws", get(ws_handler))
         .layer(cors)
-        .with_state(lobbies);
+        .with_state(state.clone());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
     println!("Running on http://127.0.0.1:8000");
@@ -39,26 +53,73 @@ async fn main() {
 }
 
 async fn create_lobby(
-    State(lobbies): State<Arc<LobbyMap>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<serde_json::Value>,          // { gameId: "love-letter" }
 ) -> impl IntoResponse {
     let game_id = payload["gameId"].as_str().unwrap_or("unknown");
     let lobby = Lobby { id: Uuid::new_v4(), game_id: game_id.to_string() };
-    lobbies.insert(lobby.id, lobby.clone());
+    state.lobbies.insert(lobby.id, lobby.clone());
     Json(lobby)
 }
 
 async fn list_lobbies(
-    State(lobbies): State<Arc<LobbyMap>>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let vec: Vec<Lobby> = lobbies.iter().map(|e| e.value().clone()).collect();
+    let vec: Vec<Lobby> = state.lobbies.iter().map(|e| e.value().clone()).collect();
     Json(vec)
+}
+
+async fn register(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>, // { username: "bob" }
+) -> impl IntoResponse {
+    let name = payload["username"].as_str().unwrap_or("unknown");
+    let user = if let Some(u) = state.users.get(name) {
+        u.clone()
+    } else {
+        let u = User { id: Uuid::new_v4(), name: name.to_string() };
+        state.users.insert(name.to_string(), u.clone());
+        u
+    };
+    Json(user)
+}
+
+async fn join_lobby(
+    Path(id): Path<Uuid>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>, // { username: "bob" }
+) -> impl IntoResponse {
+    let name = match payload["username"].as_str() {
+        Some(n) => n.to_string(),
+        None => return axum::http::StatusCode::BAD_REQUEST.into_response(),
+    };
+    if state.lobbies.get(&id).is_none() {
+        return axum::http::StatusCode::NOT_FOUND.into_response();
+    }
+    let set = state
+        .members
+        .entry(id)
+        .or_insert_with(DashSet::new);
+    set.insert(name);
+    axum::http::StatusCode::OK.into_response()
+}
+
+async fn list_lobby_users(
+    Path(id): Path<Uuid>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let users: Vec<String> = state
+        .members
+        .get(&id)
+        .map(|set| set.iter().map(|u| u.clone()).collect())
+        .unwrap_or_default();
+    Json(users)
 }
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
     Path(id): Path<Uuid>,
-    State(_lobbies): State<Arc<LobbyMap>>,
+    State(_state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |mut socket| async move {
         while let Some(Ok(msg)) = socket.recv().await {

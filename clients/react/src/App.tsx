@@ -2,12 +2,15 @@ import { Routes, Route, useParams } from 'react-router-dom';
 import LobbyList from './pages/LobbyList';
 import LobbyRoom from './pages/LobbyRoom';
 import LobbyCreate from './pages/LobbyCreate';
+import Register from './pages/Register';
 
 export default function App() {
+  const username = localStorage.getItem('username');
   return (
     <Routes>
-      {/* home = lobby directory */}
-      <Route path="/" element={<LobbyList />} />
+      {/* home */}
+      <Route path="/" element={username ? <LobbyList /> : <Register />} />
+      <Route path="/register" element={<Register />} />
 
       {/* create lobby */}
       <Route path="/create" element={<LobbyCreate />} />
