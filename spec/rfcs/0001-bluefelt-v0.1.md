@@ -32,14 +32,14 @@ hash: "sha256-ab12...ff" #calculated over remaining files
 ```
 The hash anchors live matches to this exact bundle.
 ## Core concepts
-|Term| Definition                                                          |
----|---------------------------------------------------------------------
-|Entity| Atom with properties (`id`, optional `value`, arbitrary key/vals.)  |
-|Zone| Container holding an ordered or unordered set of entity references. |
-|Verb| Atomic state transition exposed to clients and/or scripts.          |
-|Phase| Ordered collection of verbs that forms a turn.                      |
-|Hook| WASM function subscribed to a lifecycle event; returns diff(s).     |
-|Visbility| Static rule controlling who may query a zone or entity property.    |
+| Term      | Definition                                                          |
+|-----------|---------------------------------------------------------------------|
+| Entity    | Atom with properties (`id`, optional `value`, arbitrary key/vals.)  |
+| Zone      | Container holding an ordered or unordered set of entity references. |
+| Verb      | Atomic state transition exposed to clients and/or scripts.          |
+| Phase     | Ordered collection of verbs that forms a turn.                      |
+| Hook      | WASM function subscribed to a lifecycle event; returns diff(s).     |
+| Visbility | Static rule controlling who may query a zone or entity property.    |
 ## entities.yml
 ### schema excerpt
 ```yaml
