@@ -1,0 +1,17 @@
+entities:
+  guard: { kind: card, value: 1 }
+  priest: { kind: card, value: 2 }
+
+zones:
+  deck: { shape: stack, visibility: none }
+  discard: { shape: stack, visibility: all }
+  hand: { shape: list, visibility: owner }
+
+verbs:
+  draw:
+    pre: [ { zoneNotEmpty: { zone: deck } } ]
+    effect: [ { move: { from: deck, to: hand, count: 1 } }]
+
+phases:
+  - id: turn
+    verbs: [draw]

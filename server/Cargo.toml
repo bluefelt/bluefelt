@@ -1,6 +1,15 @@
 [package]
-name = "server"
+name = "bluefelt-core"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = { version = "0.7.9", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["serde", "v4"] }
+dashmap = "5.5"
+tokio-tungstenite = "0.21"
+tower = "0.5.2"
+tower-http = { version = "0.6.4", features = ["cors"] }
