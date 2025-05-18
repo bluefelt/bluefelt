@@ -21,6 +21,9 @@ export default function LobbyCreate() {
 
   return (
     <div className="p-4 space-y-4 max-w-md mx-auto">
+      <a href="/" className="underline text-blue-600">
+        ← Back
+      </a>
       <h1 className="text-2xl font-semibold">Create Lobby</h1>
       <select
         value={gameId}
