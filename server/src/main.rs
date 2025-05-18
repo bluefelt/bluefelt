@@ -1,16 +1,18 @@
 use axum::{
-    routing::{post, get},
-    extract::{State, Path},
+    routing::{get, post},
+    extract::{Path, State},
     response::IntoResponse,
     Json, Router,
 };
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use bluefelt_core::{Lobby, LobbyMap};
 use uuid::Uuid;
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{CorsLayer, Any};
+use serde::Serialize;
 
 #[tokio::main]
 async fn main() {
@@ -24,6 +26,7 @@ async fn main() {
     let app = Router::new()
         .route("/lobbies", post(create_lobby))
         .route("/lobbies", get(list_lobbies))
+        .route("/games", get(list_games))
         .route("/lobbies/:id/ws", get(ws_handler))
         .layer(cors)
         .with_state(lobbies);
@@ -68,4 +71,63 @@ async fn ws_handler(
         }
         println!("WS for lobby {id} closed");
     })
+}
+
+#[derive(Serialize)]
+struct GameInfo {
+    id: String,
+    name: String,
+}
+
+fn parse_manifest(path: &std::path::Path) -> Option<GameInfo> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut id = None;
+    let mut name = None;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("gameId:") {
+            id = Some(t.trim_start_matches("gameId:").trim().to_string());
+        }
+        if t.contains("metadata") && t.contains("name:") {
+            if let Some(idx) = t.find("name:") {
+                let mut val = t[idx + 5..].trim();
+                if val.starts_with('{') {
+                    val = val.trim_start_matches('{').trim();
+                }
+                if val.starts_with('"') {
+                    if let Some(end) = val[1..].find('"') {
+                        name = Some(val[1..1 + end].to_string());
+                    }
+                } else {
+                    name = Some(val.to_string());
+                }
+            }
+        }
+    }
+    match (id, name) {
+        (Some(i), Some(n)) => Some(GameInfo { id: i, name: n }),
+        (Some(i), None) => Some(GameInfo { id: i.clone(), name: i }),
+        _ => None,
+    }
+}
+
+async fn list_games() -> impl IntoResponse {
+    let mut vec = Vec::new();
+    let base: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../games");
+    if let Ok(games) = std::fs::read_dir(base) {
+        for g in games.flatten() {
+            if let Ok(versions) = std::fs::read_dir(g.path()) {
+                for v in versions.flatten() {
+                    let m = v.path().join("manifest.yaml");
+                    if m.exists() {
+                        if let Some(info) = parse_manifest(&m) {
+                            vec.push(info);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Json(vec)
 }

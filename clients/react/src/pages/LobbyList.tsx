@@ -6,6 +6,12 @@ export default function LobbyList() {
 
   return (
     <div className="p-4 space-y-2">
+      <a
+        href="/create"
+        className="block bg-green-700/10 rounded-xl p-3 hover:bg-green-700/20"
+      >
+        ➕ Create Lobby
+      </a>
       {data?.map(l => (
         <a
           key={l.id}
