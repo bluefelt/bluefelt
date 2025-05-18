@@ -1,11 +1,11 @@
 # Bluefelt
-**Bluefelt** is an open-source, cross-platform engine for building, hosting, and playing turn-based games.
+**Bluefelt** is an open-source, cross-platform engine for building, hosting and playing turn-based games.
 
 ## Key Features of Bluefelt
 
 - **Radically Cross-Platform**: Play on any platform you want: clients for iOS, Android, the web, Steam and VR and can all play together in the same game. 
 
-- **Expressive Game Authoring**: Bluefelt games are written in concise `.yaml` files which describe the entities, verbs, and rules. An entire game can be expressed in only a few hundred lines of code. View our [game developer guide](#) for more information.
+- **Expressive Game Authoring**: Bluefelt games are written in concise `.yaml` files which describe the entities, verbs, and rules. An entire game can be expressed in only a few hundred lines of code. View our [game developer guide](development.md) for more information.
 
 - **Open-Source and Non-Commercial**: The Bluefelt platform is released under the Apache 2.0 license and governed by its community and maintainers. Our vision is to create a platform that is easy to join, free to use, and eternally independent from large corporations.
 
@@ -14,6 +14,24 @@
 - **Your Choice of Clients**: Bluefelt provides an official web experience compatible with a wide range of devices, but anybody can build a client to play games. View our [client developer guide](#) to learn how to build your own Bluefelt client.
 
 - **Written in Modern Technologies**: Bluefelt servers run on Rust with custom game logic compiled to WebAssembly ensuring quick gameplay.
+
+## Bluefelt Server
+Bluefelt is written in Rust and delivers game state to clients via HTTP and WebSockets. The server handles:
+- User authentication
+- Rule enforcement
+- Lobby creation
+- Real-time communication between users (text, voice)
+
+## Official Web Client
+The official Bluefelt web client is written in React and available at [Bluefelt.io](https://bluefelt.io). This is all you need to start playing games. 
+
+All clients are responsible for enabling players to host and join lobbies, render the game's UI
+
+## Other Clients
+Clients are available for a variety of platforms. See our official [client list](#) for a complete list.
+
+## Game Studio
+Building games for Bluefelt is easy and open to anybody. Implement your own game, make a pull request to an existing game, or browse the permission list to find games awaiting implementation.
 
 ## Why Bluefelt?
 
@@ -27,4 +45,4 @@ The motivation behind Bluefelt is to take seriously the task of adapting tableto
 
 The result is a game that's comfortable to play on phones, tablets, PCs and VR headsets. Players can join together wherever they're at to continue the game-playing experience. And familiar games can be experienced in a brand-new way on new categories of devices.
 
-New platforms will come and go, but Bluefelt can power game experiences for the foreseeable future.
+Platforms will come and go, but Bluefelt can power game experiences for the foreseeable future.
