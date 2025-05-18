@@ -1,12 +1,16 @@
 import { Routes, Route, useParams } from 'react-router-dom';
 import LobbyList from './pages/LobbyList';
 import LobbyRoom from './pages/LobbyRoom';
+import LobbyCreate from './pages/LobbyCreate';
 
 export default function App() {
   return (
     <Routes>
       {/* home = lobby directory */}
       <Route path="/" element={<LobbyList />} />
+
+      {/* create lobby */}
+      <Route path="/create" element={<LobbyCreate />} />
 
       {/* dynamic lobby room */}
       <Route path="/lobbies/:id" element={<LobbyRoomWrapper />} />

@@ -1,16 +1,18 @@
 use axum::{
-    routing::{post, get},
-    extract::{State, Path},
+    routing::{get, post},
+    extract::{Path, State},
     response::IntoResponse,
     Json, Router,
 };
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use bluefelt_core::{Lobby, LobbyMap};
 use uuid::Uuid;
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{CorsLayer, Any};
+use serde::{Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() {
@@ -24,6 +26,7 @@ async fn main() {
     let app = Router::new()
         .route("/lobbies", post(create_lobby))
         .route("/lobbies", get(list_lobbies))
+        .route("/games", get(list_games))
         .route("/lobbies/:id/ws", get(ws_handler))
         .layer(cors)
         .with_state(lobbies);
@@ -68,4 +71,57 @@ async fn ws_handler(
         }
         println!("WS for lobby {id} closed");
     })
+}
+
+#[derive(Serialize)]
+struct GameInfo {
+    id: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct ManifestMetadata {
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GameManifest {
+    #[serde(rename = "gameId")]
+    game_id: String,
+    #[serde(default)]
+    metadata: Option<ManifestMetadata>,
+}
+
+fn parse_manifest(path: &std::path::Path) -> Option<GameInfo> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let manifest: GameManifest = serde_yaml::from_str(&text).ok()?;
+    let name = manifest
+        .metadata
+        .and_then(|m| m.name)
+        .unwrap_or_else(|| manifest.game_id.clone());
+    Some(GameInfo {
+        id: manifest.game_id,
+        name,
+    })
+}
+
+async fn list_games() -> impl IntoResponse {
+    let mut vec = Vec::new();
+    let base: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../games");
+    if let Ok(games) = std::fs::read_dir(base) {
+        for g in games.flatten() {
+            if let Ok(versions) = std::fs::read_dir(g.path()) {
+                for v in versions.flatten() {
+                    let m = v.path().join("manifest.yaml");
+                    if m.exists() {
+                        if let Some(info) = parse_manifest(&m) {
+                            vec.push(info);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Json(vec)
 }

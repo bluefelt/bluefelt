@@ -12,7 +12,8 @@ export default function LobbyRoom({ id }: { id: string }) {
   }, [id]);
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="p-4 space-y-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-semibold">Lobby {id.slice(0, 8)}</h1>
       <button
         className="bg-green-600 text-white rounded px-3 py-1"
         onClick={() => ws?.send('hello')}
