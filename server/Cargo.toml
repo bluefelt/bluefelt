@@ -13,3 +13,4 @@ dashmap = "5.5"
 tokio-tungstenite = "0.21"
 tower = "0.5.2"
 tower-http = { version = "0.6.4", features = ["cors"] }
+serde_yaml = "0.9"
