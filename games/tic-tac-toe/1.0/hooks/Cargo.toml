@@ -1,0 +1,17 @@
+[package]
+name    = "ttt_hooks"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]          # MUST be cdylib for wasm-with-extern
+
+[dependencies]
+bluefelt_sdk  = { path = "../../../../sdk/rust", default-features = false }   # adjust path
+serde_json    = { version = "1.0", default-features = false, features = ["alloc"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

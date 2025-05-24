@@ -1,17 +1,77 @@
+# ────────────────────────────
+# 1 • CARD TEMPLATES
+# ────────────────────────────
 entities:
-  guard: { kind: card, value: 1 }
-  priest: { kind: card, value: 2 }
+  guard: { kind: card, value: 1, count: 5, hook: guard_guess }
+  priest: { kind: card, value: 2, count: 2, hook: priest_peek }
+  baron: { kind: card, value: 3, count: 2, hook: baron_compare }
+  handmaid: { kind: card, value: 4, count: 2, hook: handmaid_shield }
+  prince: { kind: card, value: 5, count: 2, hook: prince_discard }
+  king: { kind: card, value: 6, count: 1, hook: king_swap }
+  countess: { kind: card, value: 7, count: 1, hook: none }
+  princess: { kind: card, value: 8, count: 1, hook: princess_lose }
 
+# ────────────────────────────
+# 2 • ZONES
+# ────────────────────────────
 zones:
   deck: { shape: stack, visibility: none }
+  burn: { shape: stack, visibility: none }           # single face-down card
   discard: { shape: stack, visibility: all }
-  hand: { shape: list, visibility: owner }
+  hands: { shape: list,  visibility: owner, perPlayer: true }
+  immunes: { shape: flag,  visibility: all, perPlayer: true }
+  eliminated: { shape: flag,  visibility: all, perPlayer: true }
 
+# ────────────────────────────
+# 3 • VERBS
+# ────────────────────────────
 verbs:
   draw:
-    pre: [ { zoneNotEmpty: { zone: deck } } ]
-    effect: [ { move: { from: deck, to: hand, count: 1 } }]
+    pre:    [{ zoneNotEmpty: { zone: deck } }]
+    effect: [{ move: { from: deck, to: hands, count: 1, playerSlot: actor } }]
+
+  play:
+    params: { cardId: Id }
+    pre:
+      - holds: { player: actor, zone: hands, entity: $cardId }
+      - notImmune: { player: actor }        # no play while shielded
+    effect:
+      - move: { from: hands, to: discard, count: 1,
+                entity: $cardId, playerSlot: actor }
+    nextPhase: resolve                     # jump to resolution phase
+
+  chooseTarget:                            # used by Guard / Prince / King / Baron
+    params: { target: PlayerId }
+    pre:
+      - differentPlayer: { target: $target }
+      - stillInRound: { player: $target }
+    effect: []                             # noop, card hook will apply
 
 phases:
   - id: turn
-    verbs: [draw]
+    activePlayer: sequential
+    verbs: [draw, play, chooseTarget]
+
+  - id: resolve
+    verbs: []                              # hooks run here, then control returns to `turn`
+
+# ────────────────────────────
+# 4 • SETUP STEPS
+# ────────────────────────────
+setup:
+  - shuffle: { zone: deck }
+  - move:    { from: deck, to: burn, count: 1 }
+  - setTurn: { player: random }
+
+# ────────────────────────────
+# 5 • HOOK REGISTRY
+# ────────────────────────────
+hooks:
+  guard_guess: on_after_play
+  priest_peek: on_after_play
+  baron_compare: on_after_play
+  handmaid_shield: on_after_play
+  prince_discard: on_after_play
+  king_swap: on_after_play
+  princess_lose: on_after_play
+  win_check: on_phase_end

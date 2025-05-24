@@ -1,16 +1,29 @@
 [package]
-name = "bluefelt-core"
-version = "0.1.0"
-edition = "2024"
+name    = "bluefelt-core"
+version = "0.0.1"
+edition = "2021"
 
 [dependencies]
-axum = { version = "0.7.9", features = ["ws"] }
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-uuid = { version = "1.0", features = ["serde", "v4"] }
-dashmap = "5.5"
-tokio-tungstenite = "0.21"
-tower = "0.5.2"
+axum          = { version = "0.7", features = ["ws", "json"] }
+tokio         = { version = "1.37", features = ["macros", "rt-multi-thread"] }
+serde         = { version = "1", features = ["derive"] }
+serde_json    = "1"
+serde_yaml    = "0.9"
+uuid          = { version = "1.7", features = ["v4"] }
+parking_lot   = "0.12"
+dashmap       = "5.5"
+futures-util  = "0.3"     # for StreamExt::split
+wasmtime      = { version = "20", default-features = false, features = ["async"] }
+sha2          = "0.10"
+walkdir       = "2.5"
+anyhow        = "1.0"
 tower-http = { version = "0.6.4", features = ["cors"] }
-serde_yaml = "0.9"
+http = "1.3.1"
+chrono = "0.4"
+
+[dev-dependencies]
+tokio            = { version = "1.37", features = ["macros", "rt-multi-thread"] }
+reqwest          = { version = "0.11", features = ["json", "rustls-tls"] }
+async-tungstenite = { version = "0.24", features = ["tokio-rustls-native-certs"] }
+serde_json       = "1.0"
+

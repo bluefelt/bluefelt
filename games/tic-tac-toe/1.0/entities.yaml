@@ -1,0 +1,50 @@
+# 1 ───────── ENTITIES
+entities:
+  mark_x: { kind: token, glyph: "X" }
+  mark_o: { kind: token, glyph: "O" }
+
+# 2 ───────── ZONES
+zones:
+  board:
+    shape: grid
+    width: 3
+    height: 3
+    visibility: all         # everyone sees the whole board
+
+# 3 ───────── VERBS
+verbs:
+  place:
+    params: { row: u8, col: u8 }
+    pre:
+      - turnOf:   { player: actor }                 # it’s your turn
+      - coordInBounds: { r: $row, c: $col, w: 3, h: 3 }
+      - emptyCell: { zone: board, row: $row, col: $col }
+    effect:
+      - move:
+          from: bank                         # implicit “bag” of unused marks
+          to:   board
+          entity: $actorMark                 # server swaps to mark_x / mark_o
+          row: $row
+          col: $col
+    nextPhase: checkWin                      # jump to win-checker phase
+
+# 4 ───────── PHASES
+phases:
+  - id: turn
+    activePlayer: sequential                 # X (p1), then O (p2), repeat
+    verbs: [place]
+
+  - id: checkWin                             # no verbs, only hook runs
+    verbs: []                                # hook advances back to turn/end
+
+# 5 ───────── SETUP
+setup:
+  - assignPiece: { player: p1, mark: mark_x }
+  - assignPiece: { player: p2, mark: mark_o }
+  - setTurn:    { player: p1 }               # X always opens
+  - initZone:   { entity: mark_x, count: 5 } # remaining marks
+  - initZone:   { entity: mark_o, count: 5 }
+
+# 6 ───────── HOOKS
+hooks:
+  win_hook:   on_phase_start                 # called at start of checkWin

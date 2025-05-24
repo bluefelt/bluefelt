@@ -42,7 +42,14 @@ The `entities.yaml` file describes the bulk of the game rules. It consists of a 
 Entities are the "nouns" of the game.
 ```yaml
 entities:
-  guard:    { kind: card, value: 1, count: 5, hook: guard_guess }
+  guard:
+    kind: card
+    value: 1
+    count: 5
+    hook: guard_guess
+    ui:
+      name: "Guard"
+      help: "Guess another player's card. If correct they are eliminated."
   priest:   { kind: card, value: 2, count: 2, hook: priest_peek }
   baron:    { kind: card, value: 3, count: 2, hook: baron_compare }
   handmaid: { kind: card, value: 4, count: 2, hook: handmaid_shield }
@@ -67,8 +74,11 @@ Verbs are actions that a player can take in the game.
 ```yaml
 verbs:
   draw:
-    pre:    [{ zoneNotEmpty: { zone: deck } }]
+    pre: [{ zoneNotEmpty: { zone: deck } }]
     effect: [{ move: { from: deck, to: hands, count: 1, playerSlot: actor } }]
+    ui: 
+      prompt: "Draw a card from the deck"
+      picker: "hand"
 
   play:
     params: { cardId: Id }
@@ -79,6 +89,9 @@ verbs:
       - move: { from: hands, to: discard, count: 1,
                 entity: $cardId, playerSlot: actor }
     nextPhase: resolve
+    ui:
+      prompt: "Select one card from your hand to play"
+      picker: "hand"
 
   chooseTarget:
     params: { target: PlayerId }
@@ -86,7 +99,16 @@ verbs:
       - differentPlayer: { target: $target }
       - stillInRound: { player: $target }
     effect: []
+    ui:
+      prompt: "Choose an opponent to target with {{cardName}}"
+      paramPrompts:
+        target: "Target player"
+      picker: "playerList"
 ```
+For each verb, an array of `pre` conditions are defined. These define requirements for a particular verb to be possible. During a player's turn, the client will show affordances for any verb that is possible for the current game state.
+
+A thin React hook can fetch ui.prompt + replace {{cardName}} placeholders from bundle metadata. If the ui: block is missing, you fall back on generic text (“Pick a card”, “Pick a player”).
+
 ### phases
 ```yaml
 phases:
@@ -101,7 +123,12 @@ phases:
 ```yaml
 setup:
   - shuffle: { zone: deck }
-  - move:    { from: deck, to: burn, count: 1 }
+  - move: { from: deck, to: burn, count: 1 }
+  - repeat:
+      times: 2
+      actions:
+        - forEachPlayer:
+            - draw
   - setTurn: { player: random }
 ```
 ### hooks
@@ -117,6 +144,10 @@ hooks:
   princess_lose:   on_after_play
   win_check:       on_phase_end
 ```
+
+Depending on a developer's preference, they may want to implement even simple actions that could be described in yaml as hooks.
+
+Note: Maybe we need some prefix for hooks when they are referred to inside yaml.
 ## Hooks (WebAssembly)
 All but the most simple game will require some advanced scripting to fully define the game behavior.
 

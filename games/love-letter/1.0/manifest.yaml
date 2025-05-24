@@ -1,4 +1,8 @@
-gameId: love-letter
-version: 1.0.0
-specVersion: 0.1
-metadata: { name: "Love Letter", players: { min: 2, max: 4 } }
+gameId:  "love-letter"
+version: "1.0.0"
+specVersion: "0.1"
+metadata:
+  name:        "Love Letter"
+  author:      "Seiji Kanai"
+  players:     { min: 2, max: 4 }
+  description: "Win the princess’s trust by carrying her letter."

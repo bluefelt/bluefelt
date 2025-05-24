@@ -1,188 +1,177 @@
 use axum::{
-    routing::{get, post},
-    extract::{Path, State},
+    extract::{Path, WebSocketUpgrade},
     response::IntoResponse,
+    routing::{get, post},
     Json, Router,
 };
-use axum::extract::ws::{Message, WebSocketUpgrade};
-use bluefelt_core::{Lobby, LobbyMap, User, UserMap, LobbyMembers};
-use dashmap::DashSet;
-use uuid::Uuid;
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::net::TcpListener;
+use uuid::Uuid;
 use tower_http::cors::{CorsLayer, Any};
-use serde::{Deserialize, Serialize};
+use axum::extract::ws::Message;
+use std::sync::Arc;
 
-struct AppState {
-    lobbies: LobbyMap,
-    users: UserMap,
-    members: LobbyMembers,
-}
+mod bundle;
+mod engine;
+mod lobby;
+
+use bundle::BundleMap;
+use crate::lobby::{LobbyMap, new_lobby};
 
 #[tokio::main]
-async fn main() {
-    let state = Arc::new(AppState {
-        lobbies: LobbyMap::new(),
-        users: UserMap::new(),
-        members: LobbyMembers::new(),
-    });
+async fn main() -> anyhow::Result<()> {
+    let bundles = BundleMap::load_dir("./games")?;
     
-    let cors = CorsLayer::new()
-        .allow_origin(["http://localhost:5173".parse().unwrap()])
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // Wrap the DashMap in an Arc to ensure proper sharing between requests
+    let lobbies = Arc::new(LobbyMap::default());
     
-    let app = Router::new()
-        .route("/register", post(register))
-        .route("/lobbies", post(create_lobby))
-        .route("/lobbies", get(list_lobbies))
-        .route("/lobbies/:id/join", post(join_lobby))
-        .route("/lobbies/:id/users", get(list_lobby_users))
-        .route("/games", get(list_games))
-        .route("/lobbies/:id/ws", get(ws_handler))
-        .layer(cors)
-        .with_state(state.clone());
+    // Clone for each route handler
+    let bundles_for_games = bundles.clone();
+    let bundles_for_lobbies = bundles.clone();
+    let lobbies_for_lobbies_route = lobbies.clone();
+    let lobbies_for_ws = lobbies.clone();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
-    println!("Running on http://127.0.0.1:8000");
-    
-    let listener = TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // Improved CORS configuration for WebSocket support
+    let cors = CorsLayer::new()
+        .allow_origin(Any)       // Allow any origin for development
+        .allow_methods(Any)      // Allow all methods 
+        .allow_headers(Any)      // Allow all headers
+        .allow_credentials(false) // Must be false when using wildcard headers
+        .expose_headers(Any);    // Use Any to expose all headers
+
+    let app = Router::new()
+        .route("/games", get(move || list_games(bundles_for_games.clone())))
+        .route("/lobbies", post(
+            move |req| create_lobby(req, bundles_for_lobbies.clone(), lobbies.clone())
+        ).get(
+            move || list_lobbies(lobbies_for_lobbies_route.clone())
+        ))
+        .route("/lobbies/:id/ws", get(
+            move |path, ws, query| ws_handler(path, ws, query, lobbies_for_ws.clone())
+        ))
+        // Apply the CORS middleware
+        .layer(cors);
+
+    let addr: SocketAddr = "0.0.0.0:8000".parse()?;
+    println!("Server started on http://{}", addr);
+
+    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    Ok(())
 }
 
+/* ---------- REST ---------- */
+
 async fn create_lobby(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>,          // { gameId: "love-letter" }
+    Json(req): Json<serde_json::Value>,
+    bundles: BundleMap,
+    lobbies: Arc<LobbyMap>,
 ) -> impl IntoResponse {
-    let game_id = payload["gameId"].as_str().unwrap_or("unknown");
-    let lobby = Lobby { id: Uuid::new_v4(), game_id: game_id.to_string() };
-    state.lobbies.insert(lobby.id, lobby.clone());
-    Json(lobby)
+    let game_id = req["gameId"].as_str().unwrap_or("tic-tac-toe");
+    let bundle = match bundles.get_latest(game_id) {
+        Some(b) => b,
+        None => {
+            return Json(serde_json::json!({ 
+                "error": format!("Unknown game: {}", game_id) 
+            }));
+        }
+    };
+    
+    let id = Uuid::new_v4().to_string();
+    println!("[HTTP] Creating new lobby: {} for game: {}", id, game_id);
+    
+    lobbies.insert(id.clone(), new_lobby(id.clone(), bundle));
+    
+    Json(serde_json::json!({ "id": id, "game_id": game_id }))
 }
 
 async fn list_lobbies(
-    State(state): State<Arc<AppState>>,
+    lobbies: Arc<LobbyMap>,
 ) -> impl IntoResponse {
-    let vec: Vec<Lobby> = state.lobbies.iter().map(|e| e.value().clone()).collect();
-    Json(vec)
+    
+    let list = lobbies
+        .iter()
+        .map(|l| {
+            let lobby = l.value();
+            serde_json::json!({
+                "id": l.key(),
+                "game_id": lobby.bundle.game_id,
+                "name": format!("{} - Lobby {}", lobby.bundle.game_id, &l.key()[0..6]),
+                "players": lobby.player_list(),
+                "started": lobby.is_started()
+            })
+        })
+        .collect::<Vec<_>>();
+    
+    Json(list)
 }
 
-async fn register(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>, // { username: "bob" }
+async fn list_games(
+    bundles: BundleMap,
 ) -> impl IntoResponse {
-    let name = payload["username"].as_str().unwrap_or("unknown");
-    let user = if let Some(u) = state.users.get(name) {
-        u.clone()
-    } else {
-        let u = User { id: Uuid::new_v4(), name: name.to_string() };
-        state.users.insert(name.to_string(), u.clone());
-        u
-    };
-    Json(user)
+    let games = bundles.list_games();
+    let game_list = games.iter().map(|game_id| {
+        serde_json::json!({
+            "id": game_id,
+            "name": game_id, // You might want to include more metadata
+        })
+    }).collect::<Vec<_>>();
+    
+    Json(game_list)
 }
 
-async fn join_lobby(
-    Path(id): Path<Uuid>,
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<serde_json::Value>, // { username: "bob" }
-) -> impl IntoResponse {
-    let name = match payload["username"].as_str() {
-        Some(n) => n.to_string(),
-        None => return axum::http::StatusCode::BAD_REQUEST.into_response(),
-    };
-    if state.lobbies.get(&id).is_none() {
-        return axum::http::StatusCode::NOT_FOUND.into_response();
-    }
-    let set = state
-        .members
-        .entry(id)
-        .or_insert_with(DashSet::new);
-    set.insert(name);
-    axum::http::StatusCode::OK.into_response()
-}
-
-async fn list_lobby_users(
-    Path(id): Path<Uuid>,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let users: Vec<String> = state
-        .members
-        .get(&id)
-        .map(|set| set.iter().map(|u| u.clone()).collect())
-        .unwrap_or_default();
-    Json(users)
-}
+/* ---------- WS ---------- */
 
 async fn ws_handler(
+    Path(id): Path<String>,
     ws: WebSocketUpgrade,
-    Path(id): Path<Uuid>,
-    State(_state): State<Arc<AppState>>,
+    // Access query parameters to get player_id
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    lobbies: Arc<LobbyMap>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |mut socket| async move {
-        while let Some(Ok(msg)) = socket.recv().await {
-            match msg {
-                Message::Text(_) | Message::Binary(_) => {
-                    let _ = socket.send(msg).await;
-                }
-                _ => {}
-            }
-        }
-        println!("WS for lobby {id} closed");
-    })
-}
-
-#[derive(Serialize)]
-struct GameInfo {
-    id: String,
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct ManifestMetadata {
-    name: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct GameManifest {
-    #[serde(rename = "gameId")]
-    game_id: String,
-    #[serde(default)]
-    metadata: Option<ManifestMetadata>,
-}
-
-fn parse_manifest(path: &std::path::Path) -> Option<GameInfo> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let manifest: GameManifest = serde_yaml::from_str(&text).ok()?;
-    let name = manifest
-        .metadata
-        .and_then(|m| m.name)
-        .unwrap_or_else(|| manifest.game_id.clone());
-    Some(GameInfo {
-        id: manifest.game_id,
-        name,
-    })
-}
-
-async fn list_games() -> impl IntoResponse {
-    let mut vec = Vec::new();
-    let base: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../games");
-    if let Ok(games) = std::fs::read_dir(base) {
-        for g in games.flatten() {
-            if let Ok(versions) = std::fs::read_dir(g.path()) {
-                for v in versions.flatten() {
-                    let m = v.path().join("manifest.yaml");
-                    if m.exists() {
-                        if let Some(info) = parse_manifest(&m) {
-                            vec.push(info);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
+    // Extract player_id from query params, default to a random ID if missing
+    let player_id = params.get("player_id").cloned().unwrap_or_else(|| {
+        format!("guest_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap())
+    });
+    
+    println!("[Socket] Connection request from player {} for lobby {}", player_id, id);
+    
+    let Some(lobby_ref) = lobbies.get(&id) else {
+        println!("[Socket] ERROR: Attempt to join non-existent lobby: {}", id);
+        return ws.on_upgrade(|mut sock| async move {
+            let _ = sock.send(Message::Text(serde_json::json!({
+                "type": "error",
+                "message": "Lobby does not exist"
+            }).to_string())).await;
+        });
+    };
+    
+    // Clone the lobby Arc to avoid holding the DashMap entry
+    let lobby = lobby_ref.clone();                 
+    
+    // Debug existing lobby state
+    println!("[Socket] Current lobby state - ID: {}, Players: {:?}, Started: {}", 
+        lobby.id, 
+        lobby.player_list(),
+        lobby.is_started()
+    );
+    
+    // Add player to the lobby
+    let added = lobby.add_player(player_id.clone());
+    
+    println!("[Socket] Player {} attempted to join lobby {}. Added: {}", player_id, id, added);
+    
+    if !added {
+        // Player couldn't be added (lobby full)
+        println!("[Socket] ERROR: Could not add player {} to lobby {}: lobby is full", player_id, id);
+        return ws.on_upgrade(|mut sock| async move {
+            let _ = sock.send(Message::Text(serde_json::json!({
+                "type": "error",
+                "message": "Could not join lobby - it may be full"
+            }).to_string())).await;
+        });
     }
-    Json(vec)
+    
+    ws.on_upgrade(move |sock| async move {
+        println!("[Socket] WebSocket connections successful for player {} in lobby {}", player_id, id);
+        lobby.accept_client(sock).await;
+    })
 }
