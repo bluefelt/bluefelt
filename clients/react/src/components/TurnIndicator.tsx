@@ -10,15 +10,17 @@ const markToGlyph: Record<string, string> = {
 type Props = {
   turn?: string;
   players?: Player[];
+  you?: string;
 };
 
-export default function TurnIndicator({ turn, players }: Props) {
+export default function TurnIndicator({ turn, players, you }: Props) {
   if (!turn || !players) return null;
   const player = players.find(p => p.id === turn);
   const glyph = player ? markToGlyph[player.mark] : "";
+  const label = turn === you ? "Your" : `${turn}'s`;
   return (
     <div style={{ marginBottom: 16, fontWeight: "bold" }}>
-      Turn: {player ? player.id : turn} {glyph && `(${glyph})`}
+      {label} turn {glyph && `(${glyph})`}
     </div>
   );
 }
