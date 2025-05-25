@@ -3,7 +3,7 @@ import { applyPatch } from "fast-json-patch";
 import { useWebSocket, type WSMessage } from "./useWebSocket";
 
 type LobbyState = {
-  bundleMeta?: any;
+  meta?: any;
   state?: any;
 };
 
@@ -24,13 +24,13 @@ export function useLobbyWebSocket(
 
     if (data.type === "welcome") {
       setLobbyState({
-        bundleMeta: data.bundleMeta,
-        state: data.initialState,
+        meta: data.meta,
+        state: data.state,
       });
-    } else if (data.diff && Array.isArray(data.diff)) {
+    } else if (data.type === "diff" && Array.isArray(data.patch)) {
       setLobbyState(prev => {
         if (!prev.state) return prev;
-        const nextState = applyPatch({ ...prev.state }, data.diff, true, false).newDocument;
+        const nextState = applyPatch({ ...prev.state }, data.patch, true, false).newDocument;
         return { ...prev, state: nextState };
       });
     }
