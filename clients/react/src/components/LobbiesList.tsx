@@ -3,6 +3,7 @@ import { getLobbies } from "../api/lobbies.ts";
 import type { Lobby } from "../api/lobbies.ts";
 import { useLobbiesWebSocket } from "../ws/useLobbiesWebSocket";
 import CreateLobbyDialog from "./CreateLobbyDialog.tsx";
+import { usePlayer } from "../context/PlayerContext.tsx";
 
 type Props = {
   onLobbySelected: (lobbyId: string) => void;
@@ -11,6 +12,7 @@ type Props = {
 export default function LobbiesList({ onLobbySelected }: Props) {
   const [lobbies, setLobbies] = useState<Lobby[]>([]);
   const [showDialog, setShowDialog] = useState(false);
+  const { player } = usePlayer();
 
   const refresh = () => getLobbies().then(setLobbies);
 
@@ -39,14 +41,16 @@ export default function LobbiesList({ onLobbySelected }: Props) {
           {lobbies.map((lobby) => (
             <li key={lobby.id} className="bg-gray-700 rounded-lg p-4 flex justify-between items-center">
               <div>
-                <h3 className="font-medium">Lobby {lobby.id}</h3>
+                <h3 className="font-medium">{lobby.name}</h3>
                 <p className="text-sm text-gray-400">Game: {lobby.game_id}</p>
+                <p className="text-sm text-gray-400">Players: {lobby.players.map(p => p === player?.username ? `${p} (you)` : p).join(", ") || "None"}</p>
+                <p className="text-sm text-gray-400">Status: {lobby.started ? "Started" : (lobby.players.length >= 2 ? "Not Started" : "Waiting for Players")}</p>
               </div>
               <button
                 onClick={() => onLobbySelected(lobby.id)}
                 className="btn btn-secondary"
               >
-                Join Lobby
+                Open Lobby
               </button>
             </li>
           ))}
