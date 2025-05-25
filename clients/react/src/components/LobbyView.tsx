@@ -12,7 +12,8 @@ type Props = {
 export default function LobbyView({ lobbyId, onLeave }: Props) {
   const { player } = usePlayer();
   const [input, setInput] = useState("");
-  const { messages, sendMessage, lobbyState } = useLobbyWebSocket(lobbyId, player!.username);
+  const { messages, sendMessage, lobbyState, joined, joinLobby, leaveLobby, startGame } =
+    useLobbyWebSocket(lobbyId, player!.username, false);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
@@ -20,11 +21,19 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Lobby {lobbyId}</h2>
           <button onClick={onLeave} className="btn btn-secondary">
-            Leave Lobby
+            Back to Lobbies
           </button>
         </div>
-        
+
         <div className="space-y-4">
+          {joined ? (
+            <button onClick={leaveLobby} className="btn btn-secondary">Leave Game</button>
+          ) : (
+            <button onClick={joinLobby} className="btn btn-primary">Join Game</button>
+          )}
+          {joined && !lobbyState.started && (
+            <button onClick={startGame} className="btn btn-primary ml-2">Start Game</button>
+          )}
           <TurnIndicator
             you={lobbyState.you}
             turn={lobbyState.state?.turn}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 type Player = {
   username: string;
@@ -13,7 +13,15 @@ type PlayerContextType = {
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export const PlayerProvider = ({ children }: { children: ReactNode }) => {
-  const [player, setPlayer] = useState<Player | null>(null);
+  const [player, setPlayer] = useState<Player | null>(() => {
+    const stored = localStorage.getItem("player");
+    return stored ? JSON.parse(stored) : null;
+  });
+
+  useEffect(() => {
+    if (player) localStorage.setItem("player", JSON.stringify(player));
+    else localStorage.removeItem("player");
+  }, [player]);
 
   const login = (username: string) => setPlayer({ username });
   const logout = () => setPlayer(null);

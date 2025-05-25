@@ -1,19 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { applyPatch } from "fast-json-patch";
 import { useWebSocket, type WSMessage } from "./useWebSocket";
 
-type LobbyState = {
+export type LobbyState = {
   you?: string;
   meta?: any;
   state?: any;
+  started?: boolean;
 };
 
 export function useLobbyWebSocket(
   lobbyId: string,
-  playerId: string
+  playerId: string,
+  autoJoin: boolean
 ) {
   const [lobbyState, setLobbyState] = useState<LobbyState>({});
-  const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(playerId)}`;
+  const [lastTick, setLastTick] = useState(() =>
+    Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || "0")
+  );
+  const [joined, setJoined] = useState(() =>
+    autoJoin || localStorage.getItem(`lobby_${lobbyId}_joined`) === "1"
+  );
+  const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(playerId)}&join=${autoJoin ? 1 : 0}&since=${lastTick}`;
 
   const { messages, sendMessage } = useWebSocket(url, dataStr => {
     let data: any;
@@ -24,19 +32,48 @@ export function useLobbyWebSocket(
     }
 
     if (data.type === "welcome") {
+      setJoined(data.you && data.you !== "spectator");
       setLobbyState({
         you: data.you,
         meta: data.meta,
         state: data.state,
+        started: data.started,
       });
+      if (typeof data.tick === "number") setLastTick(data.tick);
     } else if (data.type === "diff" && Array.isArray(data.patch)) {
       setLobbyState(prev => {
         const full = { meta: prev.meta, state: prev.state };
         const patched = applyPatch({ ...full }, data.patch, true, false).newDocument as LobbyState;
-        return { ...patched, you: prev.you };
+        return { ...patched, you: prev.you, started: prev.started };
       });
+      if (typeof data.tick === "number") setLastTick(data.tick);
     }
   });
 
-  return { messages, sendMessage, lobbyState };
+  useEffect(() => {
+    return () => {
+      localStorage.setItem(`lobby_${lobbyId}_lastTick`, String(lastTick));
+      localStorage.setItem(`lobby_${lobbyId}_joined`, joined ? "1" : "0");
+    };
+  }, [lastTick, joined, lobbyId]);
+
+  const joinLobby = () => {
+    sendMessage(JSON.stringify({ action: "join" }));
+    setJoined(true);
+  };
+  const leaveLobby = () => {
+    sendMessage(JSON.stringify({ action: "leave" }));
+    setJoined(false);
+  };
+  const startGame = () => sendMessage(JSON.stringify({ action: "start_game" }));
+
+  return {
+    messages,
+    sendMessage,
+    lobbyState,
+    joined,
+    joinLobby,
+    leaveLobby,
+    startGame,
+  };
 }
