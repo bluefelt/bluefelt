@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { applyPatch } from "fast-json-patch";
+import { useLobbyStore } from "../store/lobbyStore";
 
 export type WSMessage = {
   direction: "sent" | "received";
   content: string;
-};
-
-type LobbyState = {
-  bundleMeta?: any;
-  state?: any;
 };
 
 export function useLobbyWebSocket(
@@ -16,7 +11,10 @@ export function useLobbyWebSocket(
   playerId: string
 ) {
   const [messages, setMessages] = useState<WSMessage[]>([]);
-  const [lobbyState, setLobbyState] = useState<LobbyState>({});
+  const lobbyState = useLobbyStore((s) => ({ bundleMeta: s.bundleMeta, state: s.state }));
+  const setInitialState = useLobbyStore((s) => s.setInitialState);
+  const applyDiff = useLobbyStore((s) => s.applyDiff);
+  const resetLobby = useLobbyStore((s) => s.reset);
   const wsRef = useRef<WebSocket | null>(null);
 
   const sendMessage = useCallback((content: string) => {
@@ -28,7 +26,7 @@ export function useLobbyWebSocket(
 
   useEffect(() => {
     setMessages([]);
-    setLobbyState({});
+    resetLobby();
     const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(playerId)}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -47,16 +45,9 @@ export function useLobbyWebSocket(
       }
 
       if (data.type === "welcome") {
-        setLobbyState({
-          bundleMeta: data.bundleMeta,
-          state: data.initialState,
-        });
+        setInitialState(data.bundleMeta, data.initialState);
       } else if (data.diff && Array.isArray(data.diff)) {
-        setLobbyState((prev) => {
-          if (!prev.state) return prev; // not initialized yet
-          const nextState = applyPatch({ ...prev.state }, data.diff, true, false).newDocument;
-          return { ...prev, state: nextState };
-        });
+        applyDiff(data.diff);
       }
     };
 
