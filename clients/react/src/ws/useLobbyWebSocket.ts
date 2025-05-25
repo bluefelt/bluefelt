@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { applyPatch } from "fast-json-patch";
 import { useWebSocket, type WSMessage } from "./useWebSocket";
 
@@ -15,8 +15,12 @@ export function useLobbyWebSocket(
   autoJoin: boolean
 ) {
   const [lobbyState, setLobbyState] = useState<LobbyState>({});
-  const [lastTick, setLastTick] = useState(() => Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || "0"));
-  const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(playerId)}&join=${autoJoin ? 1 : 0}&since=${lastTick}`;
+  const lastTickRef = useRef<number>(
+    Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || "0")
+  );
+  const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
+    playerId
+  )}&join=${autoJoin ? 1 : 0}&since=${lastTickRef.current}`;
 
   const { messages, sendMessage } = useWebSocket(url, dataStr => {
     let data: any;
@@ -33,22 +37,25 @@ export function useLobbyWebSocket(
         state: data.state,
         started: data.started,
       });
-      if (typeof data.tick === "number") setLastTick(data.tick);
+      if (typeof data.tick === "number") lastTickRef.current = data.tick;
     } else if (data.type === "diff" && Array.isArray(data.patch)) {
       setLobbyState(prev => {
         const full = { meta: prev.meta, state: prev.state };
         const patched = applyPatch({ ...full }, data.patch, true, false).newDocument as LobbyState;
         return { ...patched, you: prev.you, started: prev.started };
       });
-      if (typeof data.tick === "number") setLastTick(data.tick);
+      if (typeof data.tick === "number") lastTickRef.current = data.tick;
     }
   });
 
   useEffect(() => {
     return () => {
-      localStorage.setItem(`lobby_${lobbyId}_lastTick`, String(lastTick));
+      localStorage.setItem(
+        `lobby_${lobbyId}_lastTick`,
+        String(lastTickRef.current)
+      );
     };
-  }, [lastTick, lobbyId]);
+  }, [lobbyId]);
 
   const joinLobby = () => sendMessage(JSON.stringify({ action: "join" }));
   const leaveLobby = () => sendMessage(JSON.stringify({ action: "leave" }));
