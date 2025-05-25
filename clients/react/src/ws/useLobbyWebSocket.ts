@@ -3,6 +3,7 @@ import { applyPatch } from "fast-json-patch";
 import { useWebSocket, type WSMessage } from "./useWebSocket";
 
 type LobbyState = {
+  you?: string;
   meta?: any;
   state?: any;
 };
@@ -24,6 +25,7 @@ export function useLobbyWebSocket(
 
     if (data.type === "welcome") {
       setLobbyState({
+        you: data.you,
         meta: data.meta,
         state: data.state,
       });
@@ -31,7 +33,7 @@ export function useLobbyWebSocket(
       setLobbyState(prev => {
         const full = { meta: prev.meta, state: prev.state };
         const patched = applyPatch({ ...full }, data.patch, true, false).newDocument as LobbyState;
-        return patched;
+        return { ...patched, you: prev.you };
       });
     }
   });

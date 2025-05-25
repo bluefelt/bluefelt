@@ -69,6 +69,15 @@ impl Lobby {
         players.clone()
     }
 
+    /// Map a player's username to their actor ID ("p1" or "p2")
+    fn actor_for_player(&self, username: &str) -> Option<String> {
+        let players = self.players.lock();
+        players
+            .iter()
+            .position(|p| p == username)
+            .map(|idx| format!("p{}", idx + 1))
+    }
+
     pub fn add_player(&self, player_id: String) -> bool {
         let mut players = self.players.lock();
         
@@ -162,6 +171,7 @@ impl Lobby {
         // --- 1️⃣ send welcome message regardless of game state ------------------------------------
         let is_game_started = *self.game_started.lock();
         let player_id = self.players.lock().last().cloned().unwrap_or_else(|| "unknown".to_string());
+        let actor_id = self.actor_for_player(&player_id).unwrap_or_else(|| "spectator".to_string());
         
         println!("[Socket] WebSocket client connected for player: {}", player_id);
         
@@ -179,7 +189,7 @@ impl Lobby {
                 let possible = Lobby::possible_verbs(&snapshot);
                 let welcome = serde_json::json!({
                     "type": "welcome",
-                    "you": player_id,
+                    "you": actor_id,
                     "state": snapshot,
                     "meta": { "possibleVerbs": possible }
                 });
@@ -209,6 +219,7 @@ impl Lobby {
             let mut rx = self.tx.subscribe();
             let sink_clone = sink.clone();
             let player_id_clone = player_id.clone();
+            let actor_clone = self.actor_for_player(&player_id).unwrap_or_else(|| "spectator".to_string());
             let self_clone = self.clone();
             
             // Set up forward task
@@ -228,7 +239,7 @@ impl Lobby {
                         let possible = Lobby::possible_verbs(&snapshot);
                         let welcome = serde_json::json!({
                             "type": "welcome",
-                            "you": player_id_clone,
+                            "you": actor_clone,
                             "state": snapshot,
                             "meta": { "possibleVerbs": possible }
                         });
