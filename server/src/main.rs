@@ -21,7 +21,12 @@ use crate::lobby::{LobbyMap, new_lobby, current_lobbies_json};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let bundles = BundleMap::load_dir("./games")?;
+    // Locate the games directory relative to the crate location so `cargo run`
+    // works from any path
+    let games_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("games");
+    let bundles = BundleMap::load_dir(games_dir.to_str().unwrap())?;
     
     // Wrap the DashMap in an Arc to ensure proper sharing between requests
     let lobbies = Arc::new(LobbyMap::default());
@@ -30,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     // Clone for each route handler
     let bundles_for_games = bundles.clone();
     let bundles_for_lobbies = bundles.clone();
+    let bundles_for_manifest = bundles.clone();
     let lobbies_for_lobbies_route = lobbies.clone();
     let lobbies_for_ws = lobbies.clone();
     let lobbies_for_create = lobbies.clone();
@@ -47,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/games", get(move || list_games(bundles_for_games.clone())))
+        .route("/games/:id", get(move |path| get_game(path, bundles_for_manifest.clone())))
         .route("/lobbies", post(
             move |req| create_lobby(
                 req,
@@ -57,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
         ).get(
             move || list_lobbies(lobbies_for_lobbies_route.clone())
         ))
+        .route("/lobbies/:id", get(move |path| get_lobby(path, lobbies.clone())))
         .route("/lobbies/ws", get(
             move |ws| lobbies_ws_handler(ws, lobby_updates_for_ws_list.clone(), lobbies_for_ws_list.clone())
         ))
@@ -136,6 +144,35 @@ async fn list_games(
     }).collect::<Vec<_>>();
     
     Json(game_list)
+}
+
+async fn get_game(
+    Path(id): Path<String>,
+    bundles: BundleMap,
+) -> impl IntoResponse {
+    if let Some(bundle) = bundles.get_latest(&id) {
+        Json(serde_json::to_value(&bundle.manifest).unwrap())
+    } else {
+        Json(serde_json::json!({ "error": "Unknown game" }))
+    }
+}
+
+async fn get_lobby(
+    Path(id): Path<String>,
+    lobbies: Arc<LobbyMap>,
+) -> impl IntoResponse {
+    if let Some(lobby_ref) = lobbies.get(&id) {
+        let lobby = lobby_ref.value();
+        Json(serde_json::json!({
+            "id": lobby.id,
+            "game_id": lobby.bundle.game_id,
+            "players": lobby.player_list(),
+            "started": lobby.is_started(),
+            "manifest": lobby.bundle.manifest
+        }))
+    } else {
+        Json(serde_json::json!({ "error": "Lobby not found" }))
+    }
 }
 
 

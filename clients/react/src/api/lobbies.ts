@@ -21,3 +21,9 @@ export async function createLobby(game_id: string): Promise<Lobby> {
   if (!res.ok) throw new Error("Failed to create lobby");
   return res.json();
 }
+
+export async function getLobby(id: string): Promise<Lobby & { manifest: any }> {
+  const res = await fetch(`http://localhost:8000/lobbies/${id}`);
+  if (!res.ok) throw new Error("Failed to fetch lobby");
+  return res.json();
+}
