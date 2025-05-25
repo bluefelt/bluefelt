@@ -1,6 +1,9 @@
 export type Lobby = {
   id: string;
   game_id: string;
+  name: string;
+  players: string[];
+  started: boolean;
 };
 
 export async function getLobbies(): Promise<Lobby[]> {
