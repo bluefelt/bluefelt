@@ -1,5 +1,5 @@
 import { usePlayer } from "../context/PlayerContext";
-import { useLobbyWebSocket } from "../ws/useLobbyWebSocket";
+import { useLobbySocket } from "../ws/useLobbySocket";
 import { useState } from "react";
 import Board from "./Board";
 import TurnIndicator from "./TurnIndicator";
@@ -12,7 +12,7 @@ type Props = {
 export default function LobbyView({ lobbyId, onLeave }: Props) {
   const { player } = usePlayer();
   const [input, setInput] = useState("");
-  const { messages, sendMessage, lobbyState } = useLobbyWebSocket(lobbyId, player!.username);
+  const { messages, sendMessage, lobbyState } = useLobbySocket(lobbyId, player!.username);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
@@ -25,7 +25,11 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
         </div>
         
         <div className="space-y-4">
-          <TurnIndicator turn={lobbyState.state?.turn} players={lobbyState.state?.players} />
+          <TurnIndicator
+            you={lobbyState.you}
+            turn={lobbyState.state?.turn}
+            players={lobbyState.state?.players}
+          />
           <Board board={lobbyState.state?.zones?.board ?? []} />
         </div>
       </div>

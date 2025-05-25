@@ -69,6 +69,15 @@ impl Lobby {
         players.clone()
     }
 
+    /// Map a player username to their actor ID (p1, p2, ...)
+    fn actor_for_player(&self, player_id: &str) -> Option<String> {
+        let players = self.players.lock();
+        players
+            .iter()
+            .position(|p| p == player_id)
+            .map(|idx| format!("p{}", idx + 1))
+    }
+
     pub fn add_player(&self, player_id: String) -> bool {
         let mut players = self.players.lock();
         
@@ -177,9 +186,10 @@ impl Lobby {
                 };
 
                 let possible = Lobby::possible_verbs(&snapshot);
+                let actor = self.actor_for_player(&player_id);
                 let welcome = serde_json::json!({
                     "type": "welcome",
-                    "you": player_id,
+                    "you": actor,
                     "state": snapshot,
                     "meta": { "possibleVerbs": possible }
                 });
@@ -226,9 +236,10 @@ impl Lobby {
                             guard.clone()
                         };
                         let possible = Lobby::possible_verbs(&snapshot);
+                        let actor = self_clone.actor_for_player(&player_id_clone);
                         let welcome = serde_json::json!({
                             "type": "welcome",
-                            "you": player_id_clone,
+                            "you": actor,
                             "state": snapshot,
                             "meta": { "possibleVerbs": possible }
                         });

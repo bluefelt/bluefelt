@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getLobbies } from "../api/lobbies.ts";
 import type { Lobby } from "../api/lobbies.ts";
-import { useLobbiesWebSocket } from "../ws/useLobbiesWebSocket";
+import { useLobbyListSocket } from "../ws/useLobbyListSocket";
 import CreateLobbyDialog from "./CreateLobbyDialog.tsx";
 
 type Props = {
@@ -14,7 +14,7 @@ export default function LobbiesList({ onLobbySelected }: Props) {
 
   const refresh = () => getLobbies().then(setLobbies);
 
-  useLobbiesWebSocket(setLobbies);
+  useLobbyListSocket(setLobbies);
 
   useEffect(() => {
     refresh();

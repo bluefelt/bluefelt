@@ -3,11 +3,12 @@ import { applyPatch } from "fast-json-patch";
 import { useWebSocket, type WSMessage } from "./useWebSocket";
 
 type LobbyState = {
+  you?: string;
   meta?: any;
   state?: any;
 };
 
-export function useLobbyWebSocket(
+export function useLobbySocket(
   lobbyId: string,
   playerId: string
 ) {
@@ -24,6 +25,7 @@ export function useLobbyWebSocket(
 
     if (data.type === "welcome") {
       setLobbyState({
+        you: data.you,
         meta: data.meta,
         state: data.state,
       });
