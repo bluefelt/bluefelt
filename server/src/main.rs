@@ -17,7 +17,7 @@ mod engine;
 mod lobby;
 
 use bundle::BundleMap;
-use crate::lobby::{LobbyMap, new_lobby};
+use crate::lobby::{LobbyMap, new_lobby, current_lobbies_json};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
             move |ws| lobbies_ws_handler(ws, lobby_updates_for_ws.clone(), lobbies_for_ws_list.clone())
         ))
         .route("/lobbies/:id/ws", get(
-            move |path, ws, query| ws_handler(path, ws, query, lobbies_for_ws.clone())
+            move |path, ws, query| ws_handler(path, ws, query, lobbies_for_ws.clone(), lobby_updates_for_ws.clone())
         ))
         // Apply the CORS middleware
         .layer(cors);
@@ -94,7 +94,7 @@ async fn create_lobby(
     let id = Uuid::new_v4().to_string();
     println!("[HTTP] Creating new lobby: {} for game: {}", id, game_id);
     
-    lobbies.insert(id.clone(), new_lobby(id.clone(), bundle));
+    lobbies.insert(id.clone(), new_lobby(id.clone(), bundle, lobbies.clone(), lobby_updates.clone()));
 
     // broadcast updated lobby list
     let list = current_lobbies_json(&lobbies);
@@ -138,22 +138,6 @@ async fn list_games(
     Json(game_list)
 }
 
-fn current_lobbies_json(lobbies: &LobbyMap) -> serde_json::Value {
-    let list = lobbies
-        .iter()
-        .map(|l| {
-            let lobby = l.value();
-            serde_json::json!({
-                "id": l.key(),
-                "game_id": lobby.bundle.game_id,
-                "name": format!("{} - Lobby {}", lobby.bundle.game_id, &l.key()[0..6]),
-                "players": lobby.player_list(),
-                "started": lobby.is_started()
-            })
-        })
-        .collect::<Vec<_>>();
-    serde_json::Value::Array(list)
-}
 
 async fn lobbies_ws_handler(
     ws: WebSocketUpgrade,
@@ -186,14 +170,16 @@ async fn lobbies_ws_handler(
 async fn ws_handler(
     Path(id): Path<String>,
     ws: WebSocketUpgrade,
-    // Access query parameters to get player_id
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     lobbies: Arc<LobbyMap>,
+    lobby_updates: broadcast::Sender<Message>,
 ) -> impl IntoResponse {
     // Extract player_id from query params, default to a random ID if missing
     let player_id = params.get("player_id").cloned().unwrap_or_else(|| {
         format!("guest_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap())
     });
+    let join = params.get("join").map(|v| v != "0" && v != "false").unwrap_or(true);
+    let since = params.get("since").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
     
     println!("[Socket] Connection request from player {} for lobby {}", player_id, id);
     
@@ -217,24 +203,8 @@ async fn ws_handler(
         lobby.is_started()
     );
     
-    // Add player to the lobby
-    let added = lobby.add_player(player_id.clone());
-    
-    println!("[Socket] Player {} attempted to join lobby {}. Added: {}", player_id, id, added);
-    
-    if !added {
-        // Player couldn't be added (lobby full)
-        println!("[Socket] ERROR: Could not add player {} to lobby {}: lobby is full", player_id, id);
-        return ws.on_upgrade(|mut sock| async move {
-            let _ = sock.send(Message::Text(serde_json::json!({
-                "type": "error",
-                "message": "Could not join lobby - it may be full"
-            }).to_string())).await;
-        });
-    }
-    
     ws.on_upgrade(move |sock| async move {
         println!("[Socket] WebSocket connections successful for player {} in lobby {}", player_id, id);
-        lobby.accept_client(sock).await;
+        lobby.accept_client(sock, player_id, join, since).await;
     })
 }
