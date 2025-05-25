@@ -37,6 +37,9 @@ pub struct Lobby {
     
     /// Game has started flag
     game_started: Mutex<bool>,
+
+    /// Incrementing tick for diff frames
+    tick: Mutex<u64>,
 }
 
 impl Lobby {
@@ -50,6 +53,7 @@ impl Lobby {
             tx,
             players: Mutex::new(Vec::new()),
             game_started: Mutex::new(false),
+            tick: Mutex::new(0),
         }
     }
 
@@ -105,6 +109,45 @@ impl Lobby {
         false
     }
 
+    /// Compute possible verbs for each player based on current state
+    fn possible_verbs(state: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        let mut map = serde_json::Map::new();
+
+        let turn_player = state["turn"].as_str().unwrap_or("");
+
+        if let Some(players) = state["players"].as_array() {
+            if let Some(board) = state["zones"]["board"].as_array() {
+                for player in players {
+                    if let Some(id) = player["id"].as_str() {
+                        let mut verbs = Vec::new();
+                        if id == turn_player {
+                            let mark = player["mark"].as_str().unwrap_or("");
+                            for (r, row) in board.iter().enumerate() {
+                                if let Some(cells) = row.as_array() {
+                                    for (c, cell) in cells.iter().enumerate() {
+                                        if cell.is_null() {
+                                            verbs.push(serde_json::json!({
+                                                "verb": "place",
+                                                "args": {
+                                                    "entityId": mark,
+                                                    "row": r,
+                                                    "col": c
+                                                }
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        map.insert(id.to_string(), serde_json::Value::Array(verbs));
+                    }
+                }
+            }
+        }
+
+        map
+    }
+
     /// Check if the game has started
     pub fn is_started(&self) -> bool {
         *self.game_started.lock()
@@ -132,47 +175,18 @@ impl Lobby {
                     let guard = self.state.lock();
                     guard.clone()
                 };
+
+                let possible = Lobby::possible_verbs(&snapshot);
                 let welcome = serde_json::json!({
                     "type": "welcome",
-                    "bundleMeta": {
-                        "cards": {},
-                        "verbs": {
-                            "place": {
-                                "ui": {
-                                    "prompt": "Place your mark",
-                                    "paramPrompts": {
-                                        "row": "Row (0-2)",
-                                        "col": "Column (0-2)"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "initialState": snapshot
+                    "you": player_id,
+                    "state": snapshot,
+                    "meta": { "possibleVerbs": possible }
                 });
-                
+
                 println!("[Socket] Sending welcome message to player: {}", player_id);
                 if let Err(e) = locked.send(Message::Text(welcome.to_string())).await {
                     println!("[Socket] ERROR: Error sending welcome message: {}", e);
-                    return;
-                }
-                
-                // Send legal moves for the initial game state
-                let legal_moves = serde_json::json!({
-                    "type": "legalMoves",
-                    "verbs": [
-                        {
-                            "verb": "place",
-                            "params": {
-                                "row": "u8",
-                                "col": "u8"
-                            }
-                        }
-                    ]
-                });
-                println!("[Socket] Sending legal moves to player: {}", player_id);
-                if let Err(e) = locked.send(Message::Text(legal_moves.to_string())).await {
-                    println!("[Socket] ERROR: Error sending legal moves: {}", e);
                     return;
                 }
             } else {
@@ -211,23 +225,12 @@ impl Lobby {
                             let guard = self_clone.state.lock();
                             guard.clone()
                         };
+                        let possible = Lobby::possible_verbs(&snapshot);
                         let welcome = serde_json::json!({
                             "type": "welcome",
-                            "bundleMeta": {
-                                "cards": {},
-                                "verbs": {
-                                    "place": {
-                                        "ui": {
-                                            "prompt": "Place your mark",
-                                            "paramPrompts": {
-                                                "row": "Row (0-2)",
-                                                "col": "Column (0-2)"
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            "initialState": snapshot
+                            "you": player_id_clone,
+                            "state": snapshot,
+                            "meta": { "possibleVerbs": possible }
                         });
                         
                         // Use a different approach to avoid borrow checker issues
@@ -242,25 +245,6 @@ impl Lobby {
                                 println!("[Socket] Game started! Sending welcome message to player: {}", player_id_clone);
                                 if let Err(e) = locked.send(Message::Text(welcome.to_string())).await {
                                     println!("[Socket] ERROR: Error sending welcome message on game start: {}", e);
-                                    return;
-                                }
-                                
-                                // Send legal moves
-                                let legal_moves = serde_json::json!({
-                                    "type": "legalMoves",
-                                    "verbs": [
-                                        {
-                                            "verb": "place",
-                                            "params": {
-                                                "row": "u8",
-                                                "col": "u8"
-                                            }
-                                        }
-                                    ]
-                                });
-                                println!("[Socket] Sending legal moves to player: {}", player_id_clone);
-                                if let Err(e) = locked.send(Message::Text(legal_moves.to_string())).await {
-                                    println!("[Socket] ERROR: Error sending legal moves on game start: {}", e);
                                     return;
                                 }
                                 
@@ -396,13 +380,44 @@ impl Lobby {
                                         &json,
                                     );
     
-                                    let event = serde_json::json!({
-                                        "type": "event",
-                                        "t": 1,
-                                        "verb": json["verb"],
-                                        "diff": diff
+                                    let tick = {
+                                        let mut t = self.tick.lock();
+                                        *t += 1;
+                                        *t
+                                    };
+
+                                    let mut patch_ops = Vec::new();
+                                    if let Some(arr) = diff.as_array() {
+                                        for op in arr {
+                                            if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
+                                                let mut op_obj = op.clone();
+                                                op_obj["path"] = serde_json::Value::String(format!("/state{}", path));
+                                                patch_ops.push(op_obj);
+                                            } else {
+                                                patch_ops.push(op.clone());
+                                            }
+                                        }
+                                    }
+
+                                    let current_state = {
+                                        let guard = self.state.lock();
+                                        guard.clone()
+                                    };
+                                    let possible = Lobby::possible_verbs(&current_state);
+                                    for (pid, verbs) in possible {
+                                        patch_ops.push(serde_json::json!({
+                                            "op": "replace",
+                                            "path": format!("/meta/possibleVerbs/{}", pid),
+                                            "value": verbs
+                                        }));
+                                    }
+
+                                    let frame = serde_json::json!({
+                                        "type": "diff",
+                                        "tick": tick,
+                                        "patch": patch_ops
                                     });
-                                    if let Err(e) = self.tx.send(Message::Text(event.to_string())) {
+                                    if let Err(e) = self.tx.send(Message::Text(frame.to_string())) {
                                         println!("[Socket] ERROR: Error broadcasting event: {}", e);
                                     }
                                 } else if json["verb"].is_string() {
