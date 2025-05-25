@@ -206,6 +206,9 @@ impl Lobby {
 
 pub fn start_game(&self) {
     *self.game_started.lock() = true;
+    let _ = self.tx.send(Message::Text(
+        serde_json::json!({ "type": "started" }).to_string(),
+    ));
     self.broadcast_lobby_list();
 }
 
