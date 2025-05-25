@@ -14,7 +14,8 @@ type Props = {
 
 export default function LobbyView({ lobbyId, onLeave }: Props) {
   const { player } = usePlayer();
-  const { lobbyState, joinLobby, leaveLobby, startGame } = useLobbyWebSocket(lobbyId, player!.username, false);
+  const { messages, sendMessage, lobbyState, joinLobby, leaveLobby, startGame } = useLobbyWebSocket(lobbyId, player!.username, false);
+  const [input, setInput] = useState("");
   const joined = lobbyState.you && lobbyState.you !== "spectator";
   const [lobbyInfo, setLobbyInfo] = useState<{
     id: string;
@@ -77,14 +78,46 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
       </div>
 
       {lobbyState.started && (
-        <div className="card space-y-4">
-          <TurnIndicator
-            you={lobbyState.you}
-            turn={lobbyState.state?.turn}
-            players={lobbyState.state?.players}
-          />
-          <Board board={lobbyState.state?.zones?.board ?? []} />
-        </div>
+        <>
+          <div className="card space-y-4">
+            <h3 className="text-xl font-semibold">Zones</h3>
+            <TurnIndicator
+              you={lobbyState.you}
+              turn={lobbyState.state?.turn}
+              players={lobbyState.state?.players}
+            />
+            <Board board={lobbyState.state?.zones?.board ?? []} />
+          </div>
+          <div className="card space-y-4">
+            <h3 className="text-xl font-semibold">Actions</h3>
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                if (input.trim()) {
+                  sendMessage(input);
+                  setInput("");
+                }
+              }}
+              className="space-y-4"
+            >
+              <input
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                className="input w-full bg-gray-700 text-white"
+                placeholder="Type a JSON message to send"
+              />
+              <button type="submit" className="btn btn-primary">
+                Send
+              </button>
+            </form>
+          </div>
+          <div className="card space-y-4">
+            <h3 className="text-xl font-semibold">Game State</h3>
+            <pre className="bg-gray-700 p-4 rounded-lg overflow-auto text-sm">
+              {JSON.stringify(lobbyState, null, 2)}
+            </pre>
+          </div>
+        </>
       )}
     </div>
   );
