@@ -100,6 +100,18 @@ impl Lobby {
         let _ = self.lobby_updates.send(Message::Text(list.to_string()));
     }
 
+    fn send_patch(&self, mut patch_ops: Vec<serde_json::Value>) {
+        let tick = {
+            let mut t = self.tick.lock();
+            *t += 1;
+            *t
+        };
+        // attach tick information as a diff frame
+        let frame = serde_json::json!({ "type": "diff", "tick": tick, "patch": patch_ops });
+        self.history.lock().push(frame.clone());
+        let _ = self.tx.send(Message::Text(frame.to_string()));
+    }
+
     pub fn players(&self) -> usize {
         // Return the actual player count instead of subscribers
         let players = self.players.lock();
@@ -134,8 +146,14 @@ impl Lobby {
         if players.len() < 2 {
             println!("[Socket] Adding new player {} to the lobby", player_id);
             players.push(player_id);
+            let list = players.clone();
             drop(players);
             self.broadcast_lobby_list();
+            self.send_patch(vec![serde_json::json!({
+                "op": "replace",
+                "path": "/meta/players",
+                "value": list
+            })]);
             return true;
         }
         
@@ -151,8 +169,14 @@ impl Lobby {
 
         if players.len() < before_len {
             println!("[Socket] Player {} removed from lobby", player_id);
+            let list = players.clone();
             drop(players);
             self.broadcast_lobby_list();
+            self.send_patch(vec![serde_json::json!({
+                "op": "replace",
+                "path": "/meta/players",
+                "value": list
+            })]);
             return true;
         }
         
@@ -207,6 +231,11 @@ impl Lobby {
 pub fn start_game(&self) {
     *self.game_started.lock() = true;
     self.broadcast_lobby_list();
+    self.send_patch(vec![serde_json::json!({
+        "op": "replace",
+        "path": "/started",
+        "value": true
+    })]);
 }
 
 /// Accept a new WebSocket client, drive send/recv loops.
@@ -219,24 +248,22 @@ pub fn start_game(&self) {
         }
 
         // send initial welcome or waiting message
-        if self.is_started() {
-            let snapshot = { let g = self.state.lock(); g.clone() };
-            let possible = Lobby::possible_verbs(&snapshot);
-            let actor = self
-                .actor_for_player(&player_id)
-                .unwrap_or_else(|| "spectator".to_string());
-            let welcome = serde_json::json!({
-                "type": "welcome",
-                "you": actor,
-                "started": self.is_started(),
-                "state": snapshot,
-                "meta": { "possibleVerbs": possible }
-            });
-            let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
-        } else {
-            let waiting = serde_json::json!({"type": "info", "message": "Waiting for another player..."});
-            let _ = tx.lock().await.send(Message::Text(waiting.to_string())).await;
-        }
+        let snapshot = { let g = self.state.lock(); g.clone() };
+        let possible = Lobby::possible_verbs(&snapshot);
+        let actor = self
+            .actor_for_player(&player_id)
+            .unwrap_or_else(|| "spectator".to_string());
+        let welcome = serde_json::json!({
+            "type": "welcome",
+            "you": actor,
+            "started": self.is_started(),
+            "state": snapshot,
+            "meta": {
+                "possibleVerbs": possible,
+                "players": self.player_list()
+            }
+        });
+        let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
 
         // replay diff history since the provided tick
         let frames = {
@@ -269,13 +296,9 @@ pub fn start_game(&self) {
             if let Message::Text(text) = message {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                     if json["action"] == "join" {
-                        if self.add_player(player_id.clone()) {
-                            self.broadcast_lobby_list();
-                        }
+                        let _ = self.add_player(player_id.clone());
                     } else if json["action"] == "leave" {
-                        if self.remove_player(&player_id) {
-                            self.broadcast_lobby_list();
-                        }
+                        let _ = self.remove_player(&player_id);
                     } else if json["action"] == "start_game" {
                         if !self.is_started() && self.players() >= 2 {
                             self.start_game();
@@ -283,11 +306,6 @@ pub fn start_game(&self) {
                     } else if json["verb"] == "place" && self.is_started() {
                         let diff =
                             engine::apply_verb(&self.bundle, &mut self.state.lock(), &json);
-                        let tick = {
-                            let mut t = self.tick.lock();
-                            *t += 1;
-                            *t
-                        };
                         let mut patch_ops = Vec::new();
                         if let Some(arr) = diff.as_array() {
                             for op in arr {
@@ -310,9 +328,7 @@ pub fn start_game(&self) {
                                 "value": verbs
                             }));
                         }
-                        let frame = serde_json::json!({"type": "diff", "tick": tick, "patch": patch_ops});
-                        self.history.lock().push(frame.clone());
-                        let _ = self.tx.send(Message::Text(frame.to_string()));
+                        self.send_patch(patch_ops);
                     }
                 }
             }

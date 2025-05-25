@@ -1,8 +1,11 @@
 import { usePlayer } from "../context/PlayerContext";
 import { useLobbyWebSocket } from "../ws/useLobbyWebSocket";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Board from "./Board";
 import TurnIndicator from "./TurnIndicator";
+import { getLobby } from "../api/lobbies";
+
+import type { GameManifest } from "../api/games";
 
 type Props = {
   lobbyId: string;
@@ -11,29 +14,72 @@ type Props = {
 
 export default function LobbyView({ lobbyId, onLeave }: Props) {
   const { player } = usePlayer();
-  const [input, setInput] = useState("");
-  const { messages, sendMessage, lobbyState, joinLobby, leaveLobby, startGame } = useLobbyWebSocket(lobbyId, player!.username, false);
+  const { lobbyState, joinLobby, leaveLobby, startGame } = useLobbyWebSocket(lobbyId, player!.username, false);
   const joined = lobbyState.you && lobbyState.you !== "spectator";
+  const [lobbyInfo, setLobbyInfo] = useState<{
+    id: string;
+    game_id: string;
+    players: string[];
+    started: boolean;
+    manifest: GameManifest;
+  } | null>(null);
+
+  useEffect(() => {
+    getLobby(lobbyId).then(setLobbyInfo).catch(() => {});
+  }, [lobbyId]);
+
+  const playersList = lobbyState.meta?.players ?? lobbyInfo?.players ?? [];
+
+  const canStart = lobbyInfo &&
+    playersList.length >= lobbyInfo.manifest.metadata.players.min &&
+    playersList.length <= lobbyInfo.manifest.metadata.players.max;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
-      <div className="card">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold">Lobby {lobbyId}</h2>
-          <button onClick={onLeave} className="btn btn-secondary">
-            Back to Lobbies
-          </button>
+      <div className="flex justify-between mb-4">
+        <h2 className="text-2xl font-bold">Lobby {lobbyId}</h2>
+        <button onClick={onLeave} className="btn btn-secondary">Back to Lobbies</button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="card space-y-4">
+          <h3 className="text-xl font-semibold">Lobby Info</h3>
+          <p><strong>ID:</strong> {lobbyId}</p>
+          <p><strong>Players:</strong> {playersList.length ? playersList.join(", ") : "None"}</p>
+          {joined ? (
+            <button onClick={leaveLobby} className="btn btn-secondary">Leave Lobby</button>
+          ) : (
+            <button onClick={joinLobby} className="btn btn-primary">Join Lobby</button>
+          )}
         </div>
 
-        <div className="space-y-4">
-          {joined ? (
-            <button onClick={leaveLobby} className="btn btn-secondary">Leave Game</button>
+        <div className="card space-y-4">
+          <h3 className="text-xl font-semibold">Game Info</h3>
+          {lobbyInfo ? (
+            <>
+              <p><strong>Name:</strong> {lobbyInfo.manifest.metadata.name}</p>
+              <p><strong>Author:</strong> {lobbyInfo.manifest.metadata.author}</p>
+              <p><strong>Description:</strong> {lobbyInfo.manifest.metadata.description}</p>
+              <p><strong>Version:</strong> {lobbyInfo.manifest.version}</p>
+              <p><strong>Spec Version:</strong> {lobbyInfo.manifest.specVersion}</p>
+              <p><strong>Players:</strong> {lobbyInfo.manifest.metadata.players.min} - {lobbyInfo.manifest.metadata.players.max}</p>
+              <button onClick={startGame} disabled={!canStart} className="btn btn-primary">
+                Start Game
+              </button>
+              {!canStart && (
+                <p className="text-sm text-gray-400">
+                  Need {lobbyInfo.manifest.metadata.players.min} to {lobbyInfo.manifest.metadata.players.max} players to start.
+                </p>
+              )}
+            </>
           ) : (
-            <button onClick={joinLobby} className="btn btn-primary">Join Game</button>
+            <p>Loading...</p>
           )}
-          {joined && !lobbyState.started && lobbyState.state && (
-            <button onClick={startGame} className="btn btn-primary ml-2">Start Game</button>
-          )}
+        </div>
+      </div>
+
+      {lobbyState.started && (
+        <div className="card space-y-4">
           <TurnIndicator
             you={lobbyState.you}
             turn={lobbyState.state?.turn}
@@ -41,58 +87,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
           />
           <Board board={lobbyState.state?.zones?.board ?? []} />
         </div>
-      </div>
-
-      <div className="card space-y-4">
-        <h3 className="text-xl font-semibold">Current Game State</h3>
-        <pre className="bg-gray-700 p-4 rounded-lg overflow-auto text-sm">
-          {JSON.stringify(lobbyState, null, 2)}
-        </pre>
-      </div>
-
-      <div className="card">
-        <form
-          onSubmit={e => {
-            e.preventDefault();
-            if (input.trim()) {
-              sendMessage(input);
-              setInput("");
-            }
-          }}
-          className="space-y-4"
-        >
-          <div className="flex gap-3">
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              className="input flex-1"
-              placeholder="Type a JSON message to send"
-            />
-            <button type="submit" className="btn btn-primary">
-              Send
-            </button>
-          </div>
-        </form>
-
-        <div className="grid grid-cols-2 gap-6 mt-6">
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Received</h3>
-            <ul className="bg-gray-700 rounded-lg p-4 min-h-[100px] space-y-2 text-sm">
-              {messages.filter(m => m.direction === "received").map((m, i) => (
-                <li key={i} className="break-all">{m.content}</li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Sent</h3>
-            <ul className="bg-gray-700 rounded-lg p-4 min-h-[100px] space-y-2 text-sm">
-              {messages.filter(m => m.direction === "sent").map((m, i) => (
-                <li key={i} className="break-all">{m.content}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

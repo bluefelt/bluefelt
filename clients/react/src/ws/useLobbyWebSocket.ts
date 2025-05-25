@@ -36,9 +36,9 @@ export function useLobbyWebSocket(
       if (typeof data.tick === "number") setLastTick(data.tick);
     } else if (data.type === "diff" && Array.isArray(data.patch)) {
       setLobbyState(prev => {
-        const full = { meta: prev.meta, state: prev.state };
+        const full = { meta: prev.meta, state: prev.state, started: prev.started };
         const patched = applyPatch({ ...full }, data.patch, true, false).newDocument as LobbyState;
-        return { ...patched, you: prev.you, started: prev.started };
+        return { ...patched, you: prev.you };
       });
       if (typeof data.tick === "number") setLastTick(data.tick);
     }
