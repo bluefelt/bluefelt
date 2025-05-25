@@ -1,10 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useState } from "react";
 import { applyPatch } from "fast-json-patch";
-
-export type WSMessage = {
-  direction: "sent" | "received";
-  content: string;
-};
+import { useWebSocket, WSMessage } from "./useWebSocket";
 
 type LobbyState = {
   bundleMeta?: any;
@@ -15,66 +11,30 @@ export function useLobbyWebSocket(
   lobbyId: string,
   playerId: string
 ) {
-  const [messages, setMessages] = useState<WSMessage[]>([]);
   const [lobbyState, setLobbyState] = useState<LobbyState>({});
-  const wsRef = useRef<WebSocket | null>(null);
+  const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(playerId)}`;
 
-  const sendMessage = useCallback((content: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(content);
-      setMessages(msgs => [{ direction: "sent", content }, ...msgs]);
+  const { messages, sendMessage } = useWebSocket(url, dataStr => {
+    let data: any;
+    try {
+      data = JSON.parse(dataStr);
+    } catch {
+      return;
     }
-  }, []);
 
-  useEffect(() => {
-    setMessages([]);
-    setLobbyState({});
-    const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(playerId)}`;
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      // optionally: set connection status
-    };
-
-    ws.onmessage = (event) => {
-      setMessages(msgs => [{ direction: "received", content: event.data }, ...msgs]);
-      let data: any;
-      try {
-        data = JSON.parse(event.data);
-      } catch (err) {
-        return;
-      }
-
-      if (data.type === "welcome") {
-        setLobbyState({
-          bundleMeta: data.bundleMeta,
-          state: data.initialState,
-        });
-      } else if (data.diff && Array.isArray(data.diff)) {
-        setLobbyState((prev) => {
-          if (!prev.state) return prev; // not initialized yet
-          const nextState = applyPatch({ ...prev.state }, data.diff, true, false).newDocument;
-          return { ...prev, state: nextState };
-        });
-      }
-    };
-
-    ws.onerror = (event) => {
-      setMessages(msgs => [
-        ...msgs,
-        { direction: "received", content: "[WebSocket error]: " + event }
-      ]);
-    };
-
-    ws.onclose = () => {
-      // optionally: set connection status
-    };
-
-    return () => {
-      ws.close();
+    if (data.type === "welcome") {
+      setLobbyState({
+        bundleMeta: data.bundleMeta,
+        state: data.initialState,
+      });
+    } else if (data.diff && Array.isArray(data.diff)) {
+      setLobbyState(prev => {
+        if (!prev.state) return prev;
+        const nextState = applyPatch({ ...prev.state }, data.diff, true, false).newDocument;
+        return { ...prev, state: nextState };
+      });
     }
-  }, [lobbyId, playerId]);
+  });
 
   return { messages, sendMessage, lobbyState };
 }

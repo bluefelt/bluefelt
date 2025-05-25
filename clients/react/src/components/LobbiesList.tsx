@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getLobbies } from "../api/lobbies.ts";
 import type { Lobby } from "../api/lobbies.ts";
+import { useLobbiesWebSocket } from "../ws/useLobbiesWebSocket";
 import CreateLobbyDialog from "./CreateLobbyDialog.tsx";
 
 type Props = {
@@ -13,9 +14,10 @@ export default function LobbiesList({ onLobbySelected }: Props) {
 
   const refresh = () => getLobbies().then(setLobbies);
 
+  useLobbiesWebSocket(setLobbies);
+
   useEffect(() => {
     refresh();
-    // TODO: Better handling of updates, e.g. using WebSocket or polling
   }, []);
 
   return (
@@ -55,7 +57,6 @@ export default function LobbiesList({ onLobbySelected }: Props) {
         <CreateLobbyDialog
           onCreated={(lobby) => {
             setShowDialog(false);
-            refresh();
             onLobbySelected(lobby.id);
           }}
           onCancel={() => setShowDialog(false)}

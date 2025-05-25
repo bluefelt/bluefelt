@@ -9,6 +9,8 @@ use uuid::Uuid;
 use tower_http::cors::{CorsLayer, Any};
 use axum::extract::ws::Message;
 use std::sync::Arc;
+use tokio::sync::broadcast;
+use futures_util::{SinkExt, StreamExt};
 
 mod bundle;
 mod engine;
@@ -23,12 +25,17 @@ async fn main() -> anyhow::Result<()> {
     
     // Wrap the DashMap in an Arc to ensure proper sharing between requests
     let lobbies = Arc::new(LobbyMap::default());
+    let (lobby_updates_tx, _) = broadcast::channel::<Message>(16);
     
     // Clone for each route handler
     let bundles_for_games = bundles.clone();
     let bundles_for_lobbies = bundles.clone();
     let lobbies_for_lobbies_route = lobbies.clone();
     let lobbies_for_ws = lobbies.clone();
+    let lobbies_for_create = lobbies.clone();
+    let lobbies_for_ws_list = lobbies.clone();
+    let lobby_updates_for_create = lobby_updates_tx.clone();
+    let lobby_updates_for_ws = lobby_updates_tx.clone();
 
     // Improved CORS configuration for WebSocket support
     let cors = CorsLayer::new()
@@ -41,9 +48,17 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/games", get(move || list_games(bundles_for_games.clone())))
         .route("/lobbies", post(
-            move |req| create_lobby(req, bundles_for_lobbies.clone(), lobbies.clone())
+            move |req| create_lobby(
+                req,
+                bundles_for_lobbies.clone(),
+                lobbies_for_create.clone(),
+                lobby_updates_for_create.clone(),
+            )
         ).get(
             move || list_lobbies(lobbies_for_lobbies_route.clone())
+        ))
+        .route("/lobbies/ws", get(
+            move |ws| lobbies_ws_handler(ws, lobby_updates_for_ws.clone(), lobbies_for_ws_list.clone())
         ))
         .route("/lobbies/:id/ws", get(
             move |path, ws, query| ws_handler(path, ws, query, lobbies_for_ws.clone())
@@ -64,8 +79,9 @@ async fn create_lobby(
     Json(req): Json<serde_json::Value>,
     bundles: BundleMap,
     lobbies: Arc<LobbyMap>,
+    lobby_updates: broadcast::Sender<Message>,
 ) -> impl IntoResponse {
-    let game_id = req["gameId"].as_str().unwrap_or("tic-tac-toe");
+    let game_id = req["game_id"].as_str().unwrap_or("tic-tac-toe");
     let bundle = match bundles.get_latest(game_id) {
         Some(b) => b,
         None => {
@@ -79,7 +95,11 @@ async fn create_lobby(
     println!("[HTTP] Creating new lobby: {} for game: {}", id, game_id);
     
     lobbies.insert(id.clone(), new_lobby(id.clone(), bundle));
-    
+
+    // broadcast updated lobby list
+    let list = current_lobbies_json(&lobbies);
+    let _ = lobby_updates.send(Message::Text(list.to_string()));
+
     Json(serde_json::json!({ "id": id, "game_id": game_id }))
 }
 
@@ -116,6 +136,49 @@ async fn list_games(
     }).collect::<Vec<_>>();
     
     Json(game_list)
+}
+
+fn current_lobbies_json(lobbies: &LobbyMap) -> serde_json::Value {
+    let list = lobbies
+        .iter()
+        .map(|l| {
+            let lobby = l.value();
+            serde_json::json!({
+                "id": l.key(),
+                "game_id": lobby.bundle.game_id,
+                "name": format!("{} - Lobby {}", lobby.bundle.game_id, &l.key()[0..6]),
+                "players": lobby.player_list(),
+                "started": lobby.is_started()
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::Value::Array(list)
+}
+
+async fn lobbies_ws_handler(
+    ws: WebSocketUpgrade,
+    lobby_updates: broadcast::Sender<Message>,
+    lobbies: Arc<LobbyMap>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| async move {
+        let (mut tx, mut rx) = socket.split();
+
+        // send initial lobby list
+        let list = current_lobbies_json(&lobbies);
+        let _ = tx.send(Message::Text(list.to_string())).await;
+
+        let mut updates = lobby_updates.subscribe();
+        tokio::spawn(async move {
+            while let Ok(msg) = updates.recv().await {
+                if tx.send(msg.clone()).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // ignore incoming messages
+        while let Some(Ok(_)) = rx.next().await {}
+    })
 }
 
 /* ---------- WS ---------- */
