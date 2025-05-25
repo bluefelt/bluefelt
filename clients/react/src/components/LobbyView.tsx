@@ -25,7 +25,11 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
         </div>
         
         <div className="space-y-4">
-          <TurnIndicator turn={lobbyState.state?.turn} players={lobbyState.state?.players} />
+          <TurnIndicator
+            you={lobbyState.you}
+            turn={lobbyState.state?.turn}
+            players={lobbyState.state?.players}
+          />
           <Board board={lobbyState.state?.zones?.board ?? []} />
         </div>
       </div>
