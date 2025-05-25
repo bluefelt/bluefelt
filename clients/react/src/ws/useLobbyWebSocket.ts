@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { applyPatch } from "fast-json-patch";
-import { useWebSocket, WSMessage } from "./useWebSocket";
+import { useWebSocket, type WSMessage } from "./useWebSocket";
 
 type LobbyState = {
   bundleMeta?: any;
