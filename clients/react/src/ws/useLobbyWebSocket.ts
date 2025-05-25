@@ -7,8 +7,9 @@ export type WSMessage = {
 };
 
 type LobbyState = {
-  bundleMeta?: any;
+  you?: string;
   state?: any;
+  meta?: any;
 };
 
 export function useLobbyWebSocket(
@@ -17,6 +18,7 @@ export function useLobbyWebSocket(
 ) {
   const [messages, setMessages] = useState<WSMessage[]>([]);
   const [lobbyState, setLobbyState] = useState<LobbyState>({});
+  const lastTickRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
 
   const sendMessage = useCallback((content: string) => {
@@ -29,6 +31,7 @@ export function useLobbyWebSocket(
   useEffect(() => {
     setMessages([]);
     setLobbyState({});
+    lastTickRef.current = 0;
     const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(playerId)}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -47,16 +50,23 @@ export function useLobbyWebSocket(
       }
 
       if (data.type === "welcome") {
+        lastTickRef.current = 0;
         setLobbyState({
-          bundleMeta: data.bundleMeta,
-          state: data.initialState,
+          you: data.you,
+          state: data.state,
+          meta: data.meta,
         });
-      } else if (data.diff && Array.isArray(data.diff)) {
-        setLobbyState((prev) => {
-          if (!prev.state) return prev; // not initialized yet
-          const nextState = applyPatch({ ...prev.state }, data.diff, true, false).newDocument;
-          return { ...prev, state: nextState };
+      } else if (data.type === "diff") {
+        if (data.tick !== lastTickRef.current + 1) {
+          sendMessage(JSON.stringify({ type: "getDiffs", from: lastTickRef.current + 1 }));
+        }
+        setLobbyState(prev => {
+          if (!prev.state) return prev;
+          const root = { state: prev.state, meta: prev.meta };
+          const updated = applyPatch(root, data.patch, true, false).newDocument as any;
+          return { ...prev, state: updated.state, meta: updated.meta };
         });
+        lastTickRef.current = data.tick;
       }
     };
 
