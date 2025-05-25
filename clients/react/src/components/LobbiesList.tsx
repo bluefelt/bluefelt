@@ -20,16 +20,37 @@ export default function LobbiesList({ onLobbySelected }: Props) {
 
   return (
     <div>
-      <h2>Lobbies</h2>
-      <ul>
-        {lobbies.map((lobby) => (
-          <li key={lobby.id}>
-            Lobby {lobby.id} (Game: {lobby.game_id}){" "}
-            <button onClick={() => onLobbySelected(lobby.id)}>View</button>
-          </li>
-        ))}
-      </ul>
-      <button onClick={() => setShowDialog(true)}>Create Lobby</button>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-semibold">Available Lobbies</h2>
+        <button
+          onClick={() => setShowDialog(true)}
+          className="btn btn-primary"
+        >
+          Create Lobby
+        </button>
+      </div>
+      
+      {lobbies.length === 0 ? (
+        <p className="text-gray-400 text-center py-8">No active lobbies. Create one to get started!</p>
+      ) : (
+        <ul className="space-y-4">
+          {lobbies.map((lobby) => (
+            <li key={lobby.id} className="bg-gray-700 rounded-lg p-4 flex justify-between items-center">
+              <div>
+                <h3 className="font-medium">Lobby {lobby.id}</h3>
+                <p className="text-sm text-gray-400">Game: {lobby.game_id}</p>
+              </div>
+              <button
+                onClick={() => onLobbySelected(lobby.id)}
+                className="btn btn-secondary"
+              >
+                Join Lobby
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      
       {showDialog && (
         <CreateLobbyDialog
           onCreated={(lobby) => {
@@ -41,5 +62,5 @@ export default function LobbiesList({ onLobbySelected }: Props) {
         />
       )}
     </div>
-  )
+  );
 }
