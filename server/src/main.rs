@@ -154,12 +154,8 @@ async fn ws_handler(
         lobby.is_started()
     );
     
-    // Add player to the lobby
-    let added = lobby.add_player(player_id.clone());
-    
-    println!("[Socket] Player {} attempted to join lobby {}. Added: {}", player_id, id, added);
-    
-    if !added {
+    // Add player to the lobby and get assigned role
+    let Some(_role) = lobby.add_player(player_id.clone()) else {
         // Player couldn't be added (lobby full)
         println!("[Socket] ERROR: Could not add player {} to lobby {}: lobby is full", player_id, id);
         return ws.on_upgrade(|mut sock| async move {
@@ -168,10 +164,12 @@ async fn ws_handler(
                 "message": "Could not join lobby - it may be full"
             }).to_string())).await;
         });
-    }
+    };
+
+    println!("[Socket] Player {} joined lobby {}", player_id, id);
     
     ws.on_upgrade(move |sock| async move {
         println!("[Socket] WebSocket connections successful for player {} in lobby {}", player_id, id);
-        lobby.accept_client(sock).await;
+        lobby.accept_client(sock, player_id).await;
     })
 }

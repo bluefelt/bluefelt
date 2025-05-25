@@ -18,7 +18,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
     <div>
       <h2>Lobby {lobbyId}</h2>
       <button onClick={onLeave}>Leave Lobby</button>
-      <TurnIndicator turn={lobbyState.state?.turn} players={lobbyState.state?.players} />
+      <TurnIndicator turn={lobbyState.state?.turn} players={lobbyState.state?.players} you={lobbyState.you} />
       <Board board={lobbyState.state?.zones?.board ?? []} />
       <div style={{ marginTop: 32 }}>
         <h3>Current Game State</h3>
