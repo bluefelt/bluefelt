@@ -11,6 +11,7 @@ export function useWebSocket(
 ) {
   const [messages, setMessages] = useState<WSMessage[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const pendingRef = useRef<string[]>([]);
   const onMessageRef = useRef<(data: string) => void>(() => {});
 
   useEffect(() => {
@@ -20,22 +21,52 @@ export function useWebSocket(
   const sendMessage = useCallback((content: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(content);
-      setMessages(msgs => [{ direction: "sent", content }, ...msgs]);
+    } else {
+      pendingRef.current.push(content);
     }
+    setMessages(msgs => [{ direction: "sent", content }, ...msgs]);
   }, []);
 
   useEffect(() => {
     setMessages([]);
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: number;
+    let shouldReconnect = true;
 
-    ws.onmessage = (event) => {
-      setMessages(msgs => [{ direction: "received", content: event.data }, ...msgs]);
-      onMessageRef.current(event.data);
+    const connect = () => {
+      ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        pendingRef.current.forEach((msg) => ws!.send(msg));
+        pendingRef.current = [];
+      };
+
+      ws.onmessage = (event) => {
+        setMessages((msgs) => [
+          { direction: "received", content: event.data },
+          ...msgs,
+        ]);
+        onMessageRef.current(event.data);
+      };
+
+      ws.onclose = () => {
+        if (shouldReconnect) {
+          reconnectTimer = window.setTimeout(connect, 1000);
+        }
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
     };
 
+    connect();
+
     return () => {
-      ws.close();
+      shouldReconnect = false;
+      clearTimeout(reconnectTimer);
+      ws?.close();
     };
   }, [url]);
 

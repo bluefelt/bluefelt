@@ -1,5 +1,6 @@
 import { usePlayer } from "../context/PlayerContext";
 import { useLobbyWebSocket } from "../ws/useLobbyWebSocket";
+import { useLobbiesWebSocket } from "../ws/useLobbiesWebSocket";
 import { useState, useEffect } from "react";
 import Board from "./Board";
 import TurnIndicator from "./TurnIndicator";
@@ -24,11 +25,19 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
     manifest: GameManifest;
   } | null>(null);
 
+  useLobbiesWebSocket((lobbies) => {
+    const lobby = lobbies.find((l) => l.id === lobbyId);
+    if (lobby) {
+      setLobbyInfo((info) => (info ? { ...info, ...lobby } : info));
+    }
+  });
+
   useEffect(() => {
     getLobby(lobbyId).then(setLobbyInfo).catch(() => {});
   }, [lobbyId]);
 
-  const canStart = lobbyInfo &&
+  const canStart =
+    lobbyInfo &&
     lobbyInfo.players.length >= lobbyInfo.manifest.metadata.players.min &&
     lobbyInfo.players.length <= lobbyInfo.manifest.metadata.players.max;
 
