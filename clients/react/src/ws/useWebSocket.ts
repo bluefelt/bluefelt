@@ -12,6 +12,8 @@ export function useWebSocket(
   const [messages, setMessages] = useState<WSMessage[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef<(data: string) => void>(() => {});
+  const reconnectTimer = useRef<number | null>(null);
+  const pendingMessages = useRef<string[]>([]);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -21,21 +23,43 @@ export function useWebSocket(
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(content);
       setMessages(msgs => [{ direction: "sent", content }, ...msgs]);
+    } else {
+      pendingMessages.current.push(content);
     }
   }, []);
 
   useEffect(() => {
-    setMessages([]);
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
+    let active = true;
 
-    ws.onmessage = (event) => {
-      setMessages(msgs => [{ direction: "received", content: event.data }, ...msgs]);
-      onMessageRef.current(event.data);
-    };
+    function connect() {
+      if (!active) return;
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        pendingMessages.current.forEach(m => ws.send(m));
+        pendingMessages.current = [];
+      };
+      ws.onmessage = (event) => {
+        setMessages(msgs => [{ direction: "received", content: event.data }, ...msgs]);
+        onMessageRef.current(event.data);
+      };
+      ws.onclose = () => {
+        if (active) {
+          reconnectTimer.current = window.setTimeout(connect, 1000);
+        }
+      };
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
+    setMessages([]);
+    connect();
 
     return () => {
-      ws.close();
+      active = false;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
     };
   }, [url]);
 
