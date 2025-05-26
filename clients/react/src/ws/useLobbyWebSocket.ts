@@ -22,7 +22,7 @@ export function useLobbyWebSocket(
     playerId,
   )}&join=${autoJoin ? 1 : 0}&since=${lastTickRef.current}`;
 
-  const { messages, sendMessage } = useWebSocket(url, (dataStr) => {
+  const { messages, sendMessage, connected } = useWebSocket(url, (dataStr) => {
     let data: any;
     try {
       data = JSON.parse(dataStr);
@@ -67,6 +67,7 @@ export function useLobbyWebSocket(
   return {
     messages,
     sendMessage,
+    connected,
     lobbyState,
     joinLobby,
     leaveLobby,

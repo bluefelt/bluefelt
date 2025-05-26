@@ -1,8 +1,8 @@
-import type { Lobby } from "../api/lobbies";
-import { useWebSocket } from "./useWebSocket";
+import type { Lobby } from '../api/lobbies';
+import { useWebSocket } from './useWebSocket';
 
 export function useLobbiesWebSocket(onLobbies: (lobbies: Lobby[]) => void) {
-  useWebSocket("ws://localhost:8000/lobbies/ws", data => {
+  const ws = useWebSocket('ws://localhost:8000/lobbies/ws', (data) => {
     try {
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed)) {
@@ -12,4 +12,6 @@ export function useLobbiesWebSocket(onLobbies: (lobbies: Lobby[]) => void) {
       // ignore invalid JSON
     }
   });
+
+  return { connected: ws.connected };
 }
