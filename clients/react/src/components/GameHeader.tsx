@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
+import { getColorById, getPlayerColor } from '../config/colors';
 
 interface GameHeaderProps {
   lobbyId: string;
@@ -11,14 +12,18 @@ interface GameHeaderProps {
 }
 
 export default function GameHeader({ lobbyId, gameId, gameName, status, players, currentPlayer }: GameHeaderProps) {
-  const { player, logout } = usePlayer();
+  const { player } = usePlayer();
 
-  // Define player colors
-  const playerColors = ['#FF1493', '#FFD700']; // Pink and Gold
-  
-  const getPlayerColor = (username: string) => {
-    const index = players.findIndex(p => p.username === username);
-    return playerColors[index] || '#888';
+  const getHeaderPlayerColor = (username: string) => {
+    if (!player) return '#888';
+    
+    const myPlayerIndex = players.findIndex(p => p.username === player.username);
+    const targetPlayerIndex = players.findIndex(p => p.username === username);
+    
+    if (myPlayerIndex === -1 || targetPlayerIndex === -1) return '#888';
+    
+    const color = getPlayerColor(targetPlayerIndex, player.color, myPlayerIndex);
+    return color.hex;
   };
 
   const getInitials = (username: string) => {
@@ -59,7 +64,7 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
               <div key={p.username} className="flex items-center space-x-2">
                 <div
                   className="w-4 h-4 rounded-sm"
-                  style={{ backgroundColor: getPlayerColor(p.username) }}
+                  style={{ backgroundColor: getHeaderPlayerColor(p.username) }}
                 />
                 <span className={`text-sm ${p.isConnected ? 'text-gray-300' : 'text-gray-500'}`}>
                   {p.username}

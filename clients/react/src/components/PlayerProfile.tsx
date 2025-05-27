@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
+import ColorPicker from './ColorPicker';
 
 export default function PlayerProfile() {
   const { player, logout } = usePlayer();
@@ -16,11 +17,9 @@ export default function PlayerProfile() {
       <a href="#">
         <img src="../../public/bluefelt_logo.jpg" alt="Bluefelt Logo" style={styles.bfLogo} />
       </a>
-      <a href="#">
-        <div style={styles.playerProfilePicture}>
-          <span style={styles.playerProfilePictureLetter}>{player.username.charAt(0)}</span>
-        </div>
-      </a>
+      <div style={styles.colorPickerWrapper}>
+        <ColorPicker />
+      </div>
       <div style={styles.playerProfileTop}>
         <div style={styles.playingAsText}>
           <span>
@@ -72,24 +71,11 @@ const styles = {
     fontWeight: "bold",
     paddingLeft: "0.25em"
   },
-  playerProfilePicture: {
-    position: "absolute",
+  colorPickerWrapper: {
+    position: "absolute" as const,
     top: "15px",
     right: "10px",
-    height: "43px",
-    width: "43px",
-    borderRadius: "50%",
-    backgroundColor: "black",
-    borderWidth: "2px",
-    borderColor: "#D8B260",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  playerProfilePictureLetter: {
-    textTransform: "uppercase",
-    fontSize: "1.25em",
-    "color": "#D8B260",
+    zIndex: 100,
   },
   bfLogo: {
     height: "52px",

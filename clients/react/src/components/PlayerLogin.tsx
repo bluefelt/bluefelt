@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { usePlayer } from "../context/PlayerContext.tsx";
+import { usePlayer } from "../context/PlayerContext";
 
 export default function PlayerLogin() {
   const { player, login } = usePlayer();

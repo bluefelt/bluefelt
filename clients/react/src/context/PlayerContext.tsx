@@ -1,13 +1,17 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import type { ColorId } from "../config/colors";
+import { DEFAULT_COLOR } from "../config/colors";
 
 type Player = {
   username: string;
+  color: ColorId;
 };
 
 type PlayerContextType = {
   player: Player | null;
   login: (username: string) => void;
   logout: () => void;
+  updateColor: (color: ColorId) => void;
 };
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -15,7 +19,15 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const [player, setPlayer] = useState<Player | null>(() => {
     const stored = localStorage.getItem("player");
-    return stored ? JSON.parse(stored) : null;
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Ensure color is set (for backwards compatibility)
+      if (!parsed.color) {
+        parsed.color = DEFAULT_COLOR;
+      }
+      return parsed;
+    }
+    return null;
   });
 
   useEffect(() => {
@@ -23,11 +35,16 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     else localStorage.removeItem("player");
   }, [player]);
 
-  const login = (username: string) => setPlayer({ username });
+  const login = (username: string) => setPlayer({ username, color: DEFAULT_COLOR });
   const logout = () => setPlayer(null);
+  const updateColor = (color: ColorId) => {
+    if (player) {
+      setPlayer({ ...player, color });
+    }
+  };
 
   return (
-    <PlayerContext.Provider value={{ player, login, logout }}>
+    <PlayerContext.Provider value={{ player, login, logout, updateColor }}>
       {children}
     </PlayerContext.Provider>
   );

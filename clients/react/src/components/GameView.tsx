@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { useLobbyWebSocket } from '../ws/useLobbyWebSocket';
 import { getLobby } from '../api/lobbies';
+import { getPlayerColor } from '../config/colors';
 import GameHeader from './GameHeader';
 import TurnBanner from './TurnBanner';
 import Board from './Board';
@@ -264,6 +265,7 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
                 onCellClick={handleCellClick}
                 isMyTurn={!!isYourTurn}
                 zoneMetadata={lobbyState.meta?.zones}
+                playerNames={lobbyState.meta?.players}
               />
             </>
           ) : (
@@ -280,15 +282,19 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
                     <div>
                       <strong className="text-white">Connected Players:</strong>
                       <ul className="mt-2 space-y-1">
-                        {lobbyInfo.players.map((playerName, index) => (
-                          <li key={playerName} className="flex items-center space-x-2 ml-4">
-                            <div 
-                              className="w-3 h-3 rounded-sm"
-                              style={{ backgroundColor: index === 0 ? '#FF1493' : '#FFD700' }}
-                            />
-                            <span>{playerName}</span>
-                          </li>
-                        ))}
+                        {lobbyInfo.players.map((playerName, index) => {
+                          const myIndex = lobbyInfo.players.findIndex(p => p === player?.username);
+                          const color = player ? getPlayerColor(index, player.color, myIndex) : { hex: '#888' };
+                          return (
+                            <li key={playerName} className="flex items-center space-x-2 ml-4">
+                              <div 
+                                className="w-3 h-3 rounded-sm"
+                                style={{ backgroundColor: color.hex }}
+                              />
+                              <span>{playerName}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   </div>
@@ -344,7 +350,7 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
         </div>
 
         {/* Game log - only show during game */}
-        {lobbyState.started && <GameLog entries={gameLog} />}
+        {lobbyState.started && <GameLog entries={gameLog} playerNames={lobbyState.meta?.players} />}
       </div>
     </div>
   );

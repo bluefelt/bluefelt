@@ -8,6 +8,7 @@ interface BoardProps {
   onCellClick?: (row: number, col: number) => void;
   isMyTurn?: boolean;
   zoneMetadata?: any[]; // Array of zone definitions from manifest
+  playerNames?: string[]; // Array of player names
 }
 
 interface ZoneProps {
@@ -18,19 +19,38 @@ interface ZoneProps {
   entityDefinitions?: any[];
   zoneMetadata?: any[];
   isSingleZone?: boolean;
+  playerNames?: string[];
 }
 
-// Map player marks to colors
-const getMarkColor = (cell: string) => {
-  if (cell === 'mark_p1') return '#FF1493'; // Pink
-  if (cell === 'mark_p2') return '#FFD700'; // Gold
-  return '#888';
+import { usePlayer } from '../context/PlayerContext';
+import { getColorById, getPlayerColor } from '../config/colors';
+
+// Get mark color based on player colors
+const useMarkColor = () => {
+  const { player } = usePlayer();
+  
+  return (cell: string, playerNames?: string[]) => {
+    if (!player || !playerNames) return '#888';
+    
+    // Find which player this mark belongs to
+    const match = cell.match(/mark_p(\d+)/);
+    if (!match) return '#888';
+    
+    const markPlayerIndex = parseInt(match[1]) - 1;
+    const myPlayerIndex = playerNames.findIndex(name => name === player.username);
+    
+    if (myPlayerIndex === -1) return '#888';
+    
+    const color = getPlayerColor(markPlayerIndex, player.color, myPlayerIndex);
+    return color.hex;
+  };
 };
 
-function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, isSingleZone = false }: ZoneProps) {
+function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, isSingleZone = false, playerNames }: ZoneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(60); // Start with a reasonable default
   const lastContainerWidth = useRef<number>(0);
+  const getMarkColor = useMarkColor();
   
   const rows = boardData.length;
   const cols = boardData[0].length;
@@ -219,7 +239,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                       <div className="w-full h-full flex items-center justify-center bg-black">
                         <span 
                           className={`${fontSize} font-bold`}
-                          style={{ color: getMarkColor(cell) }}
+                          style={{ color: getMarkColor(cell, playerNames) }}
                         >
                           {getGlyph(cell)}
                         </span>
@@ -243,7 +263,8 @@ export default function Board({
   currentPlayer,
   onCellClick,
   isMyTurn = false,
-  zoneMetadata
+  zoneMetadata,
+  playerNames
 }: BoardProps) {
   if (!zones) {
     return null;
@@ -277,6 +298,7 @@ export default function Board({
           entityDefinitions={entityDefinitions}
           zoneMetadata={zoneMetadata}
           isSingleZone={gridZones.length === 1}
+          playerNames={playerNames}
         />
       ))}
     </div>

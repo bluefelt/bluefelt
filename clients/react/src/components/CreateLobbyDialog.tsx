@@ -1,8 +1,8 @@
-import type { Lobby } from "../api/lobbies.ts";
-import type { Game } from "../api/games.ts";
+import type { Lobby } from "../api/lobbies";
+import type { Game } from "../api/games";
 import React, { useEffect, useState } from "react";
-import { getGames } from "../api/games.ts";
-import { createLobby } from "../api/lobbies.ts";
+import { getGames } from "../api/games";
+import { createLobby } from "../api/lobbies";
 
 type Props = {
   onCreated: (lobby: Lobby) => void;

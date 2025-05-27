@@ -1,13 +1,13 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { PlayerProvider } from "./context/PlayerContext.tsx";
-import { WebSocketProvider } from "./context/WebSocketContext.tsx";
-import Layout from "./components/Layout.tsx";
-import HomePage from "./pages/HomePage.tsx";
-import LoginPage from "./pages/LoginPage.tsx";
-import LobbiesPage from "./pages/LobbiesPage.tsx";
-import CreateLobbyPage from "./pages/CreateLobbyPage.tsx";
-import LobbyPage from "./pages/LobbyPage.tsx";
-import NotFoundPage from "./pages/NotFoundPage.tsx";
+import { PlayerProvider } from "./context/PlayerContext";
+import { WebSocketProvider } from "./context/WebSocketContext";
+import Layout from "./components/Layout";
+import HomePage from "./pages/HomePage";
+import LoginPage from "./pages/LoginPage";
+import LobbiesPage from "./pages/LobbiesPage";
+import CreateLobbyPage from "./pages/CreateLobbyPage";
+import LobbyPage from "./pages/LobbyPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import "./index.css";
 
 export default function App() {

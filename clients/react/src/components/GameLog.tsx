@@ -1,3 +1,6 @@
+import { usePlayer } from '../context/PlayerContext';
+import { getColorById, getPlayerColor } from '../config/colors';
+
 interface LogEntry {
   message: string;
   timestamp: string;
@@ -7,12 +10,27 @@ interface LogEntry {
 
 interface GameLogProps {
   entries: LogEntry[];
+  playerNames?: string[];
 }
 
-export default function GameLog({ entries }: GameLogProps) {
-  // Define player colors matching the header
-  const getPlayerColor = (isYou?: boolean) => {
-    return isYou ? '#FF1493' : '#FFD700'; // Pink for current player, gold for others
+export default function GameLog({ entries, playerNames }: GameLogProps) {
+  const { player } = usePlayer();
+  
+  // Get player color based on their position
+  const getLogPlayerColor = (playerName?: string, isYou?: boolean) => {
+    if (!player || !playerName || !playerNames) return undefined;
+    
+    if (isYou) {
+      return getColorById(player.color).hex;
+    }
+    
+    const playerIndex = playerNames.findIndex(name => name === playerName);
+    const myPlayerIndex = playerNames.findIndex(name => name === player.username);
+    
+    if (playerIndex === -1 || myPlayerIndex === -1) return undefined;
+    
+    const color = getPlayerColor(playerIndex, player.color, myPlayerIndex);
+    return color.hex;
   };
 
   return (
@@ -31,7 +49,7 @@ export default function GameLog({ entries }: GameLogProps) {
               <div key={index} className="px-4 py-2 flex justify-between items-center text-sm">
                 <span 
                   className={entry.player ? 'font-medium' : 'text-gray-400'}
-                  style={{ color: entry.player ? getPlayerColor(entry.isYou) : undefined }}
+                  style={{ color: entry.player ? getLogPlayerColor(entry.player, entry.isYou) : undefined }}
                 >
                   {entry.message}
                 </span>
