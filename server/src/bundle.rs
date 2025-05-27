@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{collections::HashMap, fs};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -29,6 +30,9 @@ pub struct Manifest {
 pub struct Bundle {
     pub game_id: String,
     pub manifest: Manifest,
+    pub entities: Value,
+    pub zones: Value,
+    pub verbs: Value,
 }
 
 #[derive(Clone)]
@@ -53,11 +57,30 @@ impl BundleMap {
                 .collect();
             versions.sort();
             if let Some(ver) = versions.last() {
-                let manifest_path = entry.path().join(ver).join("manifest.yaml");
+                let base = entry.path().join(ver);
+                let manifest_path = base.join("manifest.yaml");
                 if manifest_path.exists() {
-                    let contents = fs::read_to_string(&manifest_path)?;
-                    let manifest: Manifest = serde_yaml::from_str(&contents)?;
-                    bundles.insert(game_id.clone(), Bundle { game_id: game_id.clone(), manifest });
+                    let manifest_contents = fs::read_to_string(&manifest_path)?;
+                    let manifest: Manifest = serde_yaml::from_str(&manifest_contents)?;
+
+                    let entities_path = base.join("entities.yaml");
+                    let zones_path = base.join("zones.yaml");
+                    let verbs_path = base.join("verbs.yaml");
+
+                    let entities: Value = if entities_path.exists() {
+                        serde_yaml::from_str(&fs::read_to_string(&entities_path)?)?
+                    } else { Value::Null };
+                    let zones: Value = if zones_path.exists() {
+                        serde_yaml::from_str(&fs::read_to_string(&zones_path)?)?
+                    } else { Value::Null };
+                    let verbs: Value = if verbs_path.exists() {
+                        serde_yaml::from_str(&fs::read_to_string(&verbs_path)?)?
+                    } else { Value::Null };
+
+                    bundles.insert(
+                        game_id.clone(),
+                        Bundle { game_id: game_id.clone(), manifest, entities, zones, verbs },
+                    );
                 }
             }
         }
