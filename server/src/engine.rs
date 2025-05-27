@@ -81,10 +81,11 @@ fn init_grid(zone: &Value, contents: &Value) -> Value {
         return Value::Array(rows.into_iter().map(Value::Array).collect());
     }
     if let Some(arr) = contents.as_array() {
-        let mut rows = Vec::new();
+        let mut rows: Vec<Value> = Vec::new();
         for row in arr {
             if let Some(cells) = row.as_array() {
-                rows.push(cells.to_vec());
+                // wrap the row so the outer Vec is Vec<Value>
+                rows.push(Value::Array(cells.clone()));
             }
         }
         return Value::Array(rows);
@@ -198,15 +199,26 @@ fn apply_move_entity(_bundle: &Bundle, state: &mut Value, spec: &Value, action: 
     }
 
     // rotate turn
-    if let Some(players) = state["players"].as_array() {
-        if let Some(idx) = players
-            .iter()
-            .position(|p| p["id"].as_str() == Some(actor.as_str()))
-        {
-            let next = players[(idx + 1) % players.len()]["id"].as_str().unwrap();
-            state["turn"] = Value::String(next.to_string());
-            ops.push(json!({"op":"replace","path":"/turn","value":next}));
+    let next_turn = {
+        // create a short, isolated immutable borrow
+        if let Some(players) = state["players"].as_array() {
+            players
+                .iter()
+                .position(|p| p["id"].as_str() == Some(actor.as_str()))
+                .map(|idx| {
+                    players[(idx + 1) % players.len()]["id"]
+                        .as_str()
+                        .unwrap()
+                        .to_string()
+                })
+        } else {
+            None
         }
+    };
+
+    if let Some(next) = next_turn {
+        state["turn"] = Value::String(next.clone());
+        ops.push(json!({ "op": "replace", "path": "/turn", "value": next }));
     }
 
     Value::Array(ops)
