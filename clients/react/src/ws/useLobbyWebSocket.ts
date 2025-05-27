@@ -36,6 +36,7 @@ export type LobbyState = {
     zones?: Record<string, unknown[][]>;
   };
   started?: boolean;
+  error?: string;
 };
 
 export function useLobbyWebSocket(
@@ -103,9 +104,18 @@ export function useLobbyWebSocket(
         started: true,
       }));
     },
+    
+    error: (data: { message: string }) => {
+      console.error('Lobby error:', data.message);
+      setLobbyState((prev) => ({ ...prev, error: data.message }));
+      // If lobby doesn't exist, don't try to reconnect
+      if (data.message === 'Lobby does not exist') {
+        disconnect();
+      }
+    },
   };
 
-  const { messages, sendMessage, connected, state } = useReconnectingWebSocket(url, (dataStr) => {
+  const { messages, sendMessage, connected, state, disconnect } = useReconnectingWebSocket(url, (dataStr) => {
     try {
       const data = JSON.parse(dataStr) as ServerMessage;
       const handler = messageHandlers[data.type as keyof typeof messageHandlers];
@@ -140,5 +150,6 @@ export function useLobbyWebSocket(
     joinLobby,
     leaveLobby,
     startGame,
+    disconnect,
   };
 }

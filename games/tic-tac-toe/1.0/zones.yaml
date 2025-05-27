@@ -1,4 +1,5 @@
 - id: board
+  name: "Board"
   shape: grid
   gridProps:
     width: 3

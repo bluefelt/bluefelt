@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { useLobbyWebSocket } from '../ws/useLobbyWebSocket';
 import { getLobby } from '../api/lobbies';
@@ -22,8 +23,9 @@ interface LogEntry {
 }
 
 export default function GameView({ lobbyId, onLeave }: GameViewProps) {
+  const navigate = useNavigate();
   const { player } = usePlayer();
-  const { sendMessage, lobbyState, connectionState, joinLobby, leaveLobby, startGame } = useLobbyWebSocket(
+  const { sendMessage, lobbyState, connectionState, joinLobby, leaveLobby, startGame, disconnect } = useLobbyWebSocket(
     lobbyId,
     player!.username,
     false // Don't auto-join, let user decide
@@ -38,14 +40,51 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
   } | null>(null);
 
   const [gameLog, setGameLog] = useState<LogEntry[]>([]);
+  const [loadingError, setLoadingError] = useState(false);
 
   // Check if player has joined
   const joined = lobbyState.you && lobbyState.you !== "spectator";
 
+  // Handle connection errors and lobby errors
+  useEffect(() => {
+    if (lobbyState.error) {
+      console.error('Lobby error:', lobbyState.error);
+      disconnect(); // Stop the WebSocket connection
+      navigate('/', { replace: true });
+    }
+  }, [lobbyState.error, navigate, disconnect]);
+
+  // Handle connection state errors
+  useEffect(() => {
+    if (connectionState === 'error') {
+      console.error('WebSocket connection error');
+      // Give it a moment to try reconnecting
+      const timeout = setTimeout(() => {
+        if (connectionState === 'error') {
+          navigate('/', { replace: true });
+        }
+      }, 3000);
+      return () => clearTimeout(timeout);
+    }
+  }, [connectionState, navigate]);
+
   // Fetch initial lobby info
   useEffect(() => {
-    getLobby(lobbyId).then(setLobbyInfo).catch(() => {});
+    getLobby(lobbyId)
+      .then(setLobbyInfo)
+      .catch((error) => {
+        console.error('Failed to load lobby:', error);
+        setLoadingError(true);
+      });
   }, [lobbyId]);
+
+  // Redirect to home on error
+  useEffect(() => {
+    if (loadingError) {
+      disconnect(); // Stop the WebSocket connection
+      navigate('/', { replace: true });
+    }
+  }, [loadingError, navigate, disconnect]);
 
   // Update lobby info when we receive state updates
   useEffect(() => {
@@ -156,14 +195,27 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
   // Check if can start game
   const canStart = lobbyInfo &&
     !lobbyState.started &&
+    lobbyInfo.players &&
+    lobbyInfo.manifest &&
     lobbyInfo.players.length >= lobbyInfo.manifest.metadata.players.min &&
     lobbyInfo.players.length <= lobbyInfo.manifest.metadata.players.max;
 
-  if (!lobbyInfo) {
+  if (!lobbyInfo || loadingError) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-400">Loading game...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  // Ensure all required properties exist
+  if (!lobbyInfo.manifest || !lobbyInfo.players) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-400">Invalid lobby data</p>
         </div>
       </div>
     );
