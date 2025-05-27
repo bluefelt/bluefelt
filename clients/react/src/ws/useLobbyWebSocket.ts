@@ -3,18 +3,22 @@ import { applyPatch } from 'fast-json-patch';
 import { useReconnectingWebSocket } from './useReconnectingWebSocket';
 import { WS_BASE_URL } from '../config';
 
+export type PossibleVerb = {
+  verb: string;
+  zone: string;
+  args: { row: number; col: number };
+};
+
 export type LobbyState = {
   you?: string;
   meta?: {
-    possibleVerbs?: Record<string, unknown[]>;
+    possibleVerbs?: Record<string, PossibleVerb[]>;
     players?: string[];
   };
   state?: {
     turn?: string;
     players?: Array<{ id: string }>;
-    zones?: {
-      board?: unknown[][];
-    };
+    zones?: Record<string, unknown[][]>;
   };
   started?: boolean;
 };

@@ -69,3 +69,8 @@ Games are defined using YAML files in `games/<game-name>/<version>/`:
 - **Client**: React, TypeScript, Vite, TanStack Query, Zustand, Tailwind CSS
 - **Real-time**: WebSocket with JSON Patch
 - **Game Logic**: WebAssembly modules for complex rules
+
+### Interactive Zones
+- Server includes zone information in possible verbs (e.g., `{"verb": "place", "zone": "board", "args": {"row": 0, "col": 0}}`)
+- Client renders zones as interactive components where players can click to execute verbs
+- Supports multiple zones and verbs per game without hardcoding assumptions

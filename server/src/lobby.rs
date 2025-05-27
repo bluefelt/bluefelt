@@ -182,6 +182,7 @@ impl Lobby {
                                                     if cell.is_null() {
                                                         verbs.push(serde_json::json!({
                                                             "verb": v["id"],
+                                                            "zone": target_zone,
                                                             "args": {"row": r, "col": c}
                                                         }));
                                                     }

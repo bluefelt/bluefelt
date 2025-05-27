@@ -2,7 +2,8 @@ import { usePlayer } from '../context/PlayerContext';
 import { useLobbyWebSocket } from '../ws/useLobbyWebSocket';
 import WebSocketStatus from './WebSocketStatus';
 import { useState, useEffect } from 'react';
-import Board from './Board';
+import InteractiveZone from './InteractiveZone';
+import type { ZoneAction } from './InteractiveZone';
 import TurnIndicator from './TurnIndicator';
 import { getLobby } from '../api/lobbies';
 
@@ -97,13 +98,43 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
       {lobbyState.started && (
         <>
           <div className="card space-y-4">
-            <h3 className="text-xl font-semibold">Zones</h3>
+            <h3 className="text-xl font-semibold">Game Board</h3>
             <TurnIndicator
               you={lobbyState.you}
               turn={lobbyState.state?.turn}
               players={lobbyState.state?.players}
             />
-            <Board board={lobbyState.state?.zones?.board ?? []} />
+            {lobbyState.you && lobbyState.you !== 'spectator' && 
+             lobbyState.state?.turn === lobbyState.you && (
+              <p className="text-sm text-blue-400 font-semibold animate-pulse">
+                It's your turn! Click on an empty cell to make your move.
+              </p>
+            )}
+            {/* Render interactive zones */}
+            {lobbyState.state?.zones && Object.entries(lobbyState.state.zones).map(([zoneName, zoneData]) => {
+              if (!Array.isArray(zoneData)) return null;
+              
+              const myPossibleVerbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
+              const zoneActions = myPossibleVerbs.filter((v) => v.zone === zoneName);
+              const isMyTurn = lobbyState.you && lobbyState.you !== 'spectator' && zoneActions.length > 0;
+              
+              return (
+                <InteractiveZone
+                  key={zoneName}
+                  zoneName={zoneName}
+                  zoneData={zoneData as (string | null)[][]}
+                  possibleActions={zoneActions as ZoneAction[]}
+                  isMyTurn={!!isMyTurn}
+                  onAction={(action) => {
+                    const message = JSON.stringify({
+                      verb: action.verb,
+                      args: action.args
+                    });
+                    sendMessage(message);
+                  }}
+                />
+              );
+            })}
           </div>
           <div className="card space-y-4">
             <h3 className="text-xl font-semibold">Actions</h3>
