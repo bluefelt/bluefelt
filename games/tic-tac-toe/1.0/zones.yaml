@@ -1,0 +1,15 @@
+- id: board
+  shape: grid
+  width: 3
+  height: 3
+  contents: empty
+  visibility: all
+- id: marks_{player}
+  shape: list
+  contents:
+    p1:
+      entity: mark_x
+      count: infinite
+    p2:
+      entity: mark_o
+      count: infinite

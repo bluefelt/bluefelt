@@ -1,0 +1,8 @@
+- id: place
+  params:
+    source: marks_{player}
+    target:
+      type: gridCell
+      zone: board
+      constraints:
+        vacant: true

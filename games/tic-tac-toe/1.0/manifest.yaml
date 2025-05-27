@@ -1,9 +1,10 @@
-gameId:      "tic-tac-toe"
-version:     "1.0.0"
-specVersion: "1"
-
+gameId: "tic-tac-toe"
+version: "1.0.0"
+specVersion: 1
 metadata:
-  name:        "Tic-Tac-Toe"
-  author:      "Traditional"
-  players:     { min: 2, max: 2 }
+  name: "Tic-Tac-Toe"
+  author: "Traditional"
+  players:
+    min: 2
+    max: 2
   description: "Align three of your marks horizontally, vertically, or diagonally."
