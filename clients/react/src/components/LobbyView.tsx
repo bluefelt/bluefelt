@@ -47,6 +47,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
   }, [lobbyState.meta, lobbyState.started]);
 
   const canStart = lobbyInfo &&
+    !lobbyState.started &&  // Game hasn't started yet
     lobbyInfo.players.length >= lobbyInfo.manifest.metadata.players.min &&
     lobbyInfo.players.length <= lobbyInfo.manifest.metadata.players.max;
 
@@ -80,13 +81,21 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
               <p><strong>Version:</strong> {lobbyInfo.manifest.version}</p>
               <p><strong>Spec Version:</strong> {lobbyInfo.manifest.specVersion}</p>
               <p><strong>Players:</strong> {lobbyInfo.manifest.metadata.players.min} - {lobbyInfo.manifest.metadata.players.max}</p>
-              <button onClick={startGame} disabled={!canStart} className="btn btn-primary">
-                Start Game
-              </button>
-              {!canStart && (
-                <p className="text-sm text-gray-400">
-                  Need {lobbyInfo.manifest.metadata.players.min} to {lobbyInfo.manifest.metadata.players.max} players to start.
-                </p>
+              {lobbyState.started ? (
+                <div className="text-green-400 font-semibold">
+                  🎮 Game in Progress
+                </div>
+              ) : (
+                <>
+                  <button onClick={startGame} disabled={!canStart} className="btn btn-primary">
+                    Start Game
+                  </button>
+                  {!canStart && (
+                    <p className="text-sm text-gray-400">
+                      Need {lobbyInfo.manifest.metadata.players.min} to {lobbyInfo.manifest.metadata.players.max} players to start. Currently {lobbyInfo.players.length} player{lobbyInfo.players.length !== 1 ? 's' : ''}.
+                    </p>
+                  )}
+                </>
               )}
             </>
           ) : (
