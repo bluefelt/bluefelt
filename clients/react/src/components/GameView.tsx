@@ -7,7 +7,7 @@ import GameHeader from './GameHeader';
 import TurnBanner from './TurnBanner';
 import Board from './Board';
 import GameLog from './GameLog';
-import GameEndDisplay from './GameEndDisplay';
+import GameResultBanner from './GameResultBanner';
 import type { GameManifest } from '../api/games';
 
 interface GameViewProps {
@@ -223,14 +223,6 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
-      {/* Game ended modal */}
-      <GameEndDisplay 
-        gameStatus={lobbyState.meta?.gameStatus}
-        you={lobbyState.you}
-        playerNames={lobbyState.meta?.players}
-        onClose={() => {}}
-      />
-
       {/* Header */}
       <GameHeader
         lobbyId={lobbyId}
@@ -256,15 +248,24 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
         {/* Game board or lobby info */}
         <div className="flex-1 container mx-auto px-4 py-6">
           {lobbyState.started ? (
-            <Board
-              zones={lobbyState.state?.zones}
-              playerId={player!.username}
-              entityDefinitions={lobbyState.meta?.entities}
-              currentPlayer={lobbyState.state?.turn}
-              onCellClick={handleCellClick}
-              isMyTurn={!!isYourTurn}
-              zoneMetadata={lobbyState.meta?.zones}
-            />
+            <>
+              {/* Game result banner - shown above the board when game ends */}
+              <GameResultBanner
+                gameStatus={lobbyState.meta?.gameStatus}
+                you={lobbyState.you}
+                playerNames={lobbyState.meta?.players}
+              />
+              
+              <Board
+                zones={lobbyState.state?.zones}
+                playerId={player!.username}
+                entityDefinitions={lobbyState.meta?.entities}
+                currentPlayer={lobbyState.state?.turn}
+                onCellClick={handleCellClick}
+                isMyTurn={!!isYourTurn}
+                zoneMetadata={lobbyState.meta?.zones}
+              />
+            </>
           ) : (
             /* Pre-game lobby view */
             <div className="max-w-4xl mx-auto">
