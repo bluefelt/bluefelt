@@ -49,3 +49,5 @@ Thumbs.db
 
 /game-concepts
 /game-concepts/*
+
+*.log

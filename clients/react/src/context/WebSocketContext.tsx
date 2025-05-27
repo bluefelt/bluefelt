@@ -25,8 +25,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         if (Array.isArray(parsed)) {
           setLobbies(parsed as Lobby[]);
         }
-      } catch {
-        // ignore invalid JSON
+      } catch (error) {
+        console.error('[WebSocketContext] Failed to parse JSON:', error);
       }
     },
     {

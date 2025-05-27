@@ -1,25 +1,135 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLobbies } from '../api/lobbies.ts';
-import { useWebSocketContext } from '../context/WebSocketContext.tsx';
+import { getLobbies } from '../api/lobbies';
+import { getGames } from '../api/games';
+import type { Game } from '../api/games';
+import { useWebSocketContext } from '../context/WebSocketContext';
 import WebSocketStatus from './WebSocketStatus';
-import { usePlayer } from '../context/PlayerContext.tsx';
+import { usePlayer } from '../context/PlayerContext';
 
 type Props = {
   onLobbySelected: (lobbyId: string) => void;
+};
+
+type LobbyWithDetails = {
+  id: string;
+  game_id: string;
+  name: string;
+  players: string[];
+  started: boolean;
+  gameName?: string;
+  currentTurn?: string;
+  gameStatus?: {
+    state: 'ended';
+    winner?: string;
+    tie?: boolean;
+  };
 };
 
 export default function LobbiesList({ onLobbySelected }: Props) {
   const navigate = useNavigate();
   const { player } = usePlayer();
   const { lobbies, lobbiesWS } = useWebSocketContext();
+  const [games, setGames] = useState<Record<string, Game>>({});
 
   useEffect(() => {
     // Fetch initial lobbies list
     getLobbies().then(() => {
       // The WebSocket will handle updates
     }).catch(console.error);
+
+    // Fetch games
+    getGames().then(gamesList => {
+      const gamesMap: Record<string, Game> = {};
+      gamesList.forEach(game => {
+        gamesMap[game.id] = game;
+      });
+      setGames(gamesMap);
+    }).catch(console.error);
   }, []);
+
+  // Enhanced lobbies with game names
+  const lobbiesWithDetails: LobbyWithDetails[] = lobbies.map(lobby => {
+    const enhanced = {
+      ...lobby,
+      gameName: games[lobby.game_id]?.name || lobby.game_id,
+    };
+    
+    // Debug log for completed games
+    if (lobby.gameStatus) {
+      console.log(`Lobby ${lobby.id} gameStatus:`, lobby.gameStatus);
+    }
+    
+    return enhanced;
+  });
+
+  // Categorize lobbies - check gameStatus from the lobby object
+  const waitingLobbies = lobbiesWithDetails.filter(lobby => !lobby.started);
+  const inProgressLobbies = lobbiesWithDetails.filter(lobby => lobby.started && (!lobby.gameStatus || lobby.gameStatus.state !== 'ended'));
+  const finishedLobbies = lobbiesWithDetails.filter(lobby => lobby.gameStatus && lobby.gameStatus.state === 'ended');
+
+  const renderLobbyCard = (lobby: LobbyWithDetails) => {
+    const isFinished = lobby.gameStatus?.state === 'ended';
+    const isInProgress = lobby.started && !isFinished;
+    
+    let statusText = 'Waiting for Players';
+    let statusColor = 'text-yellow-400';
+    
+    if (isFinished) {
+      statusText = lobby.gameStatus.tie 
+        ? 'Tie Game' 
+        : lobby.gameStatus.winner 
+          ? `Winner: ${lobby.gameStatus.winner}`
+          : 'Finished';
+      statusColor = 'text-gray-400';
+    } else if (isInProgress) {
+      statusText = lobby.currentTurn ? `${lobby.currentTurn}'s turn` : 'In Progress';
+      statusColor = 'text-green-400';
+    }
+
+    return (
+      <li
+        key={lobby.id}
+        onClick={() => onLobbySelected(lobby.id)}
+        className="bg-gray-700 rounded-lg p-4 hover:bg-gray-600 transition-colors cursor-pointer"
+      >
+        <div className="flex justify-between items-start">
+          <div className="flex-1">
+            <h3 className="font-medium text-lg">{lobby.gameName}</h3>
+            <p className="text-xs text-gray-500 mt-1">ID: {lobby.id}</p>
+            <div className="mt-2 space-y-1">
+              <p className="text-sm text-gray-400">
+                Players: {lobby.players.length > 0 
+                  ? lobby.players.map(p => p === player?.username ? `${p} (you)` : p).join(', ')
+                  : 'None'}
+              </p>
+              <p className={`text-sm ${statusColor}`}>
+                {statusText}
+              </p>
+            </div>
+          </div>
+          <div className="ml-4">
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </div>
+      </li>
+    );
+  };
+
+  const renderSection = (title: string, lobbies: LobbyWithDetails[]) => {
+    if (lobbies.length === 0) return null;
+    
+    return (
+      <div className="mb-8">
+        <h3 className="text-lg font-semibold mb-4 text-gray-300">{title}</h3>
+        <ul className="space-y-4">
+          {lobbies.map(renderLobbyCard)}
+        </ul>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -39,41 +149,11 @@ export default function LobbiesList({ onLobbySelected }: Props) {
             No active lobbies. Create one to get started!
           </p>
         ) : (
-          <ul className="space-y-4">
-            {lobbies.map((lobby) => (
-              <li
-                key={lobby.id}
-                className="bg-gray-700 rounded-lg p-4 flex justify-between items-center hover:bg-gray-600 transition-colors"
-              >
-                <div>
-                  <h3 className="font-medium">{lobby.name}</h3>
-                  <p className="text-sm text-gray-400">Game: {lobby.game_id}</p>
-                  <p className="text-sm text-gray-400">
-                    Players:{' '}
-                    {lobby.players
-                      .map((p) => (p === player?.username ? `${p} (you)` : p))
-                      .join(', ') || 'None'}
-                  </p>
-                  <p className="text-sm text-gray-400">
-                    Status:{' '}
-                    <span className={lobby.started ? 'text-green-400' : 'text-yellow-400'}>
-                      {lobby.started
-                        ? 'In Progress'
-                        : lobby.players.length >= 2
-                          ? 'Ready to Start'
-                          : 'Waiting for Players'}
-                    </span>
-                  </p>
-                </div>
-                <button
-                  onClick={() => onLobbySelected(lobby.id)}
-                  className="btn btn-secondary"
-                >
-                  Open Lobby
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div>
+            {renderSection('Waiting for Players', waitingLobbies)}
+            {renderSection('In Progress', inProgressLobbies)}
+            {renderSection('Finished', finishedLobbies)}
+          </div>
         )}
       </div>
       <WebSocketStatus connected={lobbiesWS.connected} state={lobbiesWS.state} />

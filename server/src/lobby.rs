@@ -29,13 +29,64 @@ pub fn current_lobbies_json(lobbies: &LobbyMap) -> serde_json::Value {
         .iter()
         .map(|l| {
             let lobby = l.value();
-            serde_json::json!({
+            let state = lobby.state.lock();
+            
+            println!("[DEBUG current_lobbies_json] Lobby {} started: {}", l.key(), lobby.is_started());
+            
+            // Extract game status and current turn
+            let mut lobby_json = serde_json::json!({
                 "id": l.key(),
                 "game_id": lobby.bundle.game_id,
                 "name": format!("{} - Lobby {}", lobby.bundle.game_id, &l.key()[0..6]),
                 "players": lobby.player_list(),
                 "started": lobby.is_started()
-            })
+            });
+            
+            // Add current turn if game is in progress
+            if lobby.is_started() {
+                // Check for game status (ended state) FIRST
+                let mut game_ended = false;
+                
+                // First check inside state.meta
+                if let Some(meta) = state.get("meta") {
+                    println!("[DEBUG current_lobbies_json] Lobby {} has meta", l.key());
+                    if let Some(game_status) = meta.get("gameStatus") {
+                        println!("[DEBUG current_lobbies_json] Lobby {} has gameStatus in meta: {:?}", l.key(), game_status);
+                        lobby_json["gameStatus"] = game_status.clone();
+                        if game_status["state"].as_str() == Some("ended") {
+                            game_ended = true;
+                        }
+                    }
+                } else {
+                    println!("[DEBUG current_lobbies_json] Lobby {} has NO meta", l.key());
+                }
+                
+                // Also check at top level (in case patches were applied there)
+                if lobby_json.get("gameStatus").is_none() {
+                    if let Some(game_status) = state.get("gameStatus") {
+                        println!("[DEBUG current_lobbies_json] Lobby {} has gameStatus at top level: {:?}", l.key(), game_status);
+                        lobby_json["gameStatus"] = game_status.clone();
+                        if game_status["state"].as_str() == Some("ended") {
+                            game_ended = true;
+                        }
+                    }
+                }
+                
+                // Only add currentTurn if game has NOT ended
+                if !game_ended {
+                    if let Some(turn) = state.get("turn").and_then(|t| t.as_str()) {
+                        // Map actor ID to player name
+                        let players = lobby.player_list();
+                        if turn == "p1" && players.len() > 0 {
+                            lobby_json["currentTurn"] = json!(players[0]);
+                        } else if turn == "p2" && players.len() > 1 {
+                            lobby_json["currentTurn"] = json!(players[1]);
+                        }
+                    }
+                }
+            }
+            
+            lobby_json
         })
         .collect::<Vec<_>>();
     serde_json::Value::Array(list)
@@ -466,10 +517,22 @@ pub fn start_game(&self) {
                                 "value": verbs
                             }));
                         }
+                        // Check if game just ended
+                        let game_ended = patch_ops.iter().any(|op| {
+                            op.get("path").and_then(|p| p.as_str()) == Some("/meta/gameStatus") &&
+                            op.get("value").and_then(|v| v.get("state")).and_then(|s| s.as_str()) == Some("ended")
+                        });
+                        
                         let frame = serde_json::json!({"type": "diff", "tick": tick, "patch": patch_ops});
                         self.history.lock().push(frame.clone());
                         println!("[Lobby] Broadcasting diff with tick {} to {} receivers", tick, self.tx.receiver_count());
                         let _ = self.tx.send(Message::Text(frame.to_string()));
+                        
+                        // If game ended, broadcast updated lobby list
+                        if game_ended {
+                            println!("[Lobby] Game ended, broadcasting updated lobby list");
+                            self.broadcast_lobby_list();
+                        }
                     }
                 }
             }

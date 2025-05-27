@@ -7,6 +7,12 @@ export type Lobby = {
   name: string;
   players: string[];
   started: boolean;
+  currentTurn?: string;
+  gameStatus?: {
+    state: 'ended';
+    winner?: string;
+    tie?: boolean;
+  };
 };
 
 export async function getLobbies(): Promise<Lobby[]> {
