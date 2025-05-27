@@ -15,16 +15,9 @@ type Props = {
 
 export default function LobbyView({ lobbyId, onLeave }: Props) {
   const { player } = usePlayer();
-  const {
-    messages,
-    sendMessage,
-    lobbyState,
-    joinLobby,
-    leaveLobby,
-    startGame,
-    connected,
-  } = useLobbyWebSocket(lobbyId, player!.username, false);
-  const joined = lobbyState.you && lobbyState.you !== 'spectator';
+  const { messages, sendMessage, lobbyState, joinLobby, leaveLobby, startGame } = useLobbyWebSocket(lobbyId, player!.username, false);
+  const [input, setInput] = useState("");
+  const joined = lobbyState.you && lobbyState.you !== "spectator";
   const [lobbyInfo, setLobbyInfo] = useState<{
     id: string;
     game_id: string;
@@ -34,97 +27,61 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
   } | null>(null);
 
   useEffect(() => {
-    getLobby(lobbyId)
-      .then(setLobbyInfo)
-      .catch(() => {});
+    getLobby(lobbyId).then(setLobbyInfo).catch(() => {});
   }, [lobbyId]);
 
-  const canStart =
-    lobbyInfo &&
+  const canStart = lobbyInfo &&
     lobbyInfo.players.length >= lobbyInfo.manifest.metadata.players.min &&
     lobbyInfo.players.length <= lobbyInfo.manifest.metadata.players.max;
 
   return (
-    <>
-      <div className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-2xl font-bold">Lobby {lobbyId}</h2>
-          <button onClick={onLeave} className="btn btn-secondary">
-            Back to Lobbies
-          </button>
+    <div className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
+      <div className="flex justify-between mb-4">
+        <h2 className="text-2xl font-bold">Lobby {lobbyId}</h2>
+        <button onClick={onLeave} className="btn btn-secondary">Back to Lobbies</button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="card space-y-4">
+          <h3 className="text-xl font-semibold">Lobby Info</h3>
+          <p><strong>ID:</strong> {lobbyId}</p>
+          <p><strong>Players:</strong> {lobbyInfo ? lobbyInfo.players.join(", ") || "None" : "Loading..."}</p>
+          {joined ? (
+            <button onClick={leaveLobby} className="btn btn-secondary">Leave Lobby</button>
+          ) : (
+            <button onClick={joinLobby} className="btn btn-primary">Join Lobby</button>
+          )}
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="card space-y-4">
-            <h3 className="text-xl font-semibold">Lobby Info</h3>
-            <p>
-              <strong>ID:</strong> {lobbyId}
-            </p>
-            <p>
-              <strong>Players:</strong>{' '}
-              {lobbyInfo
-                ? lobbyInfo.players.join(', ') || 'None'
-                : 'Loading...'}
-            </p>
-            {joined ? (
-              <button onClick={leaveLobby} className="btn btn-secondary">
-                Leave Lobby
+        <div className="card space-y-4">
+          <h3 className="text-xl font-semibold">Game Info</h3>
+          {lobbyInfo ? (
+            <>
+              <p><strong>Name:</strong> {lobbyInfo.manifest.metadata.name}</p>
+              <p><strong>Author:</strong> {lobbyInfo.manifest.metadata.author}</p>
+              <p><strong>Description:</strong> {lobbyInfo.manifest.metadata.description}</p>
+              <p><strong>Version:</strong> {lobbyInfo.manifest.version}</p>
+              <p><strong>Spec Version:</strong> {lobbyInfo.manifest.specVersion}</p>
+              <p><strong>Players:</strong> {lobbyInfo.manifest.metadata.players.min} - {lobbyInfo.manifest.metadata.players.max}</p>
+              <button onClick={startGame} disabled={!canStart} className="btn btn-primary">
+                Start Game
               </button>
-            ) : (
-              <button onClick={joinLobby} className="btn btn-primary">
-                Join Lobby
-              </button>
-            )}
-          </div>
-
-          <div className="card space-y-4">
-            <h3 className="text-xl font-semibold">Game Info</h3>
-            {lobbyInfo ? (
-              <>
-                <p>
-                  <strong>Name:</strong> {lobbyInfo.manifest.metadata.name}
+              {!canStart && (
+                <p className="text-sm text-gray-400">
+                  Need {lobbyInfo.manifest.metadata.players.min} to {lobbyInfo.manifest.metadata.players.max} players to start.
                 </p>
-                <p>
-                  <strong>Author:</strong> {lobbyInfo.manifest.metadata.author}
-                </p>
-                <p>
-                  <strong>Description:</strong>{' '}
-                  {lobbyInfo.manifest.metadata.description}
-                </p>
-                <p>
-                  <strong>Version:</strong> {lobbyInfo.manifest.version}
-                </p>
-                <p>
-                  <strong>Spec Version:</strong>{' '}
-                  {lobbyInfo.manifest.specVersion}
-                </p>
-                <p>
-                  <strong>Players:</strong>{' '}
-                  {lobbyInfo.manifest.metadata.players.min} -{' '}
-                  {lobbyInfo.manifest.metadata.players.max}
-                </p>
-                <button
-                  onClick={startGame}
-                  disabled={!canStart}
-                  className="btn btn-primary"
-                >
-                  Start Game
-                </button>
-                {!canStart && (
-                  <p className="text-sm text-gray-400">
-                    Need {lobbyInfo.manifest.metadata.players.min} to{' '}
-                    {lobbyInfo.manifest.metadata.players.max} players to start.
-                  </p>
-                )}
-              </>
-            ) : (
-              <p>Loading...</p>
-            )}
-          </div>
+              )}
+            </>
+          ) : (
+            <p>Loading...</p>
+          )}
         </div>
+      </div>
 
-        {lobbyState.started && (
+      {lobbyState.started && (
+        <>
           <div className="card space-y-4">
+            <h3 className="text-xl font-semibold">Zones</h3>
             <TurnIndicator
               you={lobbyState.you}
               turn={lobbyState.state?.turn}
@@ -132,9 +89,37 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
             />
             <Board board={lobbyState.state?.zones?.board ?? []} />
           </div>
-        )}
-      </div>
-      <WebSocketStatus connected={connected} />
-    </>
+          <div className="card space-y-4">
+            <h3 className="text-xl font-semibold">Actions</h3>
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                if (input.trim()) {
+                  sendMessage(input);
+                  setInput("");
+                }
+              }}
+              className="space-y-4"
+            >
+              <input
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                className="input w-full bg-gray-700 text-white"
+                placeholder="Type a JSON message to send"
+              />
+              <button type="submit" className="btn btn-primary">
+                Send
+              </button>
+            </form>
+          </div>
+          <div className="card space-y-4">
+            <h3 className="text-xl font-semibold">Game State</h3>
+            <pre className="bg-gray-700 p-4 rounded-lg overflow-auto text-sm">
+              {JSON.stringify(lobbyState, null, 2)}
+            </pre>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
