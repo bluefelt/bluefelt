@@ -15,7 +15,7 @@ type Props = {
 
 export default function LobbyView({ lobbyId, onLeave }: Props) {
   const { player } = usePlayer();
-  const { messages, sendMessage, lobbyState, joinLobby, leaveLobby, startGame } = useLobbyWebSocket(lobbyId, player!.username, false);
+  const { sendMessage, lobbyState, joinLobby, leaveLobby, startGame, connectionState } = useLobbyWebSocket(lobbyId, player!.username, false);
   const [input, setInput] = useState("");
   const joined = lobbyState.you && lobbyState.you !== "spectator";
   const [lobbyInfo, setLobbyInfo] = useState<{
@@ -26,9 +26,24 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
     manifest: GameManifest;
   } | null>(null);
 
+  // Fetch initial lobby info and update when players change
   useEffect(() => {
     getLobby(lobbyId).then(setLobbyInfo).catch(() => {});
   }, [lobbyId]);
+
+  // Update lobby info when we receive state updates
+  useEffect(() => {
+    if (lobbyState.meta && lobbyState.meta.players) {
+      setLobbyInfo(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: lobbyState.meta.players,
+          started: lobbyState.started || false
+        };
+      });
+    }
+  }, [lobbyState.meta, lobbyState.started]);
 
   const canStart = lobbyInfo &&
     lobbyInfo.players.length >= lobbyInfo.manifest.metadata.players.min &&
@@ -46,6 +61,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
           <h3 className="text-xl font-semibold">Lobby Info</h3>
           <p><strong>ID:</strong> {lobbyId}</p>
           <p><strong>Players:</strong> {lobbyInfo ? lobbyInfo.players.join(", ") || "None" : "Loading..."}</p>
+          <p><strong>Connection:</strong> {connectionState}</p>
           {joined ? (
             <button onClick={leaveLobby} className="btn btn-secondary">Leave Lobby</button>
           ) : (
@@ -120,6 +136,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
           </div>
         </>
       )}
+      <WebSocketStatus connected={connectionState === 'connected'} state={connectionState} />
     </div>
   );
 }

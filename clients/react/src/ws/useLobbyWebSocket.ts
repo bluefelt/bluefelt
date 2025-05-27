@@ -1,11 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { applyPatch } from 'fast-json-patch';
-import { useWebSocket, type WSMessage } from './useWebSocket';
+import { useReconnectingWebSocket } from './useReconnectingWebSocket';
+import { WS_BASE_URL } from '../config';
 
 export type LobbyState = {
   you?: string;
-  meta?: any;
-  state?: any;
+  meta?: {
+    possibleVerbs?: Record<string, unknown[]>;
+    players?: string[];
+  };
+  state?: {
+    turn?: string;
+    players?: Array<{ id: string }>;
+    zones?: {
+      board?: unknown[][];
+    };
+  };
   started?: boolean;
 };
 
@@ -18,12 +28,21 @@ export function useLobbyWebSocket(
   const lastTickRef = useRef<number>(
     Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || '0'),
   );
-  const url = `ws://localhost:8000/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
+  const url = `${WS_BASE_URL}/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
     playerId,
   )}&join=${autoJoin ? 1 : 0}&since=${lastTickRef.current}`;
 
-  const { messages, sendMessage, connected } = useWebSocket(url, (dataStr) => {
-    let data: any;
+  const { messages, sendMessage, connected, state } = useReconnectingWebSocket(url, (dataStr) => {
+    let data: {
+      type: string;
+      you?: string;
+      meta?: LobbyState['meta'];
+      state?: LobbyState['state'];
+      started?: boolean;
+      tick?: number;
+      patch?: unknown[];
+      players?: string[];
+    };
     try {
       data = JSON.parse(dataStr);
     } catch {
@@ -38,6 +57,14 @@ export function useLobbyWebSocket(
         started: data.started,
       });
       if (typeof data.tick === 'number') lastTickRef.current = data.tick;
+    } else if (data.type === 'playerUpdate') {
+      setLobbyState((prev) => ({
+        ...prev,
+        meta: {
+          ...prev.meta,
+          players: data.players,
+        },
+      }));
     } else if (data.type === 'diff' && Array.isArray(data.patch)) {
       setLobbyState((prev) => {
         const full = { meta: prev.meta, state: prev.state };
@@ -48,6 +75,14 @@ export function useLobbyWebSocket(
       if (typeof data.tick === 'number') lastTickRef.current = data.tick;
     } else if (data.type === 'started') {
       setLobbyState((prev) => ({ ...prev, started: true }));
+    } else if (data.type === 'gameStarted') {
+      setLobbyState((prev) => ({
+        ...prev,
+        you: data.you || prev.you,
+        state: data.state,
+        meta: data.meta,
+        started: true,
+      }));
     }
   });
 
@@ -68,6 +103,7 @@ export function useLobbyWebSocket(
     messages,
     sendMessage,
     connected,
+    connectionState: state,
     lobbyState,
     joinLobby,
     leaveLobby,

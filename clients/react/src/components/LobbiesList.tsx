@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useState } from 'react';
 import { getLobbies } from '../api/lobbies.ts';
-import type { Lobby } from '../api/lobbies.ts';
-import { useLobbiesWebSocket } from '../ws/useLobbiesWebSocket';
+import { useWebSocketContext } from '../context/WebSocketContext.tsx';
 import WebSocketStatus from './WebSocketStatus';
 import CreateLobbyDialog from './CreateLobbyDialog.tsx';
 import { usePlayer } from '../context/PlayerContext.tsx';
@@ -11,16 +11,15 @@ type Props = {
 };
 
 export default function LobbiesList({ onLobbySelected }: Props) {
-  const [lobbies, setLobbies] = useState<Lobby[]>([]);
   const [showDialog, setShowDialog] = useState(false);
   const { player } = usePlayer();
-
-  const refresh = () => getLobbies().then(setLobbies);
-
-  const { connected } = useLobbiesWebSocket(setLobbies);
+  const { lobbies, lobbiesWS } = useWebSocketContext();
 
   useEffect(() => {
-    refresh();
+    // Fetch initial lobbies list
+    getLobbies().then(() => {
+      // The WebSocket will handle updates
+    }).catch(console.error);
   }, []);
 
   return (
@@ -86,7 +85,7 @@ export default function LobbiesList({ onLobbySelected }: Props) {
           />
         )}
       </div>
-      <WebSocketStatus connected={connected} />
+      <WebSocketStatus connected={lobbiesWS.connected} state={lobbiesWS.state} />
     </>
   );
 }

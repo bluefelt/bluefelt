@@ -208,9 +208,22 @@ impl Lobby {
 
 pub fn start_game(&self) {
     *self.game_started.lock() = true;
-    let _ = self.tx.send(Message::Text(
-        serde_json::json!({ "type": "started" }).to_string(),
-    ));
+    
+    // Get current game state and possible verbs
+    let snapshot = { let g = self.state.lock(); g.clone() };
+    let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
+    
+    // Send full game state to all connected clients
+    let game_started_msg = serde_json::json!({
+        "type": "gameStarted",
+        "state": snapshot,
+        "meta": {
+            "possibleVerbs": possible,
+            "players": self.player_list()
+        }
+    });
+    let _ = self.tx.send(Message::Text(game_started_msg.to_string()));
+    
     self.broadcast_lobby_list();
 }
 
@@ -220,7 +233,14 @@ pub fn start_game(&self) {
         let tx = Arc::new(TokioMutex::new(ws_tx));
 
         if join {
-            self.add_player(player_id.clone());
+            if self.add_player(player_id.clone()) {
+                // Broadcast player update to all connected clients
+                let player_update = serde_json::json!({
+                    "type": "playerUpdate",
+                    "players": self.player_list()
+                });
+                let _ = self.tx.send(Message::Text(player_update.to_string()));
+            }
         }
 
         // Determine which game actor this connection represents
@@ -237,12 +257,22 @@ pub fn start_game(&self) {
                 "you": actor,
                 "started": self.is_started(),
                 "state": snapshot,
-                "meta": { "possibleVerbs": possible }
+                "meta": { 
+                    "possibleVerbs": possible,
+                    "players": self.player_list()
+                }
             });
             let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
         } else {
-            let waiting = serde_json::json!({"type": "info", "message": "Waiting for another player..."});
-            let _ = tx.lock().await.send(Message::Text(waiting.to_string())).await;
+            let welcome = serde_json::json!({
+                "type": "welcome",
+                "you": actor,
+                "started": false,
+                "meta": { 
+                    "players": self.player_list()
+                }
+            });
+            let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
         }
 
         // replay diff history since the provided tick
@@ -263,8 +293,28 @@ pub fn start_game(&self) {
         // forward broadcast messages
         let mut bcast = self.tx.subscribe();
         let tx_forward = tx.clone();
+        let self_ref = self.clone();
+        let player_id_clone = player_id.clone();
         let forward = tokio::spawn(async move {
             while let Ok(msg) = bcast.recv().await {
+                // Handle gameStarted message specially to include correct "you" field
+                if let Message::Text(text) = &msg {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                        if json["type"] == "gameStarted" {
+                            let actor = self_ref
+                                .actor_for_player(&player_id_clone)
+                                .unwrap_or_else(|| "spectator".to_string());
+                            let mut personalized = json.clone();
+                            personalized["you"] = serde_json::Value::String(actor);
+                            let personalized_msg = Message::Text(personalized.to_string());
+                            if tx_forward.lock().await.send(personalized_msg).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+                }
+                
                 if tx_forward.lock().await.send(msg.clone()).await.is_err() {
                     break;
                 }
@@ -278,10 +328,22 @@ pub fn start_game(&self) {
                     if json["action"] == "join" {
                         if self.add_player(player_id.clone()) {
                             self.broadcast_lobby_list();
+                            // Broadcast player update to all connected clients
+                            let player_update = serde_json::json!({
+                                "type": "playerUpdate",
+                                "players": self.player_list()
+                            });
+                            let _ = self.tx.send(Message::Text(player_update.to_string()));
                         }
                     } else if json["action"] == "leave" {
                         if self.remove_player(&player_id) {
                             self.broadcast_lobby_list();
+                            // Broadcast player update to all connected clients
+                            let player_update = serde_json::json!({
+                                "type": "playerUpdate",
+                                "players": self.player_list()
+                            });
+                            let _ = self.tx.send(Message::Text(player_update.to_string()));
                         }
                     } else if json["action"] == "start_game" {
                         if !self.is_started() && self.players() >= 2 {

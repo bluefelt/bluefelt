@@ -25,8 +25,8 @@ export default function CreateLobbyDialog({ onCreated, onCancel }: Props) {
     try {
       const lobby = await createLobby(selectedGameId);
       onCreated(lobby);
-    } catch (err: any) {
-      alert("Failed to create lobby: " + (err.message || "Unknown error"));
+    } catch (err) {
+      alert("Failed to create lobby: " + (err instanceof Error ? err.message : "Unknown error"));
     } finally {
       setLoading(false);
     }

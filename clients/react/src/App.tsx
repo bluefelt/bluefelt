@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext.tsx";
+import { WebSocketProvider } from "./context/WebSocketContext.tsx";
 import PlayerLogin from "./components/PlayerLogin.tsx";
 import PlayerProfile from "./components/PlayerProfile.tsx";
 import LobbiesList from "./components/LobbiesList.tsx";
@@ -31,9 +32,11 @@ function MainApp() {
 export default function App() {
   return (
     <PlayerProvider>
-      <div className="min-h-screen bg-gray-900 text-white">
-        <MainApp />
-      </div>
+      <WebSocketProvider>
+        <div className="min-h-screen bg-gray-900 text-white">
+          <MainApp />
+        </div>
+      </WebSocketProvider>
     </PlayerProvider>
   );
 }

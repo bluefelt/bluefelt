@@ -1,10 +1,12 @@
+import { API_BASE_URL } from '../config';
+
 export type Game = {
   id: string;
   name: string;
 };
 
 export async function getGames(): Promise<Game[]> {
-  const res = await fetch("http://localhost:8000/games");
+  const res = await fetch(`${API_BASE_URL}/games`);
   if (!res.ok) throw new Error("Failed to fetch list of games");
   return res.json();
 }
@@ -22,7 +24,7 @@ export type GameManifest = {
 };
 
 export async function getGameManifest(gameId: string): Promise<GameManifest> {
-  const res = await fetch(`http://localhost:8000/games/${gameId}`);
+  const res = await fetch(`${API_BASE_URL}/games/${gameId}`);
   if (!res.ok) throw new Error("Failed to fetch game manifest");
   return res.json();
 }
