@@ -76,3 +76,11 @@ Games are defined using YAML files in `games/<game-name>/<version>/`:
 - Client renders zones as interactive components where players can click to execute verbs
 - UI directions are defined in the game's `verbs.yaml` under `ui.direction`
 - Supports multiple zones and verbs per game without hardcoding assumptions
+
+### Custom Hooks and Game End Detection
+- Verbs can trigger other verbs using the `triggers` field in `verbs.yaml`
+- Custom hooks can be defined with `hook: hookName` and `auto: true` for automatic verbs
+- Game end detection for tic-tac-toe checks for wins (3 in a row) and ties (board full)
+- Game status stored in `/meta/gameStatus` with fields: `state`, `winner`, `tie`
+- When game ends, turn advancement is prevented and UI shows game result
+- WebAssembly hooks can be compiled and placed as `hooks.wasm` in game directory

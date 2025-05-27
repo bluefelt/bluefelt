@@ -6,6 +6,7 @@ use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex as TokioMutex};
 
@@ -164,6 +165,23 @@ impl Lobby {
     fn possible_verbs(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
         let mut map = serde_json::Map::new();
 
+        // Check if game has ended
+        if let Some(meta) = state.get("meta") {
+            if let Some(game_status) = meta.get("gameStatus") {
+                if game_status["state"].as_str() == Some("ended") {
+                    // Game has ended, no moves possible
+                    if let Some(players) = state["players"].as_array() {
+                        for player in players {
+                            if let Some(id) = player["id"].as_str() {
+                                map.insert(id.to_string(), serde_json::Value::Array(vec![]));
+                            }
+                        }
+                    }
+                    return map;
+                }
+            }
+        }
+
         let turn_player = state["turn"].as_str().unwrap_or("");
 
         if let Some(players) = state["players"].as_array() {
@@ -231,14 +249,24 @@ pub fn start_game(&self) {
     let snapshot = { let g = self.state.lock(); g.clone() };
     let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
     
+    // Build meta object preserving existing meta data
+    let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
+        existing_meta.clone()
+    } else {
+        json!({})
+    };
+    
+    // Update with current data
+    if let Some(meta_obj) = meta.as_object_mut() {
+        meta_obj.insert("possibleVerbs".to_string(), json!(possible));
+        meta_obj.insert("players".to_string(), json!(self.player_list()));
+    }
+    
     // Send full game state to all connected clients
     let game_started_msg = serde_json::json!({
         "type": "gameStarted",
         "state": snapshot,
-        "meta": {
-            "possibleVerbs": possible,
-            "players": self.player_list()
-        }
+        "meta": meta
     });
     let _ = self.tx.send(Message::Text(game_started_msg.to_string()));
     
@@ -272,15 +300,25 @@ pub fn start_game(&self) {
                 .actor_for_player(&player_id)
                 .unwrap_or_else(|| "spectator".to_string());
             
+            // Build meta object preserving existing meta data
+            let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
+                existing_meta.clone()
+            } else {
+                json!({})
+            };
+            
+            // Update with current data
+            if let Some(meta_obj) = meta.as_object_mut() {
+                meta_obj.insert("possibleVerbs".to_string(), json!(possible));
+                meta_obj.insert("players".to_string(), json!(self.player_list()));
+            }
+            
             let welcome = serde_json::json!({
                 "type": "welcome",
                 "you": current_actor,
                 "started": self.is_started(),
                 "state": snapshot,
-                "meta": { 
-                    "possibleVerbs": possible,
-                    "players": self.player_list()
-                }
+                "meta": meta
             });
             let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
         } else {
@@ -362,15 +400,26 @@ pub fn start_game(&self) {
                             if self.is_started() {
                                 let snapshot = { let g = self.state.lock(); g.clone() };
                                 let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
+                                
+                                // Build meta object preserving existing meta data
+                                let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
+                                    existing_meta.clone()
+                                } else {
+                                    json!({})
+                                };
+                                
+                                // Update with current data
+                                if let Some(meta_obj) = meta.as_object_mut() {
+                                    meta_obj.insert("possibleVerbs".to_string(), json!(possible));
+                                    meta_obj.insert("players".to_string(), json!(self.player_list()));
+                                }
+                                
                                 let welcome = serde_json::json!({
                                     "type": "welcome",
                                     "you": current_actor,
                                     "started": true,
                                     "state": snapshot,
-                                    "meta": { 
-                                        "possibleVerbs": possible,
-                                        "players": self.player_list()
-                                    }
+                                    "meta": meta
                                 });
                                 let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
                             } else {
@@ -430,8 +479,11 @@ pub fn start_game(&self) {
                             for op in arr {
                                 if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
                                     let mut op_obj = op.clone();
-                                    op_obj["path"] =
-                                        serde_json::Value::String(format!("/state{}", path));
+                                    // Only prefix with /state if the path doesn't start with /meta
+                                    if !path.starts_with("/meta") {
+                                        op_obj["path"] =
+                                            serde_json::Value::String(format!("/state{}", path));
+                                    }
                                     patch_ops.push(op_obj);
                                 } else {
                                     patch_ops.push(op.clone());

@@ -8,3 +8,9 @@
         vacant: true
   ui:
     direction: "Choose a cell to place a mark"
+  triggers:
+    - checkGameEnd
+
+- id: checkGameEnd
+  hook: checkGameEnd
+  auto: true

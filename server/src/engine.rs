@@ -126,24 +126,80 @@ pub fn apply_verb(
     caller: &str,
     action: &Value,
 ) -> Value {
-    // ------------------------------------------------------------------
-    // Ensure the caller is the active player.  If not, abort without
-    // mutating state.
-    // ------------------------------------------------------------------
-    if state["turn"].as_str() != Some(caller) {
-        return json!([]);
-    }
-
     let verb_id = action["verb"].as_str().unwrap_or("");
     let verb_spec = bundle
         .verbs
         .as_array()
         .and_then(|v| v.iter().find(|x| x["id"].as_str() == Some(verb_id)));
     let Some(spec) = verb_spec else { return json!([]) };
-    if spec["builtin"].as_str() == Some("moveEntity") {
-        return apply_move_entity(bundle, state, spec, action, caller);
+    
+    // Check if this is an auto verb (no turn validation)
+    let is_auto = spec["auto"].as_bool().unwrap_or(false);
+    
+    // Don't allow any non-auto verbs if game has ended
+    if !is_auto {
+        if let Some(meta) = state.get("meta") {
+            if let Some(game_status) = meta.get("gameStatus") {
+                if game_status["state"].as_str() == Some("ended") {
+                    return json!([]);
+                }
+            }
+        }
+        
+        // Ensure the caller is the active player
+        if state["turn"].as_str() != Some(caller) {
+            return json!([]);
+        }
     }
-    json!([])
+
+    let mut patches = vec![];
+    
+    // Apply the verb
+    let verb_patches = if spec["builtin"].as_str() == Some("moveEntity") {
+        apply_move_entity(bundle, state, spec, action, caller)
+    } else if spec.get("hook").is_some() {
+        apply_hook(bundle, state, spec, action, caller)
+    } else {
+        json!([])
+    };
+    
+    if let Some(arr) = verb_patches.as_array() {
+        patches.extend_from_slice(arr);
+    }
+    
+    // Apply patches to state before triggers
+    for patch in &patches {
+        apply_patch_to_state(state, patch);
+    }
+    
+    // Process triggers
+    if let Some(triggers) = spec["triggers"].as_array() {
+        for trigger in triggers {
+            if let Some(trigger_id) = trigger.as_str() {
+                // Create a trigger action
+                let trigger_action = json!({ "verb": trigger_id });
+                let trigger_patches = apply_verb(bundle, state, caller, &trigger_action);
+                if let Some(arr) = trigger_patches.as_array() {
+                    patches.extend_from_slice(arr);
+                    // Apply trigger patches to state as well
+                    for patch in arr {
+                        apply_patch_to_state(state, patch);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Remove turn advancement patches if game has ended
+    if let Some(meta) = state.get("meta") {
+        if let Some(game_status) = meta.get("gameStatus") {
+            if game_status["state"].as_str() == Some("ended") {
+                patches.retain(|p| p["path"].as_str() != Some("/turn"));
+            }
+        }
+    }
+    
+    json!(patches)
 }
 
 fn apply_move_entity(
@@ -199,7 +255,7 @@ fn apply_move_entity(
             }
         } else if zone_val.get("items").is_some() {
             let items = zone_val.get_mut("items").unwrap().as_array_mut().unwrap();
-            let idx = items.len();
+            let _idx = items.len();
             items.push(Value::String(entity.clone()));
             ops.push(json!({
                 "op": "add",
@@ -240,4 +296,154 @@ fn apply_move_entity(
     }
 
     Value::Array(ops)
+}
+
+/* --------------------------------------------------------------------------
+   Check tic-tac-toe game end
+   ----------------------------------------------------------------------- */
+fn apply_patch_to_state(state: &mut Value, patch: &Value) {
+    // Simple patch application for our use case
+    if let (Some(op), Some(path), Some(value)) = (
+        patch["op"].as_str(),
+        patch["path"].as_str(),
+        patch.get("value")
+    ) {
+        if op == "add" || op == "replace" {
+            // Parse the path and apply the change
+            let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+            let mut current = state;
+            
+            for (i, part) in parts.iter().enumerate() {
+                if i == parts.len() - 1 {
+                    // Last part - set the value
+                    if let Some(obj) = current.as_object_mut() {
+                        obj.insert(part.to_string(), value.clone());
+                    }
+                } else {
+                    // Navigate deeper - create missing objects
+                    if !current.get(part).is_some() {
+                        if let Some(obj) = current.as_object_mut() {
+                            obj.insert(part.to_string(), json!({}));
+                        }
+                    }
+                    // Safety check before unwrap
+                    if let Some(next) = current.get_mut(part) {
+                        current = next;
+                    } else {
+                        // Path doesn't exist and we couldn't create it
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn apply_hook(_bundle: &Bundle, state: &mut Value, spec: &Value, _action: &Value, _caller: &str) -> Value {
+    let hook_name = match spec["hook"].as_str() {
+        Some(name) => name,
+        None => return json!([]),
+    };
+    
+    // For now, implement checkGameEnd directly
+    // TODO: In production, use HookRuntime to execute WASM modules
+    if hook_name == "checkGameEnd" {
+        return check_tic_tac_toe_game_end(state);
+    }
+    
+    json!([])
+}
+
+fn check_tic_tac_toe_game_end(state: &Value) -> Value {
+    let board = match state["zones"]["board"].as_array() {
+        Some(b) => b,
+        None => return json!([]),
+    };
+
+    // Check for winner
+    if let Some(winner) = check_winner(board) {
+        return json!([{
+            "op": "add",
+            "path": "/meta/gameStatus",
+            "value": {
+                "state": "ended",
+                "winner": winner,
+                "tie": false
+            }
+        }]);
+    }
+
+    // Check for tie (board full)
+    let is_full = board.iter().all(|row| {
+        row.as_array()
+            .map(|r| r.iter().all(|cell| !cell.is_null()))
+            .unwrap_or(false)
+    });
+
+    if is_full {
+        return json!([{
+            "op": "add",
+            "path": "/meta/gameStatus",
+            "value": {
+                "state": "ended",
+                "tie": true
+            }
+        }]);
+    }
+
+    json!([])
+}
+
+fn check_winner(board: &[Value]) -> Option<String> {
+    // Convert board to a more manageable format
+    let mut cells: Vec<Vec<Option<String>>> = vec![vec![None; 3]; 3];
+    for (r, row) in board.iter().enumerate() {
+        if let Some(row_array) = row.as_array() {
+            for (c, cell) in row_array.iter().enumerate() {
+                if r < 3 && c < 3 {
+                    cells[r][c] = cell.as_str().map(|s| s.to_string());
+                }
+            }
+        }
+    }
+
+    // Check rows
+    for r in 0..3 {
+        if let Some(winner) = check_line(&cells[r][0], &cells[r][1], &cells[r][2]) {
+            return Some(winner);
+        }
+    }
+
+    // Check columns
+    for col in 0..3 {
+        if let Some(winner) = check_line(&cells[0][col], &cells[1][col], &cells[2][col]) {
+            return Some(winner);
+        }
+    }
+
+    // Check diagonals
+    if let Some(winner) = check_line(&cells[0][0], &cells[1][1], &cells[2][2]) {
+        return Some(winner);
+    }
+    if let Some(winner) = check_line(&cells[0][2], &cells[1][1], &cells[2][0]) {
+        return Some(winner);
+    }
+
+    None
+}
+
+fn check_line(a: &Option<String>, b: &Option<String>, c: &Option<String>) -> Option<String> {
+    match (a, b, c) {
+        (Some(mark_a), Some(mark_b), Some(mark_c)) if mark_a == mark_b && mark_b == mark_c => {
+            // Convert mark to player ID (mark_x -> p1, mark_o -> p2)
+            if mark_a == "mark_x" {
+                Some("p1".to_string())
+            } else if mark_a == "mark_o" {
+                Some("p2".to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }

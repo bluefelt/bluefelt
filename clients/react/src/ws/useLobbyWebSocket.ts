@@ -20,6 +20,11 @@ export type LobbyState = {
   meta?: {
     possibleVerbs?: Record<string, GroupedVerb[]>;
     players?: string[];
+    gameStatus?: {
+      state: string;
+      winner?: string;
+      tie?: boolean;
+    };
   };
   state?: {
     turn?: string;

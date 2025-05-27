@@ -33,6 +33,7 @@ pub struct Bundle {
     pub entities: Value,
     pub zones: Value,
     pub verbs: Value,
+    pub hooks: Option<Vec<u8>>, // WebAssembly module bytes
 }
 
 #[derive(Clone)]
@@ -76,10 +77,18 @@ impl BundleMap {
                     let verbs: Value = if verbs_path.exists() {
                         serde_yaml::from_str(&fs::read_to_string(&verbs_path)?)?
                     } else { Value::Null };
+                    
+                    // Load hooks if available
+                    let hooks_path = base.join("hooks.wasm");
+                    let hooks = if hooks_path.exists() {
+                        Some(fs::read(&hooks_path)?)
+                    } else {
+                        None
+                    };
 
                     bundles.insert(
                         game_id.clone(),
-                        Bundle { game_id: game_id.clone(), manifest, entities, zones, verbs },
+                        Bundle { game_id: game_id.clone(), manifest, entities, zones, verbs, hooks },
                     );
                 }
             }

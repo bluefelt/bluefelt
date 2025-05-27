@@ -4,6 +4,7 @@ import WebSocketStatus from './WebSocketStatus';
 import { useState, useEffect } from 'react';
 import InteractiveZone from './InteractiveZone';
 import TurnIndicator from './TurnIndicator';
+import GameEndDisplay from './GameEndDisplay';
 import { getLobby } from '../api/lobbies';
 
 import type { GameManifest } from '../api/games';
@@ -96,12 +97,21 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
 
       {lobbyState.started && (
         <>
+          <GameEndDisplay 
+            gameStatus={lobbyState.meta?.gameStatus}
+            you={lobbyState.you}
+            onClose={() => {
+              // Optional: could add logic here if needed when modal closes
+            }}
+          />
+          
           <div className="card space-y-4">
             <h3 className="text-xl font-semibold">Game Board</h3>
             <TurnIndicator
               you={lobbyState.you}
               turn={lobbyState.state?.turn}
               players={lobbyState.state?.players}
+              gameStatus={lobbyState.meta?.gameStatus}
             />
             {/* Display verb directions if it's the player's turn */}
             {lobbyState.you && lobbyState.you !== 'spectator' && 
@@ -120,7 +130,8 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
               if (!Array.isArray(zoneData)) return null;
               
               const myGroupedVerbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
-              const isMyTurn = lobbyState.you && lobbyState.you !== 'spectator' && myGroupedVerbs.length > 0;
+              const isGameEnded = lobbyState.meta?.gameStatus?.state === 'ended';
+              const isMyTurn = lobbyState.you && lobbyState.you !== 'spectator' && myGroupedVerbs.length > 0 && !isGameEnded;
               
               if (zoneName === 'board' && myGroupedVerbs.length > 0) {
                 console.log('[LobbyView] Zone render:', { 
