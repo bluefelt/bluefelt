@@ -123,9 +123,14 @@ async fn list_games(
 ) -> impl IntoResponse {
     let games = bundles.list_games();
     let game_list = games.iter().map(|game_id| {
+        let name = if let Some(bundle) = bundles.get_latest(game_id) {
+            bundle.manifest.metadata.name.clone()
+        } else {
+            game_id.clone()
+        };
         serde_json::json!({
             "id": game_id,
-            "name": game_id, // You might want to include more metadata
+            "name": name,
         })
     }).collect::<Vec<_>>();
     
