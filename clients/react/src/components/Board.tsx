@@ -51,6 +51,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
   const [cellSize, setCellSize] = useState(60); // Start with a reasonable default
   const lastContainerWidth = useRef<number>(0);
   const getMarkColor = useMarkColor();
+  const { player } = usePlayer();
   
   const rows = boardData.length;
   const cols = boardData[0].length;
@@ -221,9 +222,11 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                           isClickable ? 'cursor-pointer' : 'cursor-not-allowed'
                         }`}
                         style={{
-                          backgroundImage: `radial-gradient(circle, #4a5568 1px, transparent 1px)`,
+                          backgroundImage: isClickable && player ? 
+                            `radial-gradient(circle, ${getColorById(player.color).hex} 1px, transparent 1px)` : 
+                            'none',
                           backgroundSize: '10px 10px',
-                          backgroundColor: '#1a202c'
+                          backgroundColor: isClickable ? '#1a202c' : '#000000'
                         }}
                         onClick={() => handleCellClick(rowIndex, colIndex)}
                         onMouseEnter={(e) => {
@@ -232,7 +235,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                           }
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#1a202c';
+                          e.currentTarget.style.backgroundColor = isClickable ? '#1a202c' : '#000000';
                         }}
                       />
                     ) : (
