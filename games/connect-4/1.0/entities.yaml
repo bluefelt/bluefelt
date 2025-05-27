@@ -1,11 +1,11 @@
 - id: chip_p1
   ui:
-    glyph: "●"
+    tokenType: "o"
   props:
     value: "1"
 
 - id: chip_p2
   ui:
-    glyph: "●"
+    tokenType: "o"
   props:
     value: "2"

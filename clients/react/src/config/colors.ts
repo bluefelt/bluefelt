@@ -3,14 +3,12 @@ export const PLAYER_COLORS = [
   { id: 'pink', name: 'Pink', hex: '#FF1493' },
   { id: 'gold', name: 'Gold', hex: '#FFD700' },
   { id: 'blue', name: 'Blue', hex: '#1E90FF' },
-  { id: 'green', name: 'Green', hex: '#32CD32' },
   { id: 'purple', name: 'Purple', hex: '#9370DB' },
   { id: 'orange', name: 'Orange', hex: '#FF8C00' },
-  { id: 'cyan', name: 'Cyan', hex: '#00CED1' },
-  { id: 'red', name: 'Red', hex: '#DC143C' },
+  { id: 'cyan', name: 'Cyan', hex: '#00CED1' }
 ];
 
-export type ColorId = 'pink' | 'gold' | 'blue' | 'green' | 'purple' | 'orange' | 'cyan' | 'red';
+export type ColorId = 'pink' | 'gold' | 'blue' | 'purple' | 'orange' | 'cyan';
 
 export const DEFAULT_COLOR: ColorId = 'pink';
 

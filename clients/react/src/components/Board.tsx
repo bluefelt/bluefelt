@@ -158,10 +158,13 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
   // Calculate font size based on cell size
   const fontSize = cellSize >= 80 ? 'text-5xl' : cellSize >= 60 ? 'text-4xl' : 'text-2xl';
   
-  // Get glyph from entity definitions or fallback
-  const getGlyph = (cell: string) => {
+  // Get glyph or token info from entity definitions
+  const getEntityDisplay = (cell: string) => {
     const entity = entityDefinitions?.find(e => e.id === cell);
-    return entity?.ui?.glyph || (cell === 'mark_p1' ? 'X' : 'O');
+    if (entity?.ui?.tokenType) {
+      return { type: 'token', tokenType: entity.ui.tokenType };
+    }
+    return { type: 'glyph', glyph: entity?.ui?.glyph || (cell === 'mark_p1' ? 'X' : 'O') };
   };
   
   // Handle cell clicks for this specific zone
@@ -257,12 +260,42 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-black">
-                        <span 
-                          className={`${fontSize} font-bold`}
-                          style={{ color: getMarkColor(cell, playerNames) }}
-                        >
-                          {getGlyph(cell)}
-                        </span>
+                        {(() => {
+                          const display = getEntityDisplay(cell);
+                          const color = getMarkColor(cell, playerNames);
+                          
+                          if (display.type === 'token') {
+                            // Render SVG token
+                            const tokenSize = cellSize * 0.7; // 70% of cell size
+                            return (
+                              <div 
+                                style={{ 
+                                  width: `${tokenSize}px`, 
+                                  height: `${tokenSize}px`,
+                                  backgroundColor: color,
+                                  maskImage: `url(/tokens/token_${display.tokenType}.svg)`,
+                                  maskSize: 'contain',
+                                  maskRepeat: 'no-repeat',
+                                  maskPosition: 'center',
+                                  WebkitMaskImage: `url(/tokens/token_${display.tokenType}.svg)`,
+                                  WebkitMaskSize: 'contain',
+                                  WebkitMaskRepeat: 'no-repeat',
+                                  WebkitMaskPosition: 'center'
+                                }}
+                              />
+                            );
+                          } else {
+                            // Render text glyph
+                            return (
+                              <span 
+                                className={`${fontSize} font-bold`}
+                                style={{ color }}
+                              >
+                                {display.glyph}
+                              </span>
+                            );
+                          }
+                        })()}
                       </div>
                     )}
                   </div>

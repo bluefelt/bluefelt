@@ -2,9 +2,9 @@
   props:
     value: "x"
   ui:
-    glyph: "X"
+    tokenType: "x"
 - id: mark_p2
   props:
     value: "o"
   ui:
-    glyph: "O"
+    tokenType: "o"

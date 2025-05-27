@@ -76,11 +76,16 @@ export default function LobbiesList({ onLobbySelected }: Props) {
     let statusColor = 'text-yellow-400';
     
     if (isFinished) {
-      statusText = lobby.gameStatus.tie 
-        ? 'Tie Game' 
-        : lobby.gameStatus.winner 
-          ? `Winner: ${lobby.gameStatus.winner}`
-          : 'Finished';
+      if (lobby.gameStatus.tie) {
+        statusText = 'Tie Game';
+      } else if (lobby.gameStatus.winner) {
+        // Map winner ID (p1/p2) to player name
+        const winnerIndex = lobby.gameStatus.winner === 'p1' ? 0 : 1;
+        const winnerName = lobby.players[winnerIndex] || lobby.gameStatus.winner;
+        statusText = `Winner: ${winnerName}`;
+      } else {
+        statusText = 'Finished';
+      }
       statusColor = 'text-gray-400';
     } else if (isInProgress) {
       statusText = lobby.currentTurn ? `${lobby.currentTurn}'s turn` : 'In Progress';
