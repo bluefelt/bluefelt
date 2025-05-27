@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext.tsx";
 import { WebSocketProvider } from "./context/WebSocketContext.tsx";
 import PlayerLogin from "./components/PlayerLogin.tsx";
@@ -10,10 +10,14 @@ import "./index.css";
 function MainApp() {
   const { player } = usePlayer();
   const [lobbyId, setLobbyId] = useState<string | null>(null);
+  
+  const handleLeaveLobby = useCallback(() => {
+    setLobbyId(null);
+  }, []);
 
   if (!player) return <PlayerLogin />;
   if (lobbyId)
-    return <LobbyView lobbyId={lobbyId} onLeave={() => setLobbyId(null)} />;
+    return <LobbyView lobbyId={lobbyId} onLeave={handleLeaveLobby} />;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">

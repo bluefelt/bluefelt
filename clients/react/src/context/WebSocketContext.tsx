@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, type ReactNode } from 'react';
 import { useReconnectingWebSocket } from '../ws/useReconnectingWebSocket';
 import type { WebSocketState } from '../ws/useReconnectingWebSocket';
 import { WS_BASE_URL } from '../config';

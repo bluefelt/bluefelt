@@ -1,4 +1,3 @@
-import React from 'react';
 import type { WebSocketState } from '../ws/useReconnectingWebSocket';
 
 interface Props {

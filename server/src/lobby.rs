@@ -241,6 +241,47 @@ impl Lobby {
     pub fn is_started(&self) -> bool {
         *self.game_started.lock()
     }
+    
+    /// Build a welcome message with consistent meta handling
+    fn build_welcome_message(&self, player_id: &str, include_state: bool) -> serde_json::Value {
+        let actor = self.actor_for_player(player_id)
+            .unwrap_or_else(|| "spectator".to_string());
+        
+        if include_state {
+            let snapshot = { let g = self.state.lock(); g.clone() };
+            let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
+            
+            // Build meta object preserving existing meta data
+            let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
+                existing_meta.clone()
+            } else {
+                json!({})
+            };
+            
+            // Update with current data
+            if let Some(meta_obj) = meta.as_object_mut() {
+                meta_obj.insert("possibleVerbs".to_string(), json!(possible));
+                meta_obj.insert("players".to_string(), json!(self.player_list()));
+            }
+            
+            json!({
+                "type": "welcome",
+                "you": actor,
+                "started": true,
+                "state": snapshot,
+                "meta": meta
+            })
+        } else {
+            json!({
+                "type": "welcome",
+                "you": actor,
+                "started": false,
+                "meta": {
+                    "players": self.player_list()
+                }
+            })
+        }
+    }
 
 pub fn start_game(&self) {
     *self.game_started.lock() = true;
@@ -275,6 +316,7 @@ pub fn start_game(&self) {
 
 /// Accept a new WebSocket client, drive send/recv loops.
     pub async fn accept_client(self: Arc<Self>, socket: WebSocket, player_id: String, join: bool, since: u64) {
+        println!("[Lobby] Client {} connecting to lobby {} (join={}, since={})", player_id, self.id, join, since);
         let (ws_tx, mut rx) = socket.split();
         let tx = Arc::new(TokioMutex::new(ws_tx));
 
@@ -291,52 +333,9 @@ pub fn start_game(&self) {
 
         // Note: actor will be determined dynamically as it can change when players join/leave
 
-        // send initial welcome or waiting message
-        if self.is_started() {
-            let snapshot = { let g = self.state.lock(); g.clone() };
-            let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
-            // Get current actor assignment
-            let current_actor = self
-                .actor_for_player(&player_id)
-                .unwrap_or_else(|| "spectator".to_string());
-            
-            // Build meta object preserving existing meta data
-            let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
-                existing_meta.clone()
-            } else {
-                json!({})
-            };
-            
-            // Update with current data
-            if let Some(meta_obj) = meta.as_object_mut() {
-                meta_obj.insert("possibleVerbs".to_string(), json!(possible));
-                meta_obj.insert("players".to_string(), json!(self.player_list()));
-            }
-            
-            let welcome = serde_json::json!({
-                "type": "welcome",
-                "you": current_actor,
-                "started": self.is_started(),
-                "state": snapshot,
-                "meta": meta
-            });
-            let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
-        } else {
-            // Get current actor assignment
-            let current_actor = self
-                .actor_for_player(&player_id)
-                .unwrap_or_else(|| "spectator".to_string());
-                
-            let welcome = serde_json::json!({
-                "type": "welcome",
-                "you": current_actor,
-                "started": false,
-                "meta": { 
-                    "players": self.player_list()
-                }
-            });
-            let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
-        }
+        // Send initial welcome message
+        let welcome = self.build_welcome_message(&player_id, self.is_started());
+        let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
 
         // replay diff history since the provided tick
         let frames = {
@@ -355,6 +354,7 @@ pub fn start_game(&self) {
 
         // forward broadcast messages
         let mut bcast = self.tx.subscribe();
+        println!("[Lobby] Client {} subscribed to broadcasts, receiver count: {}", player_id, self.tx.receiver_count());
         let tx_forward = tx.clone();
         let self_ref = self.clone();
         let player_id_clone = player_id.clone();
@@ -392,47 +392,9 @@ pub fn start_game(&self) {
                         if self.add_player(player_id.clone()) {
                             self.broadcast_lobby_list();
                             
-                            // Send updated welcome message to the joining player with their new actor assignment
-                            let current_actor = self
-                                .actor_for_player(&player_id)
-                                .unwrap_or_else(|| "spectator".to_string());
-                            
-                            if self.is_started() {
-                                let snapshot = { let g = self.state.lock(); g.clone() };
-                                let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
-                                
-                                // Build meta object preserving existing meta data
-                                let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
-                                    existing_meta.clone()
-                                } else {
-                                    json!({})
-                                };
-                                
-                                // Update with current data
-                                if let Some(meta_obj) = meta.as_object_mut() {
-                                    meta_obj.insert("possibleVerbs".to_string(), json!(possible));
-                                    meta_obj.insert("players".to_string(), json!(self.player_list()));
-                                }
-                                
-                                let welcome = serde_json::json!({
-                                    "type": "welcome",
-                                    "you": current_actor,
-                                    "started": true,
-                                    "state": snapshot,
-                                    "meta": meta
-                                });
-                                let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
-                            } else {
-                                let welcome = serde_json::json!({
-                                    "type": "welcome",
-                                    "you": current_actor,
-                                    "started": false,
-                                    "meta": { 
-                                        "players": self.player_list()
-                                    }
-                                });
-                                let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
-                            }
+                            // Send updated welcome message to the joining player
+                            let welcome = self.build_welcome_message(&player_id, self.is_started());
+                            let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
                             
                             // Broadcast player update to all OTHER connected clients
                             let player_update = serde_json::json!({
@@ -501,6 +463,7 @@ pub fn start_game(&self) {
                         }
                         let frame = serde_json::json!({"type": "diff", "tick": tick, "patch": patch_ops});
                         self.history.lock().push(frame.clone());
+                        println!("[Lobby] Broadcasting diff with tick {} to {} receivers", tick, self.tx.receiver_count());
                         let _ = self.tx.send(Message::Text(frame.to_string()));
                     }
                 }

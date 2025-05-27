@@ -1,6 +1,5 @@
-import React from "react";
 
-export type Player = { id: string; mark: string };
+export type Player = { id: string; mark?: string };
 
 const markToGlyph: Record<string, string> = {
   mark_x: "X",
@@ -35,7 +34,7 @@ export default function TurnIndicator({ you, turn, players, gameStatus }: Props)
   }
   
   const player = players.find(p => p.id === turn);
-  const glyph = player ? markToGlyph[player.mark] ?? player.mark : "";
+  const glyph = player?.mark ? markToGlyph[player.mark] ?? player.mark : "";
   const label = you && you === turn
     ? `It is your turn`
     : `It is ${player ? player.id : turn}'s turn`;

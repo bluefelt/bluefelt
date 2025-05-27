@@ -63,10 +63,18 @@ const Cell = React.memo(function Cell({ value, row, col, isClickable, onClick }:
     ? (isHovered ? hoveredCellStyle : clickableCellStyle)
     : cellStyle;
 
+  const handleClick = React.useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('[Cell] Clicked:', { row, col, isClickable });
+    if (isClickable) {
+      onClick();
+    }
+  }, [row, col, isClickable, onClick]);
+
   return (
     <div 
       style={style}
-      onClick={isClickable ? onClick : undefined}
+      onClick={handleClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       title={isClickable ? `Click to place at (${row}, ${col})` : undefined}
@@ -97,11 +105,19 @@ export default function InteractiveZone({
       });
   });
 
-  const handleCellClick = (row: number, col: number) => {
+  const handleCellClick = React.useCallback((row: number, col: number) => {
     const key = `${row},${col}`;
     const validOption = validOptionsMap.get(key);
     
-    console.log('[InteractiveZone] Cell clicked:', { row, col, key, validOption, isMyTurn });
+    console.log('[InteractiveZone] Cell clicked:', { 
+      row, 
+      col, 
+      key, 
+      validOption, 
+      isMyTurn,
+      validOptionsMapSize: validOptionsMap.size,
+      hasOption: validOptionsMap.has(key)
+    });
     
     if (validOption) {
       const action = {
@@ -112,8 +128,10 @@ export default function InteractiveZone({
       };
       console.log('[InteractiveZone] Sending action:', action);
       onAction(action);
+    } else {
+      console.log('[InteractiveZone] No valid option found for cell');
     }
-  };
+  }, [validOptionsMap, zoneName, onAction, isMyTurn]);
 
   return (
     <div>
@@ -127,7 +145,7 @@ export default function InteractiveZone({
               
               return (
                 <Cell 
-                  key={c} 
+                  key={`${r}-${c}-${isClickable}`} 
                   value={cell} 
                   row={r}
                   col={c}

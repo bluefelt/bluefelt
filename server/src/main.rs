@@ -15,9 +15,11 @@ use futures_util::{SinkExt, StreamExt};
 mod bundle;
 mod engine;
 mod lobby;
+mod utils;
 
 use bundle::BundleMap;
 use crate::lobby::{LobbyMap, new_lobby, current_lobbies_json};
+use crate::utils::error_response;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -93,9 +95,7 @@ async fn create_lobby(
     let bundle = match bundles.get_latest(game_id) {
         Some(b) => b,
         None => {
-            return Json(serde_json::json!({ 
-                "error": format!("Unknown game: {}", game_id) 
-            }));
+            return error_response(&format!("Unknown game: {}", game_id));
         }
     };
     
@@ -114,22 +114,8 @@ async fn create_lobby(
 async fn list_lobbies(
     lobbies: Arc<LobbyMap>,
 ) -> impl IntoResponse {
-    
-    let list = lobbies
-        .iter()
-        .map(|l| {
-            let lobby = l.value();
-            serde_json::json!({
-                "id": l.key(),
-                "game_id": lobby.bundle.game_id,
-                "name": format!("{} - Lobby {}", lobby.bundle.game_id, &l.key()[0..6]),
-                "players": lobby.player_list(),
-                "started": lobby.is_started()
-            })
-        })
-        .collect::<Vec<_>>();
-    
-    Json(list)
+    let json = current_lobbies_json(&lobbies);
+    Json(json)
 }
 
 async fn list_games(
@@ -153,7 +139,7 @@ async fn get_game(
     if let Some(bundle) = bundles.get_latest(&id) {
         Json(serde_json::to_value(&bundle.manifest).unwrap())
     } else {
-        Json(serde_json::json!({ "error": "Unknown game" }))
+        error_response("Unknown game")
     }
 }
 
@@ -171,7 +157,7 @@ async fn get_lobby(
             "manifest": lobby.bundle.manifest
         }))
     } else {
-        Json(serde_json::json!({ "error": "Lobby not found" }))
+        error_response("Lobby not found")
     }
 }
 

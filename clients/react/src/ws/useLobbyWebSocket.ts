@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { applyPatch } from 'fast-json-patch';
 import { useReconnectingWebSocket } from './useReconnectingWebSocket';
 import { WS_BASE_URL } from '../config';
+import type { ServerMessage, WelcomeMessage, PlayerUpdateMessage, DiffMessage, GameStartedMessage } from '../types/messages';
 
 export type VerbOption = {
   zone: string;
@@ -28,7 +29,7 @@ export type LobbyState = {
   };
   state?: {
     turn?: string;
-    players?: Array<{ id: string }>;
+    players?: Array<{ id: string; mark?: string }>;
     zones?: Record<string, unknown[][]>;
   };
   started?: boolean;
@@ -43,28 +44,17 @@ export function useLobbyWebSocket(
   const lastTickRef = useRef<number>(
     Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || '0'),
   );
-  const url = `${WS_BASE_URL}/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
-    playerId,
-  )}&join=${autoJoin ? 1 : 0}&since=${lastTickRef.current}`;
+  // Create URL with initial lastTick value
+  const url = React.useMemo(() => {
+    const initialTick = Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || '0');
+    return `${WS_BASE_URL}/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
+      playerId,
+    )}&join=${autoJoin ? 1 : 0}&since=${initialTick}`;
+  }, [lobbyId, playerId, autoJoin]);
 
-  const { messages, sendMessage, connected, state } = useReconnectingWebSocket(url, (dataStr) => {
-    let data: {
-      type: string;
-      you?: string;
-      meta?: LobbyState['meta'];
-      state?: LobbyState['state'];
-      started?: boolean;
-      tick?: number;
-      patch?: unknown[];
-      players?: string[];
-    };
-    try {
-      data = JSON.parse(dataStr);
-    } catch {
-      return;
-    }
-
-    if (data.type === 'welcome') {
+  // Message handlers map for better organization
+  const messageHandlers = {
+    welcome: (data: WelcomeMessage) => {
       setLobbyState({
         you: data.you,
         meta: data.meta,
@@ -72,7 +62,9 @@ export function useLobbyWebSocket(
         started: data.started,
       });
       if (typeof data.tick === 'number') lastTickRef.current = data.tick;
-    } else if (data.type === 'playerUpdate') {
+    },
+    
+    playerUpdate: (data: PlayerUpdateMessage) => {
       setLobbyState((prev) => ({
         ...prev,
         meta: {
@@ -80,17 +72,26 @@ export function useLobbyWebSocket(
           players: data.players,
         },
       }));
-    } else if (data.type === 'diff' && Array.isArray(data.patch)) {
-      setLobbyState((prev) => {
-        const full = { meta: prev.meta, state: prev.state };
-        const patched = applyPatch({ ...full }, data.patch, true, false)
-          .newDocument as LobbyState;
-        return { ...patched, you: prev.you, started: prev.started };
-      });
-      if (typeof data.tick === 'number') lastTickRef.current = data.tick;
-    } else if (data.type === 'started') {
+    },
+    
+    diff: (data: DiffMessage) => {
+      console.log('[useLobbyWebSocket] Received diff with tick:', data.tick);
+      if (Array.isArray(data.patch)) {
+        setLobbyState((prev) => {
+          const full = { meta: prev.meta, state: prev.state };
+          const patched = applyPatch({ ...full }, data.patch as Parameters<typeof applyPatch>[1], true, false)
+            .newDocument as LobbyState;
+          return { ...patched, you: prev.you, started: prev.started };
+        });
+        if (typeof data.tick === 'number') lastTickRef.current = data.tick;
+      }
+    },
+    
+    started: () => {
       setLobbyState((prev) => ({ ...prev, started: true }));
-    } else if (data.type === 'gameStarted') {
+    },
+    
+    gameStarted: (data: GameStartedMessage) => {
       setLobbyState((prev) => ({
         ...prev,
         you: data.you || prev.you,
@@ -98,6 +99,19 @@ export function useLobbyWebSocket(
         meta: data.meta,
         started: true,
       }));
+    },
+  };
+
+  const { messages, sendMessage, connected, state } = useReconnectingWebSocket(url, (dataStr) => {
+    try {
+      const data = JSON.parse(dataStr) as ServerMessage;
+      const handler = messageHandlers[data.type as keyof typeof messageHandlers];
+      if (handler) {
+        // @ts-expect-error - Union type requires type assertion
+        handler(data);
+      }
+    } catch (error) {
+      console.error('Failed to parse WebSocket message:', error);
     }
   });
 

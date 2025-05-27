@@ -39,7 +39,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
         if (!prev) return prev;
         return {
           ...prev,
-          players: lobbyState.meta.players,
+          players: lobbyState.meta?.players || prev.players,
           started: lobbyState.started || false
         };
       });
@@ -133,15 +133,6 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
               const isGameEnded = lobbyState.meta?.gameStatus?.state === 'ended';
               const isMyTurn = lobbyState.you && lobbyState.you !== 'spectator' && myGroupedVerbs.length > 0 && !isGameEnded;
               
-              if (zoneName === 'board' && myGroupedVerbs.length > 0) {
-                console.log('[LobbyView] Zone render:', { 
-                  zoneName, 
-                  you: lobbyState.you, 
-                  myGroupedVerbs, 
-                  isMyTurn,
-                  turn: lobbyState.state?.turn 
-                });
-              }
               
               return (
                 <InteractiveZone

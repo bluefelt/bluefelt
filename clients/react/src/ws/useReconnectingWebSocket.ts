@@ -39,7 +39,7 @@ export function useReconnectingWebSocket(
   const [state, setState] = useState<WebSocketState>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectCountRef = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<number | undefined>(undefined);
   const urlRef = useRef(url);
   const onMessageRef = useRef(onMessage);
 
@@ -89,6 +89,8 @@ export function useReconnectingWebSocket(
 
       ws.onmessage = (event) => {
         const now = Date.now();
+        const msgId = Math.random().toString(36).substr(2, 9);
+        console.log(`[WS] Received message ${msgId}:`, event.data.substring(0, 100));
         setMessages((msgs) => [
           { direction: 'received', content: event.data, timestamp: now },
           ...msgs,
@@ -111,6 +113,7 @@ export function useReconnectingWebSocket(
       ]);
       return true;
     }
+    console.log('[useReconnectingWebSocket] Cannot send - WebSocket not open:', wsRef.current?.readyState);
     return false;
   }, []);
 
@@ -124,22 +127,30 @@ export function useReconnectingWebSocket(
     }
   }, []);
 
-  // Connect on mount
+  // Connect on mount only
   useEffect(() => {
     connect();
+    
     return () => {
       disconnect();
     };
+    // We only want this to run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reconnect if URL changes
   useEffect(() => {
-    if (wsRef.current) {
+    // Skip first mount
+    if (!wsRef.current) return;
+    
+    // Only reconnect if URL actually changed
+    if (urlRef.current !== url) {
+      console.log('[useReconnectingWebSocket] URL changed, reconnecting:', { old: urlRef.current, new: url });
+      urlRef.current = url;
       disconnect();
       connect();
     }
-  }, [url]);
+  }, [url, disconnect, connect]);
 
   return {
     messages,
