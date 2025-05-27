@@ -1,8 +1,8 @@
 - id: place
+  builtin: moveEntity
   params:
-    source: marks_{player}
+    source: marks_{actor}
     target:
-      type: gridCell
       zone: board
       constraints:
         vacant: true

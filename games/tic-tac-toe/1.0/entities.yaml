@@ -1,6 +1,10 @@
 - id: mark_x
   props:
+    value: "x"
+  ui:
     glyph: "X"
 - id: mark_o
   props:
+    value: "o"
+  ui:
     glyph: "O"

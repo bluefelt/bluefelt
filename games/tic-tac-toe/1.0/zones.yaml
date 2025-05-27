@@ -1,7 +1,8 @@
 - id: board
   shape: grid
-  width: 3
-  height: 3
+  gridProps:
+    width: 3
+    height: 3
   contents: empty
   visibility: all
 - id: marks_{player}
