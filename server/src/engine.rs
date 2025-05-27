@@ -120,7 +120,20 @@ fn init_list(contents: &Value) -> Value {
 /* --------------------------------------------------------------------------
    Apply verb
    ----------------------------------------------------------------------- */
-pub fn apply_verb(bundle: &Bundle, state: &mut Value, action: &Value) -> Value {
+pub fn apply_verb(
+    bundle: &Bundle,
+    state: &mut Value,
+    caller: &str,
+    action: &Value,
+) -> Value {
+    // ------------------------------------------------------------------
+    // Ensure the caller is the active player.  If not, abort without
+    // mutating state.
+    // ------------------------------------------------------------------
+    if state["turn"].as_str() != Some(caller) {
+        return json!([]);
+    }
+
     let verb_id = action["verb"].as_str().unwrap_or("");
     let verb_spec = bundle
         .verbs
@@ -128,17 +141,22 @@ pub fn apply_verb(bundle: &Bundle, state: &mut Value, action: &Value) -> Value {
         .and_then(|v| v.iter().find(|x| x["id"].as_str() == Some(verb_id)));
     let Some(spec) = verb_spec else { return json!([]) };
     if spec["builtin"].as_str() == Some("moveEntity") {
-        return apply_move_entity(bundle, state, spec, action);
+        return apply_move_entity(bundle, state, spec, action, caller);
     }
     json!([])
 }
 
-fn apply_move_entity(_bundle: &Bundle, state: &mut Value, spec: &Value, action: &Value) -> Value {
-    let actor = state["turn"].as_str().unwrap_or("p1").to_string();
+fn apply_move_entity(
+    _bundle: &Bundle,
+    state: &mut Value,
+    spec: &Value,
+    action: &Value,
+    actor: &str,
+) -> Value {
     let source_template = spec["params"]["source"].as_str().unwrap_or("");
-    let source_id = source_template.replace("{actor}", &actor);
+    let source_id = source_template.replace("{actor}", actor);
     let target_zone = spec["params"]["target"]["zone"].as_str().unwrap_or("");
-    let target_id = target_zone.replace("{actor}", &actor);
+    let target_id = target_zone.replace("{actor}", actor);
 
     // Extract entity from source
     let mut entity = String::new();
@@ -204,7 +222,7 @@ fn apply_move_entity(_bundle: &Bundle, state: &mut Value, spec: &Value, action: 
         if let Some(players) = state["players"].as_array() {
             players
                 .iter()
-                .position(|p| p["id"].as_str() == Some(actor.as_str()))
+                .position(|p| p["id"].as_str() == Some(actor))
                 .map(|idx| {
                     players[(idx + 1) % players.len()]["id"]
                         .as_str()

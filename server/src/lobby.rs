@@ -223,13 +223,15 @@ pub fn start_game(&self) {
             self.add_player(player_id.clone());
         }
 
+        // Determine which game actor this connection represents
+        let actor = self
+            .actor_for_player(&player_id)
+            .unwrap_or_else(|| "spectator".to_string());
+
         // send initial welcome or waiting message
         if self.is_started() {
             let snapshot = { let g = self.state.lock(); g.clone() };
             let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
-            let actor = self
-                .actor_for_player(&player_id)
-                .unwrap_or_else(|| "spectator".to_string());
             let welcome = serde_json::json!({
                 "type": "welcome",
                 "you": actor,
@@ -287,7 +289,7 @@ pub fn start_game(&self) {
                         }
                     } else if json["verb"] == "place" && self.is_started() {
                         let diff =
-                            engine::apply_verb(&self.bundle, &mut self.state.lock(), &json);
+                            engine::apply_verb(&self.bundle, &mut self.state.lock(), &actor, &json);
                         let tick = {
                             let mut t = self.tick.lock();
                             *t += 1;
