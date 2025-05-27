@@ -86,6 +86,7 @@ impl BundleMap {
                         None
                     };
 
+                    println!("Loading game: {} v{}", game_id, ver);
                     bundles.insert(
                         game_id.clone(),
                         Bundle { game_id: game_id.clone(), manifest, entities, zones, verbs, hooks },
@@ -93,6 +94,7 @@ impl BundleMap {
                 }
             }
         }
+        println!("Loaded {} games total", bundles.len());
         Ok(Self { bundles })
     }
 

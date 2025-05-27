@@ -140,13 +140,17 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
   const handleCellClick = (row: number, col: number) => {
     if (!isYourTurn) return;
     
-    // Get the appropriate verb (usually "place" for tic-tac-toe)
+    // Get the appropriate verb - first try to find one that matches this cell
     const verbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
-    const placeVerb = verbs.find(v => v.verb === 'place') || verbs[0];
+    const matchingVerb = verbs.find(v => 
+      v.validOptions?.some(opt => 
+        opt.zone === 'board' && opt.row === row && opt.col === col
+      )
+    );
     
-    if (placeVerb) {
+    if (matchingVerb) {
       const message = JSON.stringify({
-        verb: placeVerb.verb,
+        verb: matchingVerb.verb,
         args: { row, col }
       });
       sendMessage(message);
@@ -266,6 +270,7 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
                 isMyTurn={!!isYourTurn}
                 zoneMetadata={lobbyState.meta?.zones}
                 playerNames={lobbyState.meta?.players}
+                possibleVerbs={lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || []}
               />
             </>
           ) : (

@@ -216,21 +216,38 @@ impl Lobby {
     fn possible_verbs(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
         let mut map = serde_json::Map::new();
 
-        // Check if game has ended
-        if let Some(meta) = state.get("meta") {
-            if let Some(game_status) = meta.get("gameStatus") {
-                if game_status["state"].as_str() == Some("ended") {
-                    // Game has ended, no moves possible
-                    if let Some(players) = state["players"].as_array() {
-                        for player in players {
-                            if let Some(id) = player["id"].as_str() {
-                                map.insert(id.to_string(), serde_json::Value::Array(vec![]));
-                            }
-                        }
+        println!("[DEBUG possible_verbs] Checking game state - meta exists: {}, meta.gameStatus exists: {}", 
+            state.get("meta").is_some(),
+            state.get("meta").and_then(|m| m.get("gameStatus")).is_some()
+        );
+
+        // Check if game has ended - check both possible locations
+        let game_ended = 
+            // Check in meta first
+            state.get("meta")
+                .and_then(|m| m.get("gameStatus"))
+                .and_then(|gs| gs.get("state"))
+                .and_then(|s| s.as_str())
+                .map(|s| s == "ended")
+                .unwrap_or(false) ||
+            // Also check at top level (in case patches were applied there)
+            state.get("gameStatus")
+                .and_then(|gs| gs.get("state"))
+                .and_then(|s| s.as_str())
+                .map(|s| s == "ended")
+                .unwrap_or(false);
+                
+        if game_ended {
+            println!("[DEBUG] Game has ended, returning empty possibleVerbs for all players");
+            // Game has ended, no moves possible
+            if let Some(players) = state["players"].as_array() {
+                for player in players {
+                    if let Some(id) = player["id"].as_str() {
+                        map.insert(id.to_string(), serde_json::Value::Array(vec![]));
                     }
-                    return map;
                 }
             }
+            return map;
         }
 
         let turn_player = state["turn"].as_str().unwrap_or("");
@@ -249,15 +266,43 @@ impl Lobby {
                                             let zone_state = &state["zones"][target_zone];
                                             if zone_state.is_array() {
                                                 let mut valid_options = Vec::new();
+                                                let gravity = v["params"]["target"]["gravity"].as_bool().unwrap_or(false);
                                                 
-                                                for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
-                                                    for (c, cell) in row.as_array().unwrap().iter().enumerate() {
-                                                        if cell.is_null() {
-                                                            valid_options.push(serde_json::json!({
-                                                                "zone": target_zone,
-                                                                "row": r,
-                                                                "col": c
-                                                            }));
+                                                if gravity {
+                                                    // For gravity mode, only check top row (row 0) and exclude full columns
+                                                    if let Some(grid) = zone_state.as_array() {
+                                                        let cols = grid.get(0).and_then(|r| r.as_array()).map(|r| r.len()).unwrap_or(0);
+                                                        for c in 0..cols {
+                                                            // Check if column has any empty cell
+                                                            let mut has_empty = false;
+                                                            for row in grid {
+                                                                if let Some(cells) = row.as_array() {
+                                                                    if cells.get(c).map(|cell| cell.is_null()).unwrap_or(false) {
+                                                                        has_empty = true;
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                            if has_empty {
+                                                                valid_options.push(serde_json::json!({
+                                                                    "zone": target_zone,
+                                                                    "row": 0, // Always top row for gravity
+                                                                    "col": c
+                                                                }));
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    // Normal mode - check all empty cells
+                                                    for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
+                                                        for (c, cell) in row.as_array().unwrap().iter().enumerate() {
+                                                            if cell.is_null() {
+                                                                valid_options.push(serde_json::json!({
+                                                                    "zone": target_zone,
+                                                                    "row": r,
+                                                                    "col": c
+                                                                }));
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -495,6 +540,7 @@ pub fn start_game(&self) {
                         let mut patch_ops = Vec::new();
                         if let Some(arr) = diff.as_array() {
                             for op in arr {
+                                println!("[DEBUG] Original patch: {:?}", op);
                                 if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
                                     let mut op_obj = op.clone();
                                     // Only prefix with /state if the path doesn't start with /meta
@@ -502,26 +548,55 @@ pub fn start_game(&self) {
                                         op_obj["path"] =
                                             serde_json::Value::String(format!("/state{}", path));
                                     }
+                                    println!("[DEBUG] Transformed patch: {:?}", op_obj);
                                     patch_ops.push(op_obj);
                                 } else {
                                     patch_ops.push(op.clone());
                                 }
                             }
                         }
-                        let current_state = { let g = self.state.lock(); g.clone() };
-                        let possible = Lobby::possible_verbs(&current_state, &self.bundle);
-                        for (pid, verbs) in possible {
-                            patch_ops.push(serde_json::json!({
-                                "op": "replace",
-                                "path": format!("/meta/possibleVerbs/{}", pid),
-                                "value": verbs
-                            }));
-                        }
-                        // Check if game just ended
+                        
+                        // Check if game just ended in the patches
                         let game_ended = patch_ops.iter().any(|op| {
-                            op.get("path").and_then(|p| p.as_str()) == Some("/meta/gameStatus") &&
+                            let path = op.get("path").and_then(|p| p.as_str()).unwrap_or("");
+                            let is_game_status = path == "/meta/gameStatus" || path == "/state/meta/gameStatus";
+                            if is_game_status {
+                                println!("[DEBUG] Found gameStatus patch at path: {}, value: {:?}", path, op.get("value"));
+                            }
+                            is_game_status && 
                             op.get("value").and_then(|v| v.get("state")).and_then(|s| s.as_str()) == Some("ended")
                         });
+                        
+                        println!("[DEBUG] Game ended check: {}", game_ended);
+                        
+                        // Only compute possible verbs if game hasn't ended
+                        if game_ended {
+                            println!("[DEBUG] Game has ended! Setting empty possibleVerbs for all players");
+                            // Game just ended, set empty possibleVerbs for all players
+                            if let Some(players) = self.state.lock()["players"].as_array() {
+                                for player in players {
+                                    if let Some(id) = player["id"].as_str() {
+                                        println!("[DEBUG] Setting empty possibleVerbs for player: {}", id);
+                                        patch_ops.push(serde_json::json!({
+                                            "op": "replace",
+                                            "path": format!("/meta/possibleVerbs/{}", id),
+                                            "value": []
+                                        }));
+                                    }
+                                }
+                            }
+                        } else {
+                            // Game still active, compute possible verbs normally
+                            let current_state = { let g = self.state.lock(); g.clone() };
+                            let possible = Lobby::possible_verbs(&current_state, &self.bundle);
+                            for (pid, verbs) in possible {
+                                patch_ops.push(serde_json::json!({
+                                    "op": "replace",
+                                    "path": format!("/meta/possibleVerbs/{}", pid),
+                                    "value": verbs
+                                }));
+                            }
+                        }
                         
                         let frame = serde_json::json!({"type": "diff", "tick": tick, "patch": patch_ops});
                         self.history.lock().push(frame.clone());

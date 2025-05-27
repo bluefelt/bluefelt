@@ -1,0 +1,10 @@
+gameId: connect-4
+version: "1.0"
+specVersion: "0.1"
+metadata:
+  name: "Connect 4"
+  author: "Bluefelt Team"
+  players:
+    min: 2
+    max: 2
+  description: "Classic Connect 4 game - be the first to get 4 in a row!"

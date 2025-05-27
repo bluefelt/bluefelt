@@ -157,6 +157,8 @@ pub fn apply_verb(
     // Apply the verb
     let verb_patches = if spec["builtin"].as_str() == Some("moveEntity") {
         apply_move_entity(bundle, state, spec, action, caller)
+    } else if spec["builtin"].as_str() == Some("nextTurn") {
+        apply_next_turn(state, caller)
     } else if spec.get("hook").is_some() {
         apply_hook(bundle, state, spec, action, caller)
     } else if spec.get("conditions").is_some() {
@@ -240,8 +242,42 @@ fn apply_move_entity(
     if let Some(zone_val) = state["zones"].get_mut(&target_id) {
         if zone_val.is_array() {
             // grid
-            let row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
+            let mut row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
             let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
+            
+            // Check for gravity mode
+            let gravity = spec["params"]["target"]["gravity"].as_bool().unwrap_or(false);
+            
+            if gravity {
+                // For gravity mode, find the lowest empty row in the column
+                if let Some(grid) = zone_val.as_array() {
+                    // First check if column is full
+                    let mut column_full = true;
+                    for r in 0..grid.len() {
+                        if let Some(row_arr) = grid[r].as_array() {
+                            if row_arr.get(col).map(|c| c.is_null()).unwrap_or(false) {
+                                column_full = false;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if column_full {
+                        return json!([]); // Column is full, can't place
+                    }
+                    
+                    // Find lowest empty row
+                    for r in (0..grid.len()).rev() {
+                        if let Some(row_arr) = grid[r].as_array() {
+                            if row_arr.get(col).map(|c| c.is_null()).unwrap_or(false) {
+                                row = r;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
             if let Some(row_arr) = zone_val.as_array_mut().and_then(|r| r.get_mut(row)) {
                 if let Some(cells) = row_arr.as_array_mut() {
                     if cells[col].is_null() {
@@ -275,13 +311,16 @@ fn apply_move_entity(
         }));
     }
 
-    // rotate turn
+    Value::Array(ops)
+}
+
+fn apply_next_turn(state: &mut Value, caller: &str) -> Value {
+    // Get next player in turn order
     let next_turn = {
-        // create a short, isolated immutable borrow
         if let Some(players) = state["players"].as_array() {
             players
                 .iter()
-                .position(|p| p["id"].as_str() == Some(actor))
+                .position(|p| p["id"].as_str() == Some(caller))
                 .map(|idx| {
                     players[(idx + 1) % players.len()]["id"]
                         .as_str()
@@ -295,10 +334,10 @@ fn apply_move_entity(
 
     if let Some(next) = next_turn {
         state["turn"] = Value::String(next.clone());
-        ops.push(json!({ "op": "replace", "path": "/turn", "value": next }));
+        return json!([{ "op": "replace", "path": "/turn", "value": next }]);
     }
-
-    Value::Array(ops)
+    
+    json!([])
 }
 
 /* --------------------------------------------------------------------------
@@ -343,6 +382,8 @@ fn apply_patch_to_state(state: &mut Value, patch: &Value) {
 }
 
 fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Value, caller: &str) -> Value {
+    println!("[DEBUG] apply_conditions called for verb: {:?}, caller: {}", spec["id"], caller);
+    
     let conditions = match spec["conditions"].as_array() {
         Some(c) => c,
         None => return json!([]),
@@ -350,8 +391,8 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
     
     let mut patches = vec![];
     
-    // For checkGameEnd, we need to check conditions for all players
-    let players_to_check = if spec["id"].as_str() == Some("checkGameEnd") {
+    // For checkWin or checkGameEnd, we need to check conditions for all players
+    let players_to_check = if spec["id"].as_str() == Some("checkGameEnd") || spec["id"].as_str() == Some("checkWin") {
         // Get all players from state
         if let Some(players) = state["players"].as_array() {
             players.iter()
@@ -367,59 +408,93 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
     
     for check_player in &players_to_check {
         for condition in conditions {
-            let builtin = match condition["builtin"].as_str() {
-                Some(b) => b,
+            let condition_type = match condition["type"].as_str() {
+                Some(t) => t,
                 None => continue,
             };
             
-            let condition_met = match builtin {
+            let condition_met = match condition_type {
                 "consecutiveMarksInRow" => check_consecutive_marks(state, condition, check_player),
                 "allCellsFilled" => check_all_cells_filled(state, condition),
+                "any" => {
+                    // Handle nested conditions for "any" type
+                    if let Some(sub_conditions) = condition["conditions"].as_array() {
+                        for sub_cond in sub_conditions {
+                            let sub_met = match sub_cond["type"].as_str() {
+                                Some("consecutiveMarksInRow") => check_consecutive_marks(state, sub_cond, check_player),
+                                Some("allCellsFilled") => check_all_cells_filled(state, sub_cond),
+                                _ => false,
+                            };
+                            
+                            if sub_met {
+                                // Apply the result from the sub-condition
+                                let result = sub_cond["result"].as_str().unwrap_or("");
+                                match result {
+                                    "gameWin" => {
+                                        patches.push(json!({
+                                            "op": "add",
+                                            "path": "/meta/gameStatus",
+                                            "value": {
+                                                "state": "ended",
+                                                "winner": check_player,
+                                                "tie": false
+                                            }
+                                        }));
+                                        return json!(patches);
+                                    }
+                                    "gameTie" => {
+                                        patches.push(json!({
+                                            "op": "add",
+                                            "path": "/meta/gameStatus",
+                                            "value": {
+                                                "state": "ended",
+                                                "tie": true
+                                            }
+                                        }));
+                                        return json!(patches);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        false
+                    } else {
+                        false
+                    }
+                },
                 _ => false,
             };
             
             if condition_met {
-            // Apply the result patches
-            if let Some(results) = condition["result"].as_array() {
-                for result in results {
-                    if let Some(obj) = result.as_object() {
-                        for (key, value) in obj {
-                            match key.as_str() {
-                                "gameWin" => {
-                                    let winner = if value.as_str() == Some("actor") {
-                                        check_player
-                                    } else {
-                                        value.as_str().unwrap_or("")
-                                    };
-                                    patches.push(json!({
-                                        "op": "add",
-                                        "path": "/meta/gameStatus",
-                                        "value": {
-                                            "state": "ended",
-                                            "winner": winner,
-                                            "tie": false
-                                        }
-                                    }));
-                                    return json!(patches); // Exit after finding a winner
-                                }
-                                "gameTie" => {
-                                    patches.push(json!({
-                                        "op": "add",
-                                        "path": "/meta/gameStatus",
-                                        "value": {
-                                            "state": "ended",
-                                            "tie": true
-                                        }
-                                    }));
-                                    return json!(patches);
-                                }
-                                _ => {}
+                // Apply the result
+                let result = condition["result"].as_str().unwrap_or("");
+                match result {
+                    "gameWin" => {
+                        patches.push(json!({
+                            "op": "add",
+                            "path": "/meta/gameStatus",
+                            "value": {
+                                "state": "ended",
+                                "winner": check_player,
+                                "tie": false
                             }
-                        }
+                        }));
+                        return json!(patches); // Exit after finding a winner
                     }
+                    "gameTie" => {
+                        patches.push(json!({
+                            "op": "add",
+                            "path": "/meta/gameStatus",
+                            "value": {
+                                "state": "ended",
+                                "tie": true
+                            }
+                        }));
+                        return json!(patches);
+                    }
+                    _ => {}
                 }
             }
-        }
         }
     }
     

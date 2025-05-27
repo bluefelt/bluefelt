@@ -9,6 +9,7 @@ interface BoardProps {
   isMyTurn?: boolean;
   zoneMetadata?: any[]; // Array of zone definitions from manifest
   playerNames?: string[]; // Array of player names
+  possibleVerbs?: any[]; // Array of possible verbs for current player
 }
 
 interface ZoneProps {
@@ -20,6 +21,7 @@ interface ZoneProps {
   zoneMetadata?: any[];
   isSingleZone?: boolean;
   playerNames?: string[];
+  possibleVerbs?: any[];
 }
 
 import { usePlayer } from '../context/PlayerContext';
@@ -32,21 +34,21 @@ const useMarkColor = () => {
   return (cell: string, playerNames?: string[]) => {
     if (!player || !playerNames) return '#888';
     
-    // Find which player this mark belongs to
-    const match = cell.match(/mark_p(\d+)/);
+    // Find which player this entity belongs to - matches mark_p1, chip_p1, etc.
+    const match = cell.match(/_p(\d+)$/);
     if (!match) return '#888';
     
-    const markPlayerIndex = parseInt(match[1]) - 1;
+    const entityPlayerIndex = parseInt(match[1]) - 1;
     const myPlayerIndex = playerNames.findIndex(name => name === player.username);
     
     if (myPlayerIndex === -1) return '#888';
     
-    const color = getPlayerColor(markPlayerIndex, player.color, myPlayerIndex);
+    const color = getPlayerColor(entityPlayerIndex, player.color, myPlayerIndex);
     return color.hex;
   };
 };
 
-function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, isSingleZone = false, playerNames }: ZoneProps) {
+function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, isSingleZone = false, playerNames, possibleVerbs }: ZoneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(60); // Start with a reasonable default
   const lastContainerWidth = useRef<number>(0);
@@ -208,7 +210,22 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
             {boardData.map((row, rowIndex) =>
               row.map((cell: any, colIndex: number) => {
                 const isEmpty = cell === null;
-                const isClickable = isMyTurn && isEmpty && (zoneId === 'board' || zoneId === 'da-board');
+                
+                // Check if this cell is a valid move based on possibleVerbs
+                let isClickable = false;
+                if (isMyTurn && isEmpty && (zoneId === 'board' || zoneId === 'da-board')) {
+                  if (possibleVerbs !== undefined) {
+                    // If possibleVerbs is provided (even if empty), use it
+                    isClickable = possibleVerbs.some(verb => 
+                      verb.validOptions?.some(opt => 
+                        opt.zone === zoneId && opt.row === rowIndex && opt.col === colIndex
+                      )
+                    );
+                  } else {
+                    // Only fall back to old logic if possibleVerbs is not provided at all
+                    isClickable = true;
+                  }
+                }
                 
                 return (
                   <div
@@ -267,7 +284,8 @@ export default function Board({
   onCellClick,
   isMyTurn = false,
   zoneMetadata,
-  playerNames
+  playerNames,
+  possibleVerbs
 }: BoardProps) {
   if (!zones) {
     return null;
@@ -302,6 +320,7 @@ export default function Board({
           zoneMetadata={zoneMetadata}
           isSingleZone={gridZones.length === 1}
           playerNames={playerNames}
+          possibleVerbs={possibleVerbs}
         />
       ))}
     </div>

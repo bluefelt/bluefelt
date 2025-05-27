@@ -1,0 +1,11 @@
+- id: chip_p1
+  ui:
+    glyph: "●"
+  props:
+    value: "1"
+
+- id: chip_p2
+  ui:
+    glyph: "●"
+  props:
+    value: "2"
