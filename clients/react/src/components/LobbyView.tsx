@@ -3,7 +3,6 @@ import { useLobbyWebSocket } from '../ws/useLobbyWebSocket';
 import WebSocketStatus from './WebSocketStatus';
 import { useState, useEffect } from 'react';
 import InteractiveZone from './InteractiveZone';
-import type { ZoneAction } from './InteractiveZone';
 import TurnIndicator from './TurnIndicator';
 import { getLobby } from '../api/lobbies';
 
@@ -104,31 +103,46 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
               turn={lobbyState.state?.turn}
               players={lobbyState.state?.players}
             />
+            {/* Display verb directions if it's the player's turn */}
             {lobbyState.you && lobbyState.you !== 'spectator' && 
-             lobbyState.state?.turn === lobbyState.you && (
-              <p className="text-sm text-blue-400 font-semibold animate-pulse">
-                It's your turn! Click on an empty cell to make your move.
-              </p>
+             lobbyState.state?.turn === lobbyState.you && 
+             lobbyState.meta?.possibleVerbs?.[lobbyState.you] && (
+              <div className="space-y-2">
+                {lobbyState.meta.possibleVerbs[lobbyState.you].map((groupedVerb, idx) => (
+                  <p key={idx} className="text-sm text-blue-400 font-semibold animate-pulse">
+                    {groupedVerb.direction}
+                  </p>
+                ))}
+              </div>
             )}
             {/* Render interactive zones */}
             {lobbyState.state?.zones && Object.entries(lobbyState.state.zones).map(([zoneName, zoneData]) => {
               if (!Array.isArray(zoneData)) return null;
               
-              const myPossibleVerbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
-              const zoneActions = myPossibleVerbs.filter((v) => v.zone === zoneName);
-              const isMyTurn = lobbyState.you && lobbyState.you !== 'spectator' && zoneActions.length > 0;
+              const myGroupedVerbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
+              const isMyTurn = lobbyState.you && lobbyState.you !== 'spectator' && myGroupedVerbs.length > 0;
+              
+              if (zoneName === 'board' && myGroupedVerbs.length > 0) {
+                console.log('[LobbyView] Zone render:', { 
+                  zoneName, 
+                  you: lobbyState.you, 
+                  myGroupedVerbs, 
+                  isMyTurn,
+                  turn: lobbyState.state?.turn 
+                });
+              }
               
               return (
                 <InteractiveZone
                   key={zoneName}
                   zoneName={zoneName}
                   zoneData={zoneData as (string | null)[][]}
-                  possibleActions={zoneActions as ZoneAction[]}
+                  groupedVerbs={myGroupedVerbs}
                   isMyTurn={!!isMyTurn}
                   onAction={(action) => {
                     const message = JSON.stringify({
                       verb: action.verb,
-                      args: action.args
+                      args: { row: action.row, col: action.col }
                     });
                     sendMessage(message);
                   }}

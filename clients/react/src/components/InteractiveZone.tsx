@@ -1,15 +1,17 @@
 import React from 'react';
+import type { GroupedVerb, VerbOption } from '../ws/useLobbyWebSocket';
 
 export type ZoneAction = {
   verb: string;
   zone: string;
-  args: { row: number; col: number };
+  row: number;
+  col: number;
 };
 
 type InteractiveZoneProps = {
   zoneName: string;
   zoneData: (string | null)[][];
-  possibleActions: ZoneAction[];
+  groupedVerbs: GroupedVerb[];
   onAction: (action: ZoneAction) => void;
   isMyTurn: boolean;
 };
@@ -77,25 +79,38 @@ const Cell = React.memo(function Cell({ value, row, col, isClickable, onClick }:
 export default function InteractiveZone({ 
   zoneName, 
   zoneData, 
-  possibleActions, 
+  groupedVerbs, 
   onAction,
   isMyTurn 
 }: InteractiveZoneProps) {
   if (!zoneData || !Array.isArray(zoneData)) return null;
 
-  // Create a map of clickable positions for this zone
-  const clickablePositions = new Set<string>();
-  possibleActions
-    .filter(action => action.zone === zoneName)
-    .forEach(action => {
-      clickablePositions.add(`${action.args.row},${action.args.col}`);
-    });
+  // Find all valid options for this zone across all verbs
+  const validOptionsMap = new Map<string, { verb: string; option: VerbOption }>();
+  
+  groupedVerbs.forEach(groupedVerb => {
+    groupedVerb.validOptions
+      .filter(option => option.zone === zoneName)
+      .forEach(option => {
+        const key = `${option.row},${option.col}`;
+        validOptionsMap.set(key, { verb: groupedVerb.verb, option });
+      });
+  });
 
   const handleCellClick = (row: number, col: number) => {
-    const action = possibleActions.find(
-      a => a.zone === zoneName && a.args.row === row && a.args.col === col
-    );
-    if (action) {
+    const key = `${row},${col}`;
+    const validOption = validOptionsMap.get(key);
+    
+    console.log('[InteractiveZone] Cell clicked:', { row, col, key, validOption, isMyTurn });
+    
+    if (validOption) {
+      const action = {
+        verb: validOption.verb,
+        zone: zoneName,
+        row,
+        col
+      };
+      console.log('[InteractiveZone] Sending action:', action);
       onAction(action);
     }
   };
@@ -108,7 +123,7 @@ export default function InteractiveZone({
           <div key={r} style={rowStyle}>
             {row.map((cell, c) => {
               const posKey = `${r},${c}`;
-              const isClickable = isMyTurn && clickablePositions.has(posKey);
+              const isClickable = isMyTurn && validOptionsMap.has(posKey);
               
               return (
                 <Cell 

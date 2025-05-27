@@ -169,23 +169,37 @@ impl Lobby {
         if let Some(players) = state["players"].as_array() {
             for player in players {
                 if let Some(id) = player["id"].as_str() {
-                    let mut verbs = Vec::new();
+                    let mut verbs_by_id: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+                    
                     if id == turn_player {
                         if let Some(verblist) = bundle.verbs.as_array() {
                             for v in verblist {
                                 if v["builtin"].as_str() == Some("moveEntity") {
-                                    if let Some(target_zone) = v["params"]["target"]["zone"].as_str() {
-                                        let zone_state = &state["zones"][target_zone];
-                                        if zone_state.is_array() {
-                                            for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
-                                                for (c, cell) in row.as_array().unwrap().iter().enumerate() {
-                                                    if cell.is_null() {
-                                                        verbs.push(serde_json::json!({
-                                                            "verb": v["id"],
-                                                            "zone": target_zone,
-                                                            "args": {"row": r, "col": c}
-                                                        }));
+                                    if let Some(verb_id) = v["id"].as_str() {
+                                        if let Some(target_zone) = v["params"]["target"]["zone"].as_str() {
+                                            let zone_state = &state["zones"][target_zone];
+                                            if zone_state.is_array() {
+                                                let mut valid_options = Vec::new();
+                                                
+                                                for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
+                                                    for (c, cell) in row.as_array().unwrap().iter().enumerate() {
+                                                        if cell.is_null() {
+                                                            valid_options.push(serde_json::json!({
+                                                                "zone": target_zone,
+                                                                "row": r,
+                                                                "col": c
+                                                            }));
+                                                        }
                                                     }
+                                                }
+                                                
+                                                if !valid_options.is_empty() {
+                                                    let direction = v["ui"]["direction"].as_str().unwrap_or("Make a move");
+                                                    verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
+                                                        "verb": verb_id,
+                                                        "direction": direction,
+                                                        "validOptions": valid_options
+                                                    }));
                                                 }
                                             }
                                         }
@@ -194,6 +208,9 @@ impl Lobby {
                             }
                         }
                     }
+                    
+                    // Convert HashMap to Vec
+                    let verbs: Vec<serde_json::Value> = verbs_by_id.into_values().collect();
                     map.insert(id.to_string(), serde_json::Value::Array(verbs));
                 }
             }
@@ -244,18 +261,20 @@ pub fn start_game(&self) {
             }
         }
 
-        // Determine which game actor this connection represents
-        let actor = self
-            .actor_for_player(&player_id)
-            .unwrap_or_else(|| "spectator".to_string());
+        // Note: actor will be determined dynamically as it can change when players join/leave
 
         // send initial welcome or waiting message
         if self.is_started() {
             let snapshot = { let g = self.state.lock(); g.clone() };
             let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
+            // Get current actor assignment
+            let current_actor = self
+                .actor_for_player(&player_id)
+                .unwrap_or_else(|| "spectator".to_string());
+            
             let welcome = serde_json::json!({
                 "type": "welcome",
-                "you": actor,
+                "you": current_actor,
                 "started": self.is_started(),
                 "state": snapshot,
                 "meta": { 
@@ -265,9 +284,14 @@ pub fn start_game(&self) {
             });
             let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
         } else {
+            // Get current actor assignment
+            let current_actor = self
+                .actor_for_player(&player_id)
+                .unwrap_or_else(|| "spectator".to_string());
+                
             let welcome = serde_json::json!({
                 "type": "welcome",
-                "you": actor,
+                "you": current_actor,
                 "started": false,
                 "meta": { 
                     "players": self.player_list()
@@ -329,7 +353,39 @@ pub fn start_game(&self) {
                     if json["action"] == "join" {
                         if self.add_player(player_id.clone()) {
                             self.broadcast_lobby_list();
-                            // Broadcast player update to all connected clients
+                            
+                            // Send updated welcome message to the joining player with their new actor assignment
+                            let current_actor = self
+                                .actor_for_player(&player_id)
+                                .unwrap_or_else(|| "spectator".to_string());
+                            
+                            if self.is_started() {
+                                let snapshot = { let g = self.state.lock(); g.clone() };
+                                let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
+                                let welcome = serde_json::json!({
+                                    "type": "welcome",
+                                    "you": current_actor,
+                                    "started": true,
+                                    "state": snapshot,
+                                    "meta": { 
+                                        "possibleVerbs": possible,
+                                        "players": self.player_list()
+                                    }
+                                });
+                                let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
+                            } else {
+                                let welcome = serde_json::json!({
+                                    "type": "welcome",
+                                    "you": current_actor,
+                                    "started": false,
+                                    "meta": { 
+                                        "players": self.player_list()
+                                    }
+                                });
+                                let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
+                            }
+                            
+                            // Broadcast player update to all OTHER connected clients
                             let player_update = serde_json::json!({
                                 "type": "playerUpdate",
                                 "players": self.player_list()
@@ -350,9 +406,20 @@ pub fn start_game(&self) {
                         if !self.is_started() && self.players() >= 2 {
                             self.start_game();
                         }
-                    } else if json["verb"] == "place" && self.is_started() {
+                    } else if json.get("verb").is_some() && self.is_started() {
+                        // Get current actor assignment
+                        let current_actor = self
+                            .actor_for_player(&player_id)
+                            .unwrap_or_else(|| "spectator".to_string());
+                        
+                        println!("[Socket] Processing verb from {} (actor: {}): {:?}", player_id, current_actor, json);
+                        let current_turn = self.state.lock()["turn"].as_str().unwrap_or("").to_string();
+                        println!("[Socket] Current turn: {}, Actor attempting move: {}", current_turn, current_actor);
+                        
                         let diff =
-                            engine::apply_verb(&self.bundle, &mut self.state.lock(), &actor, &json);
+                            engine::apply_verb(&self.bundle, &mut self.state.lock(), &current_actor, &json);
+                        println!("[Socket] Verb result diff: {:?}", diff);
+                        
                         let tick = {
                             let mut t = self.tick.lock();
                             *t += 1;

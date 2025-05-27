@@ -71,6 +71,8 @@ Games are defined using YAML files in `games/<game-name>/<version>/`:
 - **Game Logic**: WebAssembly modules for complex rules
 
 ### Interactive Zones
-- Server includes zone information in possible verbs (e.g., `{"verb": "place", "zone": "board", "args": {"row": 0, "col": 0}}`)
+- Server groups possible verbs by type and includes UI directions from game definitions
+- Possible verbs structure: `{"verb": "place", "direction": "Choose a cell to place a mark", "validOptions": [{"zone": "board", "row": 0, "col": 0}, ...]}`
 - Client renders zones as interactive components where players can click to execute verbs
+- UI directions are defined in the game's `verbs.yaml` under `ui.direction`
 - Supports multiple zones and verbs per game without hardcoding assumptions

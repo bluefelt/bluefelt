@@ -6,3 +6,5 @@
       zone: board
       constraints:
         vacant: true
+  ui:
+    direction: "Choose a cell to place a mark"
