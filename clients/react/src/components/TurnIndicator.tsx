@@ -10,6 +10,7 @@ type Props = {
   you?: string;
   turn?: string;
   players?: Player[];
+  playerNames?: string[];  // Array of usernames in order (p1, p2, etc.)
   gameStatus?: {
     state: string;
     winner?: string;
@@ -17,7 +18,19 @@ type Props = {
   };
 };
 
-export default function TurnIndicator({ you, turn, players, gameStatus }: Props) {
+// Helper to get username from actor ID
+function getPlayerName(actorId: string, playerNames?: string[]): string {
+  if (!playerNames || !actorId.startsWith('p')) return actorId;
+  
+  const playerIndex = parseInt(actorId.substring(1)) - 1;
+  if (playerIndex >= 0 && playerIndex < playerNames.length) {
+    return playerNames[playerIndex];
+  }
+  
+  return actorId;
+}
+
+export default function TurnIndicator({ you, turn, players, playerNames, gameStatus }: Props) {
   if (!turn || !players) return null;
   
   // Don't show turn indicator if game has ended
@@ -26,8 +39,10 @@ export default function TurnIndicator({ you, turn, players, gameStatus }: Props)
       <div style={{ marginBottom: 16, fontWeight: "bold" }}>
         {gameStatus.tie ? (
           "Game ended in a tie!"
+        ) : gameStatus.winner ? (
+          `${getPlayerName(gameStatus.winner, playerNames)} wins!`
         ) : (
-          `${gameStatus.winner === 'p1' ? 'Player 1' : 'Player 2'} wins!`
+          "Game ended!"
         )}
       </div>
     );
@@ -35,9 +50,12 @@ export default function TurnIndicator({ you, turn, players, gameStatus }: Props)
   
   const player = players.find(p => p.id === turn);
   const glyph = player?.mark ? markToGlyph[player.mark] ?? player.mark : "";
+  const turnPlayerName = getPlayerName(turn, playerNames);
+  
   const label = you && you === turn
     ? `It is your turn`
-    : `It is ${player ? player.id : turn}'s turn`;
+    : `It is ${turnPlayerName}'s turn`;
+  
   return (
     <div style={{ marginBottom: 16, fontWeight: "bold" }}>
       {label} {glyph && `(${glyph})`}

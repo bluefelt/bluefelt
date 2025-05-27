@@ -7,11 +7,24 @@ type GameEndDisplayProps = {
     tie?: boolean;
   };
   you?: string;
+  playerNames?: string[];  // Array of usernames in order (p1, p2, etc.)
   onNewGame?: () => void;
   onClose?: () => void;
 };
 
-export default function GameEndDisplay({ gameStatus, you, onNewGame, onClose }: GameEndDisplayProps) {
+// Helper to get username from actor ID
+function getPlayerName(actorId: string, playerNames?: string[]): string {
+  if (!playerNames || !actorId.startsWith('p')) return actorId;
+  
+  const playerIndex = parseInt(actorId.substring(1)) - 1;
+  if (playerIndex >= 0 && playerIndex < playerNames.length) {
+    return playerNames[playerIndex];
+  }
+  
+  return actorId;
+}
+
+export default function GameEndDisplay({ gameStatus, you, playerNames, onNewGame, onClose }: GameEndDisplayProps) {
   const [isVisible, setIsVisible] = React.useState(true);
   
   React.useEffect(() => {
@@ -28,6 +41,7 @@ export default function GameEndDisplay({ gameStatus, you, onNewGame, onClose }: 
   const isWinner = gameStatus.winner === you;
   const isLoser = gameStatus.winner && !isWinner && you !== 'spectator';
   const isTie = gameStatus.tie;
+  const winnerName = gameStatus.winner ? getPlayerName(gameStatus.winner, playerNames) : '';
 
   const handleClose = () => {
     setIsVisible(false);
@@ -55,7 +69,7 @@ export default function GameEndDisplay({ gameStatus, you, onNewGame, onClose }: 
             <span className="text-red-400">You Lose!</span>
           ) : (
             <span className="text-blue-400">
-              {gameStatus.winner === 'p1' ? 'Player 1' : 'Player 2'} Wins!
+              {winnerName} Wins!
             </span>
           )}
         </h2>
@@ -67,7 +81,7 @@ export default function GameEndDisplay({ gameStatus, you, onNewGame, onClose }: 
             ? "Congratulations on your victory!"
             : isLoser
             ? "Better luck next time!"
-            : `${gameStatus.winner === 'p1' ? 'Player 1' : 'Player 2'} has won the game.`}
+            : `${winnerName} has won the game.`}
         </p>
 
         <div className="flex gap-3 justify-center mt-4">

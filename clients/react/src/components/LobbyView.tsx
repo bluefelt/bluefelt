@@ -100,6 +100,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
           <GameEndDisplay 
             gameStatus={lobbyState.meta?.gameStatus}
             you={lobbyState.you}
+            playerNames={lobbyState.meta?.players}
             onClose={() => {
               // Optional: could add logic here if needed when modal closes
             }}
@@ -111,6 +112,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
               you={lobbyState.you}
               turn={lobbyState.state?.turn}
               players={lobbyState.state?.players}
+              playerNames={lobbyState.meta?.players}
               gameStatus={lobbyState.meta?.gameStatus}
             />
             {/* Display verb directions if it's the player's turn */}
