@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import LobbyView from '../components/LobbyView';
+import GameView from '../components/GameView';
 import ProtectedRoute from '../components/ProtectedRoute';
 
 export default function LobbyPage() {
@@ -17,7 +17,7 @@ export default function LobbyPage() {
 
   return (
     <ProtectedRoute>
-      <LobbyView lobbyId={lobbyId} onLeave={handleLeaveLobby} />
+      <GameView lobbyId={lobbyId} onLeave={handleLeaveLobby} />
     </ProtectedRoute>
   );
 }

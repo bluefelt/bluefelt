@@ -15,9 +15,6 @@ export default function LobbiesPage() {
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="space-y-8">
           <div className="card">
-            <PlayerProfile />
-          </div>
-          <div className="card">
             <LobbiesList onLobbySelected={handleLobbySelected} />
           </div>
         </div>
