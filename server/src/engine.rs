@@ -1,152 +1,236 @@
-use crate::{bundle::Bundle, engine};
-use axum::extract::ws::{Message, WebSocket};
-use dashmap::DashMap;
-use futures_util::{StreamExt, SinkExt};
-use std::sync::Arc;
-use tokio::sync::broadcast;
-use tokio::sync::Mutex;
+use crate::bundle::Bundle;
+use serde_json::{json, Value, Map};
 
-#[allow(dead_code)]
-pub type LobbyMap = DashMap<String, Arc<Lobby>>;
-
-#[allow(dead_code)]
-pub fn new_lobby(id: String, bundle: Bundle) -> Arc<Lobby> {
-    Arc::new(Lobby::new(id, bundle))
-}
-
-pub struct Lobby {
-    pub id: String,
-    pub bundle: Bundle,
-    state: Mutex<serde_json::Value>,
-    tx: broadcast::Sender<Message>,
-}
-
-impl Lobby {
-    pub fn new(id: String, bundle: Bundle) -> Self {
-        let initial = engine::load_initial_state(&bundle);
-        let (tx, _) = broadcast::channel(32);
-        Self { id, bundle, state: Mutex::new(initial), tx }
+/* --------------------------------------------------------------------------
+   Load initial state from bundle
+   ----------------------------------------------------------------------- */
+pub fn load_initial_state(bundle: &Bundle) -> Value {
+    let player_count = bundle
+        .manifest
+        .metadata
+        .players
+        .max;
+    let mut players = Vec::new();
+    for i in 1..=player_count {
+        players.push(json!({"id": format!("p{}", i)}));
     }
-    pub fn players(&self) -> usize { self.tx.receiver_count() }
 
-    pub async fn accept_client(self: Arc<Self>, socket: WebSocket) {
-        let (mut ws_tx, mut ws_rx) = socket.split();
-        let mut rx = self.tx.subscribe();
+    let mut zones = Map::new();
+    if let Some(arr) = bundle.zones.as_array() {
+        for zone in arr {
+            let id = zone["id"].as_str().unwrap_or("");
+            let shape = zone["shape"].as_str().unwrap_or("");
+            let contents = zone.get("contents").unwrap_or(&Value::String("empty".to_string()));
+            let per_player = id.contains("{player}");
+            let ids: Vec<String> = if per_player {
+                players
+                    .iter()
+                    .map(|p| id.replace("{player}", p["id"].as_str().unwrap()))
+                    .collect()
+            } else {
+                vec![id.to_string()]
+            };
 
-        /* send welcome snapshot */
-        let snap = {
-            let s = self.state.lock().await;
-            s.clone()
-        };
-        let welcome = serde_json::json!({
-            "type":"welcome",
-            "bundleMeta":{},
-            "initialState": snap
-        });
-        let _ = ws_tx.send(Message::Text(welcome.to_string())).await;
-
-        /* spawn task to forward events */
-        let forward = {
-            let ws_tx = Arc::new(tokio::sync::Mutex::new(ws_tx));
-            let ws_tx_copy = ws_tx.clone();
-            tokio::spawn(async move {
-                while let Ok(msg) = rx.recv().await {
-                    let mut guard = ws_tx_copy.lock().await;
-                    let _ = guard.send(msg).await;
+            for pid in ids {
+                let mut content_spec = contents.clone();
+                if per_player {
+                    let player_id = pid.split('_').last().unwrap_or("");
+                    if let Some(map) = contents.as_object() {
+                        if let Some(specific) = map.get(player_id) {
+                            content_spec = specific.clone();
+                        }
+                    }
                 }
-            })
-        };
 
-        /* read loop */
-        while let Some(Ok(Message::Text(t))) = ws_rx.next().await {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&t) {
-                if json["verb"] == "place" {
-                    let mut state_guard = self.state.lock().await;
-                    let diff = engine::apply_verb(&self.bundle, &mut *state_guard, &json);
-                    let event = serde_json::json!({
-                        "type":"event",
-                        "t":0,
-                        "actor":"p1",
-                        "verb": json["verb"],
-                        "diff": diff
-                    });
-                    let _ = self.tx.send(Message::Text(event.to_string()));
-                }
+                let value = match shape {
+                    "grid" => init_grid(zone, &content_spec),
+                    "list" => init_list(&content_spec),
+                    _ => Value::Null,
+                };
+                zones.insert(pid, value);
             }
         }
-        forward.abort();
     }
-}
 
-pub type State = serde_json::Value;
-
-pub fn load_initial_state(_bundle: &Bundle) -> serde_json::Value {
-    // Return a properly structured initial state for a tic-tac-toe game
-    serde_json::json!({
-        "zones": {
-            "board": [
-                [null, null, null],
-                [null, null, null],
-                [null, null, null]
-            ]
-        },
-        "players": [
-            { "id": "p1", "mark": "mark_x" },
-            { "id": "p2", "mark": "mark_o" }
-        ],
+    json!({
+        "zones": Value::Object(zones),
+        "players": players,
         "turn": "p1"
     })
 }
 
-pub fn apply_verb(_bundle: &Bundle, state: &mut serde_json::Value, json: &serde_json::Value) -> serde_json::Value {
-    // Check if we have a "place" verb
-    if json["verb"] == "place" {
-        // Extract parameters
-        if let (Some(row), Some(col)) = (json["args"]["row"].as_u64(), json["args"]["col"].as_u64()) {
-            // Convert to usize
-            let row = row as usize;
-            let col = col as usize;
-            
-            // Make sure they're within bounds (0-2)
-            if row <= 2 && col <= 2 {
-                // Get the current turn player - extract to a String to break the borrow
-                let current_player = state["turn"].as_str().unwrap_or("p1").to_string();
-                let mark = if current_player == "p1" { "mark_x" } else { "mark_o" };
-                
-                // Calculate the next player now
-                let next_player = if current_player == "p1" { "p2" } else { "p1" };
-                
-                // Update the board
-                if let Some(board) = state["zones"]["board"].as_array_mut() {
-                    if let Some(row_arr) = board.get_mut(row) {
-                        if let Some(cell) = row_arr.as_array_mut() {
-                            if cell[col].is_null() {
-                                cell[col] = serde_json::json!(mark);
-                                
-                                // Update the turn
-                                state["turn"] = serde_json::json!(next_player);
-                                
-                                // Return the diff for the cell update
-                                return serde_json::json!([
-                                    {
-                                        "op": "replace",
-                                        "path": format!("/zones/board/{}/{}", row, col),
-                                        "value": mark
-                                    },
-                                    {
-                                        "op": "replace",
-                                        "path": "/turn",
-                                        "value": next_player
-                                    }
-                                ]);
-                            }
-                        }
+fn init_grid(zone: &Value, contents: &Value) -> Value {
+    let width = zone
+        .get("gridProps")
+        .and_then(|g| g.get("width"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    let height = zone
+        .get("gridProps")
+        .and_then(|g| g.get("height"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    if contents.as_str() == Some("empty") {
+        let mut rows = Vec::new();
+        for _ in 0..height {
+            rows.push(vec![Value::Null; width]);
+        }
+        return Value::Array(rows.into_iter().map(Value::Array).collect());
+    }
+    if let Some(arr) = contents.as_array() {
+        let mut rows = Vec::new();
+        for row in arr {
+            if let Some(cells) = row.as_sequence() {
+                rows.push(cells.iter().cloned().collect());
+            }
+        }
+        return Value::Array(rows);
+    }
+    Value::Null
+}
+
+fn init_list(contents: &Value) -> Value {
+    if contents.as_str() == Some("empty") {
+        return json!({"items": []});
+    }
+    if let Some(arr) = contents.as_array() {
+        return json!({"items": arr.clone()});
+    }
+    if let Some(obj) = contents.as_object() {
+        let entity = obj.get("entity").and_then(|v| v.as_str()).unwrap_or("");
+        if let Some(count) = obj.get("count") {
+            if count.as_str() == Some("infinite") {
+                return json!({"items": [], "infinite": entity});
+            } else if let Some(n) = count.as_u64() {
+                let mut items = Vec::new();
+                for _ in 0..n {
+                    items.push(Value::String(entity.to_string()));
+                }
+                return json!({"items": items});
+            }
+        }
+    }
+    json!({"items": []})
+}
+
+/* --------------------------------------------------------------------------
+   Apply verb
+   ----------------------------------------------------------------------- */
+pub fn apply_verb(bundle: &Bundle, state: &mut Value, action: &Value) -> Value {
+    let verb_id = action["verb"].as_str().unwrap_or("");
+    let verb_spec = bundle
+        .verbs
+        .as_array()
+        .and_then(|v| v.iter().find(|x| x["id"].as_str() == Some(verb_id)));
+    let Some(spec) = verb_spec else { return json!([]) };
+    if spec["builtin"].as_str() == Some("moveEntity") {
+        return apply_move_entity(bundle, state, spec, action);
+    }
+    json!([])
+}
+
+fn apply_move_entity(_bundle: &Bundle, state: &mut Value, spec: &Value, action: &Value) -> Value {
+    let actor = state["turn"].as_str().unwrap_or("p1");
+    let source_template = spec["params"]["source"].as_str().unwrap_or("");
+    let source_id = source_template.replace("{actor}", actor);
+    let target_zone = spec["params"]["target"]["zone"].as_str().unwrap_or("");
+    let target_id = target_zone.replace("{actor}", actor);
+
+    // Determine entity without modifying state
+    let (entity, removable) = {
+        let zones = state.get("zones").and_then(|z| z.as_object()).unwrap();
+        let Some(src) = zones.get(&source_id) else { return json!([]) };
+        if let Some(inf) = src.get("infinite").and_then(|v| v.as_str()) {
+            (inf.to_string(), false)
+        } else if let Some(items) = src.get("items").and_then(|v| v.as_array()) {
+            if let Some(val) = items.first().and_then(|v| v.as_str()) {
+                (val.to_string(), true)
+            } else {
+                return json!([]);
+            }
+        } else {
+            return json!([]);
+        }
+    };
+
+    // Validate target without mutating
+    let valid_target = {
+        let zones = state.get("zones").and_then(|z| z.as_object()).unwrap();
+        let Some(tgt) = zones.get(&target_id) else { return json!([]) };
+        if tgt.is_array() {
+            let row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
+            let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
+            if let Some(row_arr) = tgt.as_array().and_then(|r| r.get(row)) {
+                if let Some(cells) = row_arr.as_array() {
+                    if cells.get(col).map(|c| c.is_null()).unwrap_or(false) {
+                        Some((row, col))
+                    } else {
+                        None
                     }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else if tgt.get("items").is_some() {
+            Some((usize::MAX, usize::MAX))
+        } else {
+            None
+        }
+    };
+
+    let Some(tgt_pos) = valid_target else { return json!([]) };
+
+    // Perform state mutation now that validation succeeded
+    let mut ops = Vec::new();
+    if removable {
+        if let Some(src_zone) = state["zones"].get_mut(&source_id) {
+            if let Some(items) = src_zone.get_mut("items").and_then(|v| v.as_array_mut()) {
+                if !items.is_empty() {
+                    items.remove(0);
+                    ops.push(json!({
+                        "op": "remove",
+                        "path": format!("/zones/{}/items/0", source_id)
+                    }));
                 }
             }
         }
     }
-    
-    // Default empty diff if no valid move was made
-    serde_json::json!([])
+
+    if let Some(zone_val) = state["zones"].get_mut(&target_id) {
+        if zone_val.is_array() {
+            let row = tgt_pos.0;
+            let col = tgt_pos.1;
+            if let Some(row_arr) = zone_val.as_array_mut().and_then(|r| r.get_mut(row)) {
+                if let Some(cells) = row_arr.as_array_mut() {
+                    cells[col] = Value::String(entity.clone());
+                    ops.push(json!({
+                        "op": "replace",
+                        "path": format!("/zones/{}/{}/{}", target_id, row, col),
+                        "value": entity
+                    }));
+                }
+            }
+        } else if zone_val.get("items").is_some() {
+            let items = zone_val.get_mut("items").unwrap().as_array_mut().unwrap();
+            items.push(Value::String(entity.clone()));
+            ops.push(json!({
+                "op": "add",
+                "path": format!("/zones/{}/items/-", target_id),
+                "value": entity
+            }));
+        }
+    }
+
+    // rotate turn
+    if let Some(players) = state["players"].as_array() {
+        if let Some(idx) = players.iter().position(|p| p["id"].as_str() == Some(actor)) {
+            let next = players[(idx + 1) % players.len()]["id"].as_str().unwrap();
+            state["turn"] = Value::String(next.to_string());
+            ops.push(json!({"op":"replace","path":"/turn","value":next}));
+        }
+    }
+
+    Value::Array(ops)
 }

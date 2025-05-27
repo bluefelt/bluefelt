@@ -161,37 +161,39 @@ impl Lobby {
     }
 
     /// Compute possible verbs for each player based on current state
-    fn possible_verbs(state: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    fn possible_verbs(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
         let mut map = serde_json::Map::new();
 
         let turn_player = state["turn"].as_str().unwrap_or("");
 
         if let Some(players) = state["players"].as_array() {
-            if let Some(board) = state["zones"]["board"].as_array() {
-                for player in players {
-                    if let Some(id) = player["id"].as_str() {
-                        let mut verbs = Vec::new();
-                        if id == turn_player {
-                            let mark = player["mark"].as_str().unwrap_or("");
-                            for (r, row) in board.iter().enumerate() {
-                                if let Some(cells) = row.as_array() {
-                                    for (c, cell) in cells.iter().enumerate() {
-                                        if cell.is_null() {
-                                            verbs.push(serde_json::json!({
-                                                "verb": "place",
-                                                "args": {
-                                                    "entityId": mark,
-                                                    "row": r,
-                                                    "col": c
+            for player in players {
+                if let Some(id) = player["id"].as_str() {
+                    let mut verbs = Vec::new();
+                    if id == turn_player {
+                        if let Some(verblist) = bundle.verbs.as_array() {
+                            for v in verblist {
+                                if v["builtin"].as_str() == Some("moveEntity") {
+                                    if let Some(target_zone) = v["params"]["target"]["zone"].as_str() {
+                                        let zone_state = &state["zones"][target_zone];
+                                        if zone_state.is_array() {
+                                            for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
+                                                for (c, cell) in row.as_array().unwrap().iter().enumerate() {
+                                                    if cell.is_null() {
+                                                        verbs.push(serde_json::json!({
+                                                            "verb": v["id"],
+                                                            "args": {"row": r, "col": c}
+                                                        }));
+                                                    }
                                                 }
-                                            }));
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                        map.insert(id.to_string(), serde_json::Value::Array(verbs));
                     }
+                    map.insert(id.to_string(), serde_json::Value::Array(verbs));
                 }
             }
         }
@@ -224,7 +226,7 @@ pub fn start_game(&self) {
         // send initial welcome or waiting message
         if self.is_started() {
             let snapshot = { let g = self.state.lock(); g.clone() };
-            let possible = Lobby::possible_verbs(&snapshot);
+            let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
             let actor = self
                 .actor_for_player(&player_id)
                 .unwrap_or_else(|| "spectator".to_string());
@@ -283,39 +285,55 @@ pub fn start_game(&self) {
                         if !self.is_started() && self.players() >= 2 {
                             self.start_game();
                         }
-                    } else if json["verb"] == "place" && self.is_started() {
-                        let diff =
-                            engine::apply_verb(&self.bundle, &mut self.state.lock(), &json);
-                        let tick = {
-                            let mut t = self.tick.lock();
-                            *t += 1;
-                            *t
-                        };
-                        let mut patch_ops = Vec::new();
-                        if let Some(arr) = diff.as_array() {
-                            for op in arr {
-                                if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
-                                    let mut op_obj = op.clone();
-                                    op_obj["path"] =
-                                        serde_json::Value::String(format!("/state{}", path));
-                                    patch_ops.push(op_obj);
-                                } else {
-                                    patch_ops.push(op.clone());
+                    } else if json.get("verb").is_some() && self.is_started() {
+                        // determine actor for this connection
+                        if let Some(actor) = self.actor_for_player(&player_id) {
+                            // check that it's this player's turn and they have available verbs
+                            let current_snapshot = { let g = self.state.lock(); g.clone() };
+                            let possible = Lobby::possible_verbs(&current_snapshot, &self.bundle);
+                            let allowed = possible.get(&actor).and_then(|v| v.as_array());
+                            if current_snapshot["turn"].as_str() == Some(&actor) {
+                                if let Some(list) = allowed {
+                                    if list.iter().any(|v| v["verb"] == json["verb"]) {
+                                        // apply verb
+                                        let mut guard = self.state.lock();
+                                        let diff = engine::apply_verb(&self.bundle, &mut *guard, &json);
+                                        if diff.as_array().map_or(true, |a| a.is_empty()) {
+                                            continue;
+                                        }
+                                        let tick = {
+                                            let mut t = self.tick.lock();
+                                            *t += 1;
+                                            *t
+                                        };
+                                        let mut patch_ops = Vec::new();
+                                        if let Some(arr) = diff.as_array() {
+                                            for op in arr {
+                                                if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
+                                                    let mut op_obj = op.clone();
+                                                    op_obj["path"] = serde_json::Value::String(format!("/state{}", path));
+                                                    patch_ops.push(op_obj);
+                                                } else {
+                                                    patch_ops.push(op.clone());
+                                                }
+                                            }
+                                        }
+                                        let current_state = { let g = self.state.lock(); g.clone() };
+                                        let possible = Lobby::possible_verbs(&current_state, &self.bundle);
+                                        for (pid, verbs) in possible {
+                                            patch_ops.push(serde_json::json!({
+                                                "op": "replace",
+                                                "path": format!("/meta/possibleVerbs/{}", pid),
+                                                "value": verbs
+                                            }));
+                                        }
+                                        let frame = serde_json::json!({"type": "diff", "tick": tick, "patch": patch_ops});
+                                        self.history.lock().push(frame.clone());
+                                        let _ = self.tx.send(Message::Text(frame.to_string()));
+                                    }
                                 }
                             }
                         }
-                        let current_state = { let g = self.state.lock(); g.clone() };
-                        let possible = Lobby::possible_verbs(&current_state);
-                        for (pid, verbs) in possible {
-                            patch_ops.push(serde_json::json!({
-                                "op": "replace",
-                                "path": format!("/meta/possibleVerbs/{}", pid),
-                                "value": verbs
-                            }));
-                        }
-                        let frame = serde_json::json!({"type": "diff", "tick": tick, "patch": patch_ops});
-                        self.history.lock().push(frame.clone());
-                        let _ = self.tx.send(Message::Text(frame.to_string()));
                     }
                 }
             }
