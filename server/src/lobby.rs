@@ -263,6 +263,7 @@ impl Lobby {
                 meta_obj.insert("possibleVerbs".to_string(), json!(possible));
                 meta_obj.insert("players".to_string(), json!(self.player_list()));
                 meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
+                meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
             }
             
             json!({
@@ -304,6 +305,7 @@ pub fn start_game(&self) {
         meta_obj.insert("possibleVerbs".to_string(), json!(possible));
         meta_obj.insert("players".to_string(), json!(self.player_list()));
         meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
+        meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
     }
     
     // Send full game state to all connected clients

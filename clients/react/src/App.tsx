@@ -5,6 +5,7 @@ import Layout from "./components/Layout.tsx";
 import HomePage from "./pages/HomePage.tsx";
 import LoginPage from "./pages/LoginPage.tsx";
 import LobbiesPage from "./pages/LobbiesPage.tsx";
+import CreateLobbyPage from "./pages/CreateLobbyPage.tsx";
 import LobbyPage from "./pages/LobbyPage.tsx";
 import NotFoundPage from "./pages/NotFoundPage.tsx";
 import "./index.css";
@@ -19,6 +20,7 @@ export default function App() {
               <Route index element={<HomePage />} />
               <Route path="login" element={<LoginPage />} />
               <Route path="lobbies" element={<LobbiesPage />} />
+              <Route path="create-lobby" element={<CreateLobbyPage />} />
               <Route path="lobby/:lobbyId" element={<LobbyPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

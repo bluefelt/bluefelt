@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
-import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getLobbies } from '../api/lobbies.ts';
 import { useWebSocketContext } from '../context/WebSocketContext.tsx';
 import WebSocketStatus from './WebSocketStatus';
-import CreateLobbyDialog from './CreateLobbyDialog.tsx';
 import { usePlayer } from '../context/PlayerContext.tsx';
 
 type Props = {
@@ -11,7 +10,7 @@ type Props = {
 };
 
 export default function LobbiesList({ onLobbySelected }: Props) {
-  const [showDialog, setShowDialog] = useState(false);
+  const navigate = useNavigate();
   const { player } = usePlayer();
   const { lobbies, lobbiesWS } = useWebSocketContext();
 
@@ -28,7 +27,7 @@ export default function LobbiesList({ onLobbySelected }: Props) {
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold">Available Lobbies</h2>
           <button
-            onClick={() => setShowDialog(true)}
+            onClick={() => navigate('/create-lobby')}
             className="btn btn-primary"
           >
             Create Lobby
@@ -44,7 +43,7 @@ export default function LobbiesList({ onLobbySelected }: Props) {
             {lobbies.map((lobby) => (
               <li
                 key={lobby.id}
-                className="bg-gray-700 rounded-lg p-4 flex justify-between items-center"
+                className="bg-gray-700 rounded-lg p-4 flex justify-between items-center hover:bg-gray-600 transition-colors"
               >
                 <div>
                   <h3 className="font-medium">{lobby.name}</h3>
@@ -57,11 +56,13 @@ export default function LobbiesList({ onLobbySelected }: Props) {
                   </p>
                   <p className="text-sm text-gray-400">
                     Status:{' '}
-                    {lobby.started
-                      ? 'Started'
-                      : lobby.players.length >= 2
-                        ? 'Not Started'
-                        : 'Waiting for Players'}
+                    <span className={lobby.started ? 'text-green-400' : 'text-yellow-400'}>
+                      {lobby.started
+                        ? 'In Progress'
+                        : lobby.players.length >= 2
+                          ? 'Ready to Start'
+                          : 'Waiting for Players'}
+                    </span>
                   </p>
                 </div>
                 <button
@@ -73,16 +74,6 @@ export default function LobbiesList({ onLobbySelected }: Props) {
               </li>
             ))}
           </ul>
-        )}
-
-        {showDialog && (
-          <CreateLobbyDialog
-            onCreated={(lobby) => {
-              setShowDialog(false);
-              onLobbySelected(lobby.id);
-            }}
-            onCancel={() => setShowDialog(false)}
-          />
         )}
       </div>
       <WebSocketStatus connected={lobbiesWS.connected} state={lobbiesWS.state} />

@@ -14,7 +14,7 @@ export default function PlayerProfile() {
   return (
     <nav style={styles.playerProfile}>
       <a href="#">
-        <img src="../../public/bluefelt_logo.png" alt="Bluefelt Logo" style={styles.bfLogo} />
+        <img src="../../public/bluefelt_logo.jpg" alt="Bluefelt Logo" style={styles.bfLogo} />
       </a>
       <a href="#">
         <div style={styles.playerProfilePicture}>
