@@ -3,11 +3,11 @@
   params:
     source: marks_{actor}
     target:
-      zone: board
+      zone: da-board
       constraints:
         vacant: true
   ui:
-    direction: "Choose a cell to place a mark"
+    direction: "Place your mark on a cell"
   triggers:
     - checkGameEnd
 - id: checkGameEnd
@@ -15,13 +15,13 @@
   conditions:
     - builtin: consecutiveMarksInRow
       params:
-        zone: board
-        count: 3
+        zone: da-board
+        count: 5
         entity: mark_{actor}
       result:
         - gameWin: actor
     - builtin: allCellsFilled
       params:
-        zone: board
+        zone: da-board
       result:
         - gameTie: true

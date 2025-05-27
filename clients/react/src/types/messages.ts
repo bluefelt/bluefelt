@@ -47,9 +47,20 @@ export type GameState = {
   zones: Record<string, unknown[][]>;
 };
 
+export type EntityDefinition = {
+  id: string;
+  props?: {
+    value?: string;
+  };
+  ui?: {
+    glyph?: string;
+  };
+};
+
 export type MetaState = {
   possibleVerbs?: Record<string, GroupedVerb[]>;
   players?: string[];
+  entities?: EntityDefinition[];
   gameStatus?: {
     state: 'ended';
     winner?: string;

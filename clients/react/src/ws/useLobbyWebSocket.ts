@@ -16,11 +16,14 @@ export type GroupedVerb = {
   validOptions: VerbOption[];
 };
 
+import type { EntityDefinition } from '../types/messages';
+
 export type LobbyState = {
   you?: string;
   meta?: {
     possibleVerbs?: Record<string, GroupedVerb[]>;
     players?: string[];
+    entities?: EntityDefinition[];
     gameStatus?: {
       state: string;
       winner?: string;

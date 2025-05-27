@@ -159,6 +159,8 @@ pub fn apply_verb(
         apply_move_entity(bundle, state, spec, action, caller)
     } else if spec.get("hook").is_some() {
         apply_hook(bundle, state, spec, action, caller)
+    } else if spec.get("conditions").is_some() {
+        apply_conditions(bundle, state, spec, action, caller)
     } else {
         json!([])
     };
@@ -231,6 +233,7 @@ fn apply_move_entity(
     if entity.is_empty() {
         return json!([]);
     }
+    
 
     // Apply to target
     let mut ops = Vec::new();
@@ -337,6 +340,214 @@ fn apply_patch_to_state(state: &mut Value, patch: &Value) {
             }
         }
     }
+}
+
+fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Value, caller: &str) -> Value {
+    let conditions = match spec["conditions"].as_array() {
+        Some(c) => c,
+        None => return json!([]),
+    };
+    
+    let mut patches = vec![];
+    
+    // For checkGameEnd, we need to check conditions for all players
+    let players_to_check = if spec["id"].as_str() == Some("checkGameEnd") {
+        // Get all players from state
+        if let Some(players) = state["players"].as_array() {
+            players.iter()
+                .filter_map(|p| p["id"].as_str())
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        } else {
+            vec![caller.to_string()]
+        }
+    } else {
+        vec![caller.to_string()]
+    };
+    
+    for check_player in &players_to_check {
+        for condition in conditions {
+            let builtin = match condition["builtin"].as_str() {
+                Some(b) => b,
+                None => continue,
+            };
+            
+            let condition_met = match builtin {
+                "consecutiveMarksInRow" => check_consecutive_marks(state, condition, check_player),
+                "allCellsFilled" => check_all_cells_filled(state, condition),
+                _ => false,
+            };
+            
+            if condition_met {
+            // Apply the result patches
+            if let Some(results) = condition["result"].as_array() {
+                for result in results {
+                    if let Some(obj) = result.as_object() {
+                        for (key, value) in obj {
+                            match key.as_str() {
+                                "gameWin" => {
+                                    let winner = if value.as_str() == Some("actor") {
+                                        check_player
+                                    } else {
+                                        value.as_str().unwrap_or("")
+                                    };
+                                    patches.push(json!({
+                                        "op": "add",
+                                        "path": "/meta/gameStatus",
+                                        "value": {
+                                            "state": "ended",
+                                            "winner": winner,
+                                            "tie": false
+                                        }
+                                    }));
+                                    return json!(patches); // Exit after finding a winner
+                                }
+                                "gameTie" => {
+                                    patches.push(json!({
+                                        "op": "add",
+                                        "path": "/meta/gameStatus",
+                                        "value": {
+                                            "state": "ended",
+                                            "tie": true
+                                        }
+                                    }));
+                                    return json!(patches);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+    
+    json!(patches)
+}
+
+fn check_consecutive_marks(state: &Value, condition: &Value, caller: &str) -> bool {
+    let params = &condition["params"];
+    let zone_name = params["zone"].as_str().unwrap_or("");
+    let count = params["count"].as_u64().unwrap_or(3) as usize;
+    let entity_template = params["entity"].as_str().unwrap_or("");
+    let entity = entity_template.replace("{actor}", caller);
+    
+    println!("[DEBUG] Checking consecutive marks - zone: {}, count: {}, entity: {}, caller: {}", 
+        zone_name, count, entity, caller);
+    
+    let board = match state["zones"][zone_name].as_array() {
+        Some(b) => b,
+        None => {
+            println!("[DEBUG] Zone {} not found or not an array", zone_name);
+            return false;
+        }
+    };
+    
+    let rows = board.len();
+    if rows == 0 {
+        return false;
+    }
+    let cols = board[0].as_array().map(|r| r.len()).unwrap_or(0);
+    
+    // Check rows
+    for (row_idx, row) in board.iter().enumerate() {
+        if let Some(cells) = row.as_array() {
+            println!("[DEBUG] Row {}: {:?}", row_idx, cells);
+            for window in cells.windows(count) {
+                if window.iter().all(|cell| cell.as_str() == Some(&entity)) {
+                    println!("[DEBUG] Found {} consecutive {} in row {}!", count, entity, row_idx);
+                    return true;
+                }
+            }
+        }
+    }
+    
+    // Check columns
+    for col in 0..cols {
+        let mut consecutive = 0;
+        for row in 0..rows {
+            if let Some(cell) = board[row].as_array().and_then(|r| r.get(col)) {
+                if cell.as_str() == Some(&entity) {
+                    consecutive += 1;
+                    if consecutive >= count {
+                        return true;
+                    }
+                } else {
+                    consecutive = 0;
+                }
+            }
+        }
+    }
+    
+    // Check diagonals
+    // Top-left to bottom-right
+    for start_row in 0..=rows.saturating_sub(count) {
+        for start_col in 0..=cols.saturating_sub(count) {
+            let mut all_match = true;
+            for i in 0..count {
+                let row = start_row + i;
+                let col = start_col + i;
+                if let Some(cell) = board.get(row)
+                    .and_then(|r| r.as_array())
+                    .and_then(|r| r.get(col)) {
+                    if cell.as_str() != Some(&entity) {
+                        all_match = false;
+                        break;
+                    }
+                } else {
+                    all_match = false;
+                    break;
+                }
+            }
+            if all_match {
+                return true;
+            }
+        }
+    }
+    
+    // Top-right to bottom-left
+    for start_row in 0..=rows.saturating_sub(count) {
+        for start_col in (count - 1)..cols {
+            let mut all_match = true;
+            for i in 0..count {
+                let row = start_row + i;
+                let col = start_col - i;
+                if let Some(cell) = board.get(row)
+                    .and_then(|r| r.as_array())
+                    .and_then(|r| r.get(col)) {
+                    if cell.as_str() != Some(&entity) {
+                        all_match = false;
+                        break;
+                    }
+                } else {
+                    all_match = false;
+                    break;
+                }
+            }
+            if all_match {
+                return true;
+            }
+        }
+    }
+    
+    false
+}
+
+fn check_all_cells_filled(state: &Value, condition: &Value) -> bool {
+    let params = &condition["params"];
+    let zone_name = params["zone"].as_str().unwrap_or("");
+    
+    let board = match state["zones"][zone_name].as_array() {
+        Some(b) => b,
+        None => return false,
+    };
+    
+    board.iter().all(|row| {
+        row.as_array()
+            .map(|r| r.iter().all(|cell| !cell.is_null()))
+            .unwrap_or(false)
+    })
 }
 
 fn apply_hook(_bundle: &Bundle, state: &mut Value, spec: &Value, _action: &Value, _caller: &str) -> Value {

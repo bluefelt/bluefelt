@@ -1,16 +1,15 @@
 
 export type Player = { id: string; mark?: string };
 
-const markToGlyph: Record<string, string> = {
-  mark_x: "X",
-  mark_o: "O",
-};
+import type { EntityDefinition } from '../types/messages';
+import { buildGlyphMapping, getEntityGlyph } from '../utils/entityUtils';
 
 type Props = {
   you?: string;
   turn?: string;
   players?: Player[];
   playerNames?: string[];  // Array of usernames in order (p1, p2, etc.)
+  entities?: EntityDefinition[];
   gameStatus?: {
     state: string;
     winner?: string;
@@ -30,8 +29,11 @@ function getPlayerName(actorId: string, playerNames?: string[]): string {
   return actorId;
 }
 
-export default function TurnIndicator({ you, turn, players, playerNames, gameStatus }: Props) {
+export default function TurnIndicator({ you, turn, players, playerNames, entities, gameStatus }: Props) {
   if (!turn || !players) return null;
+  
+  // Build glyph mapping from entities
+  const glyphMapping = buildGlyphMapping(entities);
   
   // Don't show turn indicator if game has ended
   if (gameStatus?.state === 'ended') {
@@ -49,7 +51,7 @@ export default function TurnIndicator({ you, turn, players, playerNames, gameSta
   }
   
   const player = players.find(p => p.id === turn);
-  const glyph = player?.mark ? markToGlyph[player.mark] ?? player.mark : "";
+  const glyph = player?.mark ? getEntityGlyph(player.mark, glyphMapping) : "";
   const turnPlayerName = getPlayerName(turn, playerNames);
   
   const label = you && you === turn

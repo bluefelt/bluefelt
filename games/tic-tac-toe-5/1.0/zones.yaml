@@ -1,8 +1,15 @@
-- id: board
+- id: da-board
   shape: grid
   gridProps:
-    width: 3
-    height: 3
+    width: 5
+    height: 5
+  contents: empty
+  visibility: all
+- id: useless-board
+  shape: grid
+  gridProps:
+    width: 2
+    height: 2
   contents: empty
   visibility: all
 - id: marks_{player}

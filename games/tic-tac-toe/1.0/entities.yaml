@@ -1,9 +1,9 @@
-- id: mark_x
+- id: mark_p1
   props:
     value: "x"
   ui:
     glyph: "X"
-- id: mark_o
+- id: mark_p2
   props:
     value: "o"
   ui:

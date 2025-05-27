@@ -1,0 +1,10 @@
+- id: mark_p1
+  props:
+    value: "e"
+  ui:
+    glyph: "E"
+- id: mark_p2
+  props:
+    value: "t"
+  ui:
+    glyph: "T"

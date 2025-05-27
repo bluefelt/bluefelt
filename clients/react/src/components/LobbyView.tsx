@@ -122,6 +122,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
               turn={lobbyState.state?.turn}
               players={lobbyState.state?.players}
               playerNames={lobbyState.meta?.players}
+              entities={lobbyState.meta?.entities}
               gameStatus={lobbyState.meta?.gameStatus}
             />
             {/* Display verb directions if it's the player's turn */}
@@ -152,6 +153,7 @@ export default function LobbyView({ lobbyId, onLeave }: Props) {
                   zoneData={zoneData as (string | null)[][]}
                   groupedVerbs={myGroupedVerbs}
                   isMyTurn={!!isMyTurn}
+                  entities={lobbyState.meta?.entities}
                   onAction={(action) => {
                     const message = JSON.stringify({
                       verb: action.verb,

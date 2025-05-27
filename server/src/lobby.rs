@@ -262,6 +262,7 @@ impl Lobby {
             if let Some(meta_obj) = meta.as_object_mut() {
                 meta_obj.insert("possibleVerbs".to_string(), json!(possible));
                 meta_obj.insert("players".to_string(), json!(self.player_list()));
+                meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
             }
             
             json!({
@@ -277,7 +278,8 @@ impl Lobby {
                 "you": actor,
                 "started": false,
                 "meta": {
-                    "players": self.player_list()
+                    "players": self.player_list(),
+                    "entities": self.bundle.entities.clone()
                 }
             })
         }
@@ -301,6 +303,7 @@ pub fn start_game(&self) {
     if let Some(meta_obj) = meta.as_object_mut() {
         meta_obj.insert("possibleVerbs".to_string(), json!(possible));
         meta_obj.insert("players".to_string(), json!(self.player_list()));
+        meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
     }
     
     // Send full game state to all connected clients

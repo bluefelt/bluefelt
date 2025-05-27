@@ -1,0 +1,10 @@
+gameId: "tic-tac-toe-5"
+version: "1.0.0"
+specVersion: 1
+metadata:
+  name: "Tic-Tac-Toe 5"
+  author: "Traditional"
+  players:
+    min: 2
+    max: 2
+  description: "Align five of your marks horizontally, vertically, or diagonally."

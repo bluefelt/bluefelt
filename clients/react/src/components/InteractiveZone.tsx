@@ -1,5 +1,7 @@
 import React from 'react';
 import type { GroupedVerb, VerbOption } from '../ws/useLobbyWebSocket';
+import type { EntityDefinition } from '../types/messages';
+import { buildGlyphMapping, getEntityGlyph } from '../utils/entityUtils';
 
 export type ZoneAction = {
   verb: string;
@@ -14,11 +16,7 @@ type InteractiveZoneProps = {
   groupedVerbs: GroupedVerb[];
   onAction: (action: ZoneAction) => void;
   isMyTurn: boolean;
-};
-
-const markToGlyph: Record<string, string> = {
-  mark_x: 'X',
-  mark_o: 'O',
+  entities?: EntityDefinition[];
 };
 
 const cellStyle: React.CSSProperties = {
@@ -54,9 +52,10 @@ interface CellProps {
   col: number;
   isClickable: boolean;
   onClick: () => void;
+  glyphMapping: Record<string, string>;
 }
 
-const Cell = React.memo(function Cell({ value, row, col, isClickable, onClick }: CellProps) {
+const Cell = React.memo(function Cell({ value, row, col, isClickable, onClick, glyphMapping }: CellProps) {
   const [isHovered, setIsHovered] = React.useState(false);
 
   const style = isClickable 
@@ -79,7 +78,7 @@ const Cell = React.memo(function Cell({ value, row, col, isClickable, onClick }:
       onMouseLeave={() => setIsHovered(false)}
       title={isClickable ? `Click to place at (${row}, ${col})` : undefined}
     >
-      {value ? markToGlyph[value] ?? value : ''}
+      {getEntityGlyph(value, glyphMapping)}
     </div>
   );
 });
@@ -89,9 +88,13 @@ export default function InteractiveZone({
   zoneData, 
   groupedVerbs, 
   onAction,
-  isMyTurn 
+  isMyTurn,
+  entities 
 }: InteractiveZoneProps) {
   if (!zoneData || !Array.isArray(zoneData)) return null;
+  
+  // Build glyph mapping from entities
+  const glyphMapping = React.useMemo(() => buildGlyphMapping(entities), [entities]);
 
   // Find all valid options for this zone across all verbs
   const validOptionsMap = new Map<string, { verb: string; option: VerbOption }>();
@@ -151,6 +154,7 @@ export default function InteractiveZone({
                   col={c}
                   isClickable={isClickable}
                   onClick={() => handleCellClick(r, c)}
+                  glyphMapping={glyphMapping}
                 />
               );
             })}
