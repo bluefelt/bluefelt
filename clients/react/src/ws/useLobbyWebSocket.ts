@@ -29,6 +29,12 @@ export type LobbyState = {
       winner?: string;
       tie?: boolean;
     };
+    gameLog?: Array<{
+      player: string;
+      actor: string;
+      message: string;
+      timestamp: string;
+    }>;
   };
   state?: {
     turn?: string;
@@ -113,12 +119,14 @@ export function useLobbyWebSocket(
         // Clear the stored lastTick for this lobby
         localStorage.removeItem(`lobby_${lobbyId}_lastTick`);
         setShouldReconnect(false);
+        setHasReceivedError(true);
         disconnect();
       }
     },
   };
 
   const [shouldReconnect, setShouldReconnect] = useState(true);
+  const [hasReceivedError, setHasReceivedError] = useState(false);
   
   const { messages, sendMessage, connected, state, disconnect } = useReconnectingWebSocket(url, (dataStr) => {
     try {
@@ -131,7 +139,10 @@ export function useLobbyWebSocket(
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
     }
-  }, { shouldReconnect });
+  }, { 
+    shouldReconnect: shouldReconnect && !hasReceivedError,
+    reconnectAttempts: 3
+  });
 
   useEffect(() => {
     return () => {

@@ -45,19 +45,40 @@ export default function GameLog({ entries, playerNames }: GameLogProps) {
           </div>
         ) : (
           <div className="divide-y divide-gray-800">
-            {entries.map((entry, index) => (
-              <div key={index} className="px-4 py-2 flex justify-between items-center text-sm">
-                <span 
-                  className={entry.player ? 'font-medium' : 'text-gray-400'}
-                  style={{ color: entry.player ? getLogPlayerColor(entry.player, entry.isYou) : undefined }}
-                >
-                  {entry.message}
-                </span>
-                <span className="text-gray-500 text-xs ml-4">
-                  {entry.timestamp}
-                </span>
-              </div>
-            ))}
+            {entries.map((entry, index) => {
+              // Parse the message to separate player name from the rest
+              const playerNameMatch = entry.message.match(/^([\w_]+)(.*)$/);
+              const playerName = playerNameMatch ? playerNameMatch[1] : '';
+              const restOfMessage = playerNameMatch ? playerNameMatch[2] : entry.message;
+              const playerColor = entry.player ? getLogPlayerColor(entry.player, entry.isYou) : undefined;
+              
+              return (
+                <div key={index} className="px-4 py-2 flex justify-between items-center text-sm">
+                  <div className="flex-1">
+                    {entry.player && playerNameMatch ? (
+                      <>
+                        <span 
+                          className="font-bold"
+                          style={{ color: playerColor }}
+                        >
+                          {playerName}
+                        </span>
+                        <span className="text-white">
+                          {restOfMessage}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-gray-400">
+                        {entry.message}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-gray-500 text-xs ml-4">
+                    {entry.timestamp}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

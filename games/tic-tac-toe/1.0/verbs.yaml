@@ -8,6 +8,7 @@
         vacant: true
   ui:
     direction: "Choose a cell to place a mark"
+    logTemplate: "{player} placed a mark at row {row}, column {col}"
   triggers:
     - nextTurn
     - checkGameEnd

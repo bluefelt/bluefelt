@@ -53,6 +53,13 @@ export function useReconnectingWebSocket(
   }, [onMessage]);
 
   const connect = useCallback(() => {
+    // Don't create a new connection if one already exists
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || 
+                         wsRef.current.readyState === WebSocket.OPEN)) {
+      console.log('[useReconnectingWebSocket] Connection already exists, skipping');
+      return;
+    }
+    
     try {
       setState('connecting');
       const ws = new WebSocket(urlRef.current);
@@ -118,20 +125,32 @@ export function useReconnectingWebSocket(
   }, []);
 
   const disconnect = useCallback(() => {
+    console.log('[useReconnectingWebSocket] Disconnecting and clearing reconnect timeout');
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = undefined;
     }
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
+    setState('disconnected');
   }, []);
 
   // Connect on mount only
   useEffect(() => {
-    connect();
+    let mounted = true;
+    
+    // Small delay to ensure cleanup from StrictMode double-mount
+    const timer = setTimeout(() => {
+      if (mounted) {
+        connect();
+      }
+    }, 10);
     
     return () => {
+      mounted = false;
+      clearTimeout(timer);
       disconnect();
     };
     // We only want this to run once on mount

@@ -367,7 +367,8 @@ impl Lobby {
                 "you": actor,
                 "started": true,
                 "state": snapshot,
-                "meta": meta
+                "meta": meta,
+                "tick": *self.tick.lock()
             })
         } else {
             json!({
@@ -402,6 +403,12 @@ pub fn start_game(&self) {
         meta_obj.insert("players".to_string(), json!(self.player_list()));
         meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
         meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
+        meta_obj.insert("gameLog".to_string(), json!([
+            {
+                "message": "The game has started",
+                "timestamp": chrono::Local::now().format("%H:%M").to_string()
+            }
+        ])); // Initialize game log with start message
     }
     
     // Send full game state to all connected clients
@@ -434,17 +441,21 @@ pub fn start_game(&self) {
 
         // Note: actor will be determined dynamically as it can change when players join/leave
 
-        // Send initial welcome message
+        // Send initial welcome message and get current tick
         let welcome = self.build_welcome_message(&player_id, self.is_started());
+        let current_tick = *self.tick.lock();
         let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
 
         // replay diff history since the provided tick
+        // Only replay diffs that are newer than both 'since' and the current tick
+        // This prevents duplicating data that's already in the welcome message
+        let replay_after = since.max(current_tick);
         let frames = {
             let history = self.history.lock();
             history.clone()
         };
         for frame in frames.into_iter() {
-            if frame["tick"].as_u64().unwrap_or(0) > since {
+            if frame["tick"].as_u64().unwrap_or(0) > replay_after {
                 let _ = tx
                     .lock()
                     .await
@@ -528,6 +539,11 @@ pub fn start_game(&self) {
                         let current_turn = self.state.lock()["turn"].as_str().unwrap_or("").to_string();
                         println!("[Socket] Current turn: {}, Actor attempting move: {}", current_turn, current_actor);
                         
+                        
+                        // Store verb info for game log generation
+                        let verb_id = json["verb"].as_str().unwrap_or("");
+                        let args = json.get("args").cloned();
+                        
                         let diff =
                             engine::apply_verb(&self.bundle, &mut self.state.lock(), &current_actor, &json);
                         println!("[Socket] Verb result diff: {:?}", diff);
@@ -557,15 +573,22 @@ pub fn start_game(&self) {
                         }
                         
                         // Check if game just ended in the patches
-                        let game_ended = patch_ops.iter().any(|op| {
+                        let mut game_ended = false;
+                        let mut game_end_info = None;
+                        for op in &patch_ops {
                             let path = op.get("path").and_then(|p| p.as_str()).unwrap_or("");
                             let is_game_status = path == "/meta/gameStatus" || path == "/state/meta/gameStatus";
                             if is_game_status {
                                 println!("[DEBUG] Found gameStatus patch at path: {}, value: {:?}", path, op.get("value"));
+                                if let Some(value) = op.get("value") {
+                                    if value.get("state").and_then(|s| s.as_str()) == Some("ended") {
+                                        game_ended = true;
+                                        game_end_info = Some(value.clone());
+                                        break;
+                                    }
+                                }
                             }
-                            is_game_status && 
-                            op.get("value").and_then(|v| v.get("state")).and_then(|s| s.as_str()) == Some("ended")
-                        });
+                        }
                         
                         println!("[DEBUG] Game ended check: {}", game_ended);
                         
@@ -597,6 +620,75 @@ pub fn start_game(&self) {
                                 }));
                             }
                         }
+                        
+                        // Generate game log entry if verb was successful and has a log template
+                        if !diff.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                            if let Some(verb_spec) = self.bundle.verbs.as_array()
+                                .and_then(|verbs| verbs.iter().find(|v| v["id"].as_str() == Some(verb_id))) {
+                                if let Some(log_template) = verb_spec["ui"]["logTemplate"].as_str() {
+                                    // Build the log entry
+                                    let mut log_text = log_template.to_string();
+                                    
+                                    // Replace {player} with the player name
+                                    log_text = log_text.replace("{player}", &player_id);
+                                    
+                                    // Replace args like {row} and {col}
+                                    if let Some(args_obj) = args {
+                                        if let Some(row) = args_obj["row"].as_i64() {
+                                            log_text = log_text.replace("{row}", &(row + 1).to_string()); // 1-indexed for display
+                                        }
+                                        if let Some(col) = args_obj["col"].as_i64() {
+                                            log_text = log_text.replace("{col}", &(col + 1).to_string()); // 1-indexed for display
+                                        }
+                                    }
+                                    
+                                    // Create timestamp
+                                    let now = chrono::Local::now();
+                                    let timestamp = now.format("%H:%M").to_string();
+                                    
+                                    // Add game log entry to patches
+                                    patch_ops.push(serde_json::json!({
+                                        "op": "add",
+                                        "path": "/meta/gameLog/-",
+                                        "value": {
+                                            "player": player_id,
+                                            "actor": current_actor,
+                                            "message": log_text,
+                                            "timestamp": timestamp
+                                        }
+                                    }));
+                                }
+                            }
+                        }
+                        
+                        // Add game end log entry if game just ended
+                        if game_ended {
+                            if let Some(end_info) = game_end_info {
+                                let log_message = if let Some(winner) = end_info.get("winner").and_then(|w| w.as_str()) {
+                                    // Map actor ID to player name
+                                    let winner_name = if winner == "p1" && self.player_list().len() > 0 {
+                                        self.player_list()[0].clone()
+                                    } else if winner == "p2" && self.player_list().len() > 1 {
+                                        self.player_list()[1].clone()
+                                    } else {
+                                        winner.to_string()
+                                    };
+                                    format!("{} wins!", winner_name)
+                                } else {
+                                    "Game ended in a tie!".to_string()
+                                };
+                                
+                                patch_ops.push(serde_json::json!({
+                                    "op": "add",
+                                    "path": "/meta/gameLog/-",
+                                    "value": {
+                                        "message": log_message,
+                                        "timestamp": chrono::Local::now().format("%H:%M").to_string()
+                                    }
+                                }));
+                            }
+                        }
+                        
                         
                         let frame = serde_json::json!({"type": "diff", "tick": tick, "patch": patch_ops});
                         self.history.lock().push(frame.clone());

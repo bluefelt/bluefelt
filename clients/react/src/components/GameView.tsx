@@ -101,18 +101,19 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
     }
   }, [lobbyState.meta, lobbyState.started]);
 
-  // Track game actions in the log
+  // Update game log from server
   useEffect(() => {
-    // Check for game started
-    if (lobbyState.started && gameLog.length === 0) {
-      const now = new Date();
-      const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      setGameLog([{
-        message: 'The game has started',
-        timestamp
-      }]);
+    if (lobbyState.meta?.gameLog) {
+      console.log('[GameView] Updating game log, server log length:', lobbyState.meta.gameLog.length);
+      // Reverse the array to show newest entries first
+      setGameLog(lobbyState.meta.gameLog.slice().reverse().map((entry: any) => ({
+        message: entry.message,
+        timestamp: entry.timestamp,
+        player: entry.player,
+        isYou: entry.player === player?.username
+      })));
     }
-  }, [lobbyState.started, gameLog.length]);
+  }, [lobbyState.meta?.gameLog, player?.username]);
 
   const isYourTurn = lobbyState.you && 
                      lobbyState.you !== 'spectator' && 
@@ -154,48 +155,9 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
         args: { row, col }
       });
       sendMessage(message);
-      
-      // Add to game log
-      const now = new Date();
-      const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      const playerName = player?.username || '';
-      
-      setGameLog(prev => [{
-        message: `You placed a mark on ${row}, ${col}`,
-        timestamp,
-        player: playerName,
-        isYou: true
-      }, ...prev].slice(0, 50));
     }
   };
 
-  // Add game end to log
-  useEffect(() => {
-    if (lobbyState.meta?.gameStatus?.state === 'ended') {
-      const now = new Date();
-      const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      
-      let message = 'The game has ended';
-      if (lobbyState.meta.gameStatus.winner) {
-        const winnerIndex = parseInt(lobbyState.meta.gameStatus.winner.replace('p', '')) - 1;
-        const winnerName = lobbyState.meta.players?.[winnerIndex];
-        message = `${winnerName} wins!`;
-      } else if (lobbyState.meta.gameStatus.tie) {
-        message = "It's a tie!";
-      }
-      
-      setGameLog(prev => {
-        // Check if we already added this message
-        if (prev.length > 0 && prev[0].message === message) {
-          return prev;
-        }
-        return [{
-          message,
-          timestamp
-        }, ...prev].slice(0, 50);
-      });
-    }
-  }, [lobbyState.meta?.gameStatus, lobbyState.meta?.players]);
 
   // Check if can start game
   const canStart = lobbyInfo &&

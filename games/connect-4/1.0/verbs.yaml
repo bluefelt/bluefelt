@@ -2,6 +2,7 @@
   builtin: moveEntity
   ui:
     direction: "Choose a column to drop your chip into"
+    logTemplate: "{player} dropped a chip in column {col}"
   params:
     source: chips_{actor}
     target:
