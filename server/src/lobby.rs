@@ -37,7 +37,7 @@ pub fn current_lobbies_json(lobbies: &LobbyMap) -> serde_json::Value {
             let mut lobby_json = serde_json::json!({
                 "id": l.key(),
                 "game_id": lobby.bundle.game_id,
-                "name": format!("{} - Lobby {}", lobby.bundle.game_id, &l.key()[0..6]),
+                "name": format!("{} - {}", lobby.bundle.game_id, l.key()),
                 "players": lobby.player_list(),
                 "started": lobby.is_started()
             });

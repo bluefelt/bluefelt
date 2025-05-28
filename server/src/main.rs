@@ -85,6 +85,17 @@ async fn main() -> anyhow::Result<()> {
 
 /* ---------- REST ---------- */
 
+/// Generate a 10-character lobby ID using UUID
+fn generate_lobby_id() -> String {
+    // Take the first 10 characters of a UUID (without hyphens)
+    Uuid::new_v4()
+        .to_string()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .take(10)
+        .collect()
+}
+
 async fn create_lobby(
     Json(req): Json<serde_json::Value>,
     bundles: BundleMap,
@@ -99,7 +110,7 @@ async fn create_lobby(
         }
     };
     
-    let id = Uuid::new_v4().to_string();
+    let id = generate_lobby_id();
     println!("[HTTP] Creating new lobby: {} for game: {}", id, game_id);
     
     lobbies.insert(id.clone(), new_lobby(id.clone(), bundle, lobbies.clone(), lobby_updates.clone()));
