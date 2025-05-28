@@ -275,7 +275,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                           
                           if (display.type === 'token') {
                             // Render SVG token
-                            const tokenSize = cellSize * 0.7; // 70% of cell size
+                            const tokenSize = cellSize * 0.525; // 52.5% of cell size (reduced by 25%)
                             return (
                               <div 
                                 style={{ 
