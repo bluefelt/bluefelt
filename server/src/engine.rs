@@ -19,7 +19,10 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
     if let Some(arr) = bundle.zones.as_array() {
         for zone in arr {
             let id = zone["id"].as_str().unwrap_or("");
-            let shape = zone["shape"].as_str().unwrap_or("");
+            // Support both 'type' (new) and 'shape' (old) 
+            let zone_type = zone["type"].as_str()
+                .or_else(|| zone["shape"].as_str())
+                .unwrap_or("");
             let contents = zone
                 .get("contents")
                 .cloned()
@@ -45,7 +48,7 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
                     }
                 }
 
-                let value = match shape {
+                let value = match zone_type {
                     "grid" => init_grid(zone, &content_spec),
                     "list" => init_list(&content_spec),
                     _ => Value::Null,
@@ -63,22 +66,22 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
 }
 
 fn init_grid(zone: &Value, contents: &Value) -> Value {
-    let width = zone
-        .get("gridProps")
-        .and_then(|g| g.get("width"))
+    // Support both new (rows/cols) and old (width/height) naming
+    let grid_props = zone.get("gridProps");
+    let cols = grid_props
+        .and_then(|g| g.get("cols").or_else(|| g.get("width")))
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as usize;
-    let height = zone
-        .get("gridProps")
-        .and_then(|g| g.get("height"))
+    let rows = grid_props
+        .and_then(|g| g.get("rows").or_else(|| g.get("height")))
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as usize;
     if contents.as_str() == Some("empty") {
-        let mut rows = Vec::new();
-        for _ in 0..height {
-            rows.push(vec![Value::Null; width]);
+        let mut grid_rows = Vec::new();
+        for _ in 0..rows {
+            grid_rows.push(vec![Value::Null; cols]);
         }
-        return Value::Array(rows.into_iter().map(Value::Array).collect());
+        return Value::Array(grid_rows.into_iter().map(Value::Array).collect());
     }
     if let Some(arr) = contents.as_array() {
         let mut rows: Vec<Value> = Vec::new();
@@ -151,26 +154,73 @@ pub fn apply_verb(
             return json!([]);
         }
     }
+    
+    // Check 'when' conditions if present
+    if let Some(when_conditions) = spec.get("when").and_then(|w| w.as_array()) {
+        for condition in when_conditions {
+            if let Some(cond_type) = condition["condition"].as_str() {
+                match cond_type {
+                    "turn.isCurrent" => {
+                        let player = condition["player"].as_str()
+                            .unwrap_or("")
+                            .replace("{actor}", caller);
+                        if state["turn"].as_str() != Some(&player) {
+                            return json!([]);
+                        }
+                    }
+                    _ => {
+                        // Other condition types can be added here
+                    }
+                }
+            }
+        }
+    }
 
     let mut patches = vec![];
     
-    // Apply the verb
-    let verb_patches = if spec["builtin"].as_str() == Some("moveEntity") {
-        apply_move_entity(bundle, state, spec, action, caller)
-    } else if spec["builtin"].as_str() == Some("nextTurn") {
-        apply_next_turn(state, caller)
-    } else if spec["builtin"].as_str() == Some("placePieceReversi") {
-        apply_place_piece_reversi(bundle, state, spec, action, caller)
-    } else if spec["builtin"].as_str() == Some("drawCard") {
-        apply_draw_card(bundle, state, spec, action, caller)
-    } else if spec["builtin"].as_str() == Some("transferCards") {
-        apply_transfer_cards(bundle, state, spec, action, caller)
-    } else if spec.get("hook").is_some() {
-        apply_hook(bundle, state, spec, action, caller)
-    } else if spec.get("conditions").is_some() {
-        apply_conditions(bundle, state, spec, action, caller)
-    } else {
-        json!([])
+    // Apply the verb - check new terminology first, fall back to builtin for compatibility
+    let implementation = spec["uses"].as_str()
+        .or_else(|| spec["implementation"].as_str())
+        .or_else(|| spec["builtin"].as_str());
+    
+    let verb_patches = match implementation {
+        Some("grid.move") | Some("moveEntity") => {
+            apply_move_entity(bundle, state, spec, action, caller)
+        }
+        Some("turn.advance") | Some("nextTurn") => {
+            apply_next_turn(state, caller)
+        }
+        Some("deck.draw") | Some("drawCard") => {
+            apply_draw_card(bundle, state, spec, action, caller)
+        }
+        Some("deck.transfer") | Some("transferCards") => {
+            apply_transfer_cards(bundle, state, spec, action, caller)
+        }
+        Some("grid.select") | Some("selectEntity") => {
+            apply_select_entity(bundle, state, spec, action, caller)
+        }
+        Some("grid.moveSelected") | Some("moveSelectedEntity") => {
+            apply_move_selected_entity(bundle, state, spec, action, caller)
+        }
+        Some("zone.reset") => {
+            apply_zone_reset(bundle, state, spec, action, caller)
+        }
+        Some("turn.reset") => {
+            apply_turn_reset(state)
+        }
+        Some("game.end") => {
+            apply_game_end(state, spec, action, caller)
+        }
+        _ => {
+            // Check for old-style conditions or hooks
+            if spec.get("hook").is_some() {
+                apply_hook(bundle, state, spec, action, caller)
+            } else if spec.get("conditions").is_some() || spec.get("check").is_some() || spec.get("checks").is_some() {
+                apply_conditions(bundle, state, spec, action, caller)
+            } else {
+                json!([])
+            }
+        }
     };
     
     if let Some(arr) = verb_patches.as_array() {
@@ -182,19 +232,32 @@ pub fn apply_verb(
         apply_patch_to_state(state, patch);
     }
     
-    // Process triggers
-    if let Some(triggers) = spec["triggers"].as_array() {
+    // Process triggers - support both 'triggers' and 'then'
+    let triggers = spec.get("then").or_else(|| spec.get("triggers"));
+    println!("[DEBUG] Processing triggers/then for verb {}: {:?}", spec["id"].as_str().unwrap_or("unknown"), triggers);
+    if let Some(triggers) = triggers.and_then(|t| t.as_array()) {
+        println!("[DEBUG] Found {} triggers to process", triggers.len());
         for trigger in triggers {
-            if let Some(trigger_id) = trigger.as_str() {
-                // Create a trigger action
-                let trigger_action = json!({ "verb": trigger_id });
-                let trigger_patches = apply_verb(bundle, state, caller, &trigger_action);
-                if let Some(arr) = trigger_patches.as_array() {
-                    patches.extend_from_slice(arr);
-                    // Apply trigger patches to state as well
-                    for patch in arr {
-                        apply_patch_to_state(state, patch);
-                    }
+            let verb_id = if let Some(id) = trigger.as_str() {
+                // Old format: just a string
+                id
+            } else if let Some(action) = trigger["action"].as_str() {
+                // New format: { action: "verb_id" }
+                action
+            } else {
+                continue;
+            };
+            
+            println!("[DEBUG] Processing trigger: {}", verb_id);
+            // Create a trigger action
+            let trigger_action = json!({ "verb": verb_id });
+            let trigger_patches = apply_verb(bundle, state, caller, &trigger_action);
+            println!("[DEBUG] Trigger {} produced patches: {:?}", verb_id, trigger_patches);
+            if let Some(arr) = trigger_patches.as_array() {
+                patches.extend_from_slice(arr);
+                // Apply trigger patches to state as well
+                for patch in arr {
+                    apply_patch_to_state(state, patch);
                 }
             }
         }
@@ -213,15 +276,26 @@ pub fn apply_verb(
 }
 
 fn apply_move_entity(
-    _bundle: &Bundle,
+    bundle: &Bundle,
     state: &mut Value,
     spec: &Value,
     action: &Value,
     actor: &str,
 ) -> Value {
-    let source_template = spec["params"]["source"].as_str().unwrap_or("");
+    // Support both old 'params' and new 'with' terminology
+    let params = spec.get("with").or_else(|| spec.get("params"));
+    let params = params.unwrap_or(&spec["params"]); // fallback to params if neither exists
+    
+    let source_template = params["source"].as_str()
+        .or_else(|| params["from"].as_str())
+        .unwrap_or("");
     let source_id = source_template.replace("{actor}", actor);
-    let target_zone = spec["params"]["target"]["zone"].as_str().unwrap_or("");
+    
+    let target = params.get("target").or_else(|| params.get("to"));
+    let target = target.unwrap_or(&params["target"]);
+    let target_zone = target["zone"].as_str()
+        .or_else(|| target.as_str()) // Allow direct zone reference
+        .unwrap_or("");
     let target_id = target_zone.replace("{actor}", actor);
 
     // Extract entity from source
@@ -230,6 +304,8 @@ fn apply_move_entity(
     if let Some(z) = state["zones"].get_mut(&source_id) {
         if z.get("infinite").is_some() {
             entity = z["infinite"].as_str().unwrap().to_string();
+            // Replace {player} or {actor} with actual actor ID
+            entity = entity.replace("{player}", actor).replace("{actor}", actor);
         } else if let Some(items) = z.get_mut("items").and_then(|v| v.as_array_mut()) {
             if let Some(val) = items.first() {
                 entity = val.as_str().unwrap_or("").to_string();
@@ -245,11 +321,16 @@ fn apply_move_entity(
 
     // Apply to target
     let mut ops = Vec::new();
+    let mut final_row = 0;
+    let mut final_col = 0;
+    
     if let Some(zone_val) = state["zones"].get_mut(&target_id) {
         if zone_val.is_array() {
             // grid
             let mut row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
             let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
+            final_row = row;
+            final_col = col;
             
             // Check for gravity mode
             let gravity = spec["params"]["target"]["gravity"].as_bool().unwrap_or(false);
@@ -277,6 +358,7 @@ fn apply_move_entity(
                         if let Some(row_arr) = grid[r].as_array() {
                             if row_arr.get(col).map(|c| c.is_null()).unwrap_or(false) {
                                 row = r;
+                                final_row = r;
                                 break;
                             }
                         }
@@ -315,6 +397,33 @@ fn apply_move_entity(
             "op": "remove",
             "path": format!("/zones/{}/items/0", source_id)
         }));
+    }
+    
+    // Apply any effects specified in the verb
+    if let Some(effects) = spec["params"]["effects"].as_array() {
+        for effect in effects {
+            match effect["type"].as_str() {
+                Some("flip") => {
+                    let flip_ops = apply_flip_effect(state, effect, &target_id, final_row, final_col, &entity);
+                    if let Some(arr) = flip_ops.as_array() {
+                        ops.extend_from_slice(arr);
+                    }
+                }
+                Some("capture") => {
+                    let capture_ops = apply_capture_effect(state, effect, &target_id, final_row, final_col, actor);
+                    if let Some(arr) = capture_ops.as_array() {
+                        ops.extend_from_slice(arr);
+                    }
+                }
+                Some("transform") => {
+                    let transform_ops = apply_transform_effect(bundle, state, effect, &target_id, final_row, final_col, &entity, actor);
+                    if let Some(arr) = transform_ops.as_array() {
+                        ops.extend_from_slice(arr);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     Value::Array(ops)
@@ -390,7 +499,12 @@ fn apply_patch_to_state(state: &mut Value, patch: &Value) {
 fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Value, caller: &str) -> Value {
     println!("[DEBUG] apply_conditions called for verb: {:?}, caller: {}", spec["id"], caller);
     
-    let conditions = match spec["conditions"].as_array() {
+    // Support both 'checks' and 'conditions' for compatibility
+    let conditions = spec.get("checks")
+        .or_else(|| spec.get("conditions"))
+        .and_then(|c| c.as_array());
+    
+    let conditions = match conditions {
         Some(c) => c,
         None => return json!([]),
     };
@@ -420,21 +534,26 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
             };
             
             let condition_met = match condition_type {
-                "consecutiveMarksInRow" => check_consecutive_marks(state, condition, check_player),
-                "allCellsFilled" => check_all_cells_filled(state, condition),
-                "deckEmpty" => check_deck_empty(state, condition),
+                "grid.consecutiveMarks" | "consecutiveMarksInRow" => check_consecutive_marks(state, condition, check_player),
+                "grid.allFilled" | "allCellsFilled" => check_all_cells_filled(state, condition),
+                "deck.empty" | "deckEmpty" => check_deck_empty(state, condition),
+                "pieces.none" | "noPiecesRemaining" => check_no_pieces_remaining(state, condition, check_player),
+                "moves.none" | "noValidMoves" => check_no_valid_moves(state, condition, check_player),
                 "any" => {
                     // Handle nested conditions for "any" type
+                    // For "any", we need to check each sub-condition and apply its result if true
                     if let Some(sub_conditions) = condition["conditions"].as_array() {
                         for sub_cond in sub_conditions {
                             let sub_met = match sub_cond["type"].as_str() {
-                                Some("consecutiveMarksInRow") => check_consecutive_marks(state, sub_cond, check_player),
-                                Some("allCellsFilled") => check_all_cells_filled(state, sub_cond),
+                                Some("grid.consecutiveMarks") | Some("consecutiveMarksInRow") => check_consecutive_marks(state, sub_cond, check_player),
+                                Some("grid.allFilled") | Some("allCellsFilled") => check_all_cells_filled(state, sub_cond),
+                                Some("pieces.none") | Some("noPiecesRemaining") => check_no_pieces_remaining(state, sub_cond, check_player),
+                                Some("moves.none") | Some("noValidMoves") => check_no_valid_moves(state, sub_cond, check_player),
                                 _ => false,
                             };
                             
                             if sub_met {
-                                // Apply the result from the sub-condition
+                                // Apply the result from the matching sub-condition
                                 let result = sub_cond["result"].as_str().unwrap_or("");
                                 match result {
                                     "gameWin" => {
@@ -460,11 +579,24 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
                                         }));
                                         return json!(patches);
                                     }
+                                    "gameLose" => {
+                                        let winner = if check_player == "p1" { "p2" } else { "p1" };
+                                        patches.push(json!({
+                                            "op": "add",
+                                            "path": "/meta/gameStatus",
+                                            "value": {
+                                                "state": "ended",
+                                                "winner": winner,
+                                                "tie": false
+                                            }
+                                        }));
+                                        return json!(patches);
+                                    }
                                     _ => {}
                                 }
                             }
                         }
-                        false
+                        false // No sub-condition matched
                     } else {
                         false
                     }
@@ -495,6 +627,20 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
                             "value": {
                                 "state": "ended",
                                 "tie": true
+                            }
+                        }));
+                        return json!(patches);
+                    }
+                    "gameLose" => {
+                        // The current player loses, so the other player wins
+                        let winner = if check_player == "p1" { "p2" } else { "p1" };
+                        patches.push(json!({
+                            "op": "add",
+                            "path": "/meta/gameStatus",
+                            "value": {
+                                "state": "ended",
+                                "winner": winner,
+                                "tie": false
                             }
                         }));
                         return json!(patches);
@@ -873,70 +1019,6 @@ fn apply_transfer_cards(
     Value::Array(ops)
 }
 
-/* --------------------------------------------------------------------------
-   Reversi-specific piece placement with flipping
-   ----------------------------------------------------------------------- */
-fn apply_place_piece_reversi(
-    _bundle: &Bundle,
-    state: &mut Value,
-    spec: &Value,
-    action: &Value,
-    actor: &str,
-) -> Value {
-    let source_template = spec["params"]["source"].as_str().unwrap_or("");
-    let source_id = source_template.replace("{actor}", actor);
-    let target_zone = spec["params"]["target"]["zone"].as_str().unwrap_or("");
-    
-    // Get piece from source
-    let entity = if let Some(z) = state["zones"].get(&source_id) {
-        z["infinite"].as_str().unwrap_or("").to_string()
-    } else {
-        return json!([]);
-    };
-    
-    if entity.is_empty() {
-        return json!([]);
-    }
-    
-    let row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
-    let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
-    
-    let mut ops = Vec::new();
-    
-    // Place the piece
-    if let Some(zone_val) = state["zones"].get_mut(&target_zone) {
-        if zone_val.is_array() && zone_val[row][col].is_null() {
-            zone_val[row][col] = Value::String(entity.clone());
-            ops.push(json!({
-                "op": "replace",
-                "path": format!("/zones/{}/{}/{}", target_zone, row, col),
-                "value": entity.clone()
-            }));
-            
-            // Now check all 8 directions for pieces to flip
-            let directions = [
-                (-1, -1), (-1, 0), (-1, 1),
-                (0, -1),           (0, 1),
-                (1, -1),  (1, 0),  (1, 1)
-            ];
-            
-            for (dr, dc) in directions.iter() {
-                let flips = get_flips_in_direction(zone_val, row, col, *dr, *dc, &entity);
-                for (flip_row, flip_col) in flips {
-                    zone_val[flip_row][flip_col] = Value::String(entity.clone());
-                    ops.push(json!({
-                        "op": "replace",
-                        "path": format!("/zones/{}/{}/{}", target_zone, flip_row, flip_col),
-                        "value": entity.clone()
-                    }));
-                }
-            }
-        }
-    }
-    
-    Value::Array(ops)
-}
-
 fn get_flips_in_direction(
     board: &Value,
     start_row: usize,
@@ -1009,4 +1091,546 @@ fn check_line(a: &Option<String>, b: &Option<String>, c: &Option<String>) -> Opt
         }
         _ => None,
     }
+}
+
+/* --------------------------------------------------------------------------
+   Effect Functions for moveEntity
+   ----------------------------------------------------------------------- */
+
+fn apply_flip_effect(
+    state: &mut Value,
+    effect: &Value,
+    zone_id: &str,
+    row: usize,
+    col: usize,
+    entity: &str,
+) -> Value {
+    let mut ops = Vec::new();
+    let pattern = effect["pattern"].as_str().unwrap_or("straight");
+    
+    if pattern == "straight" {
+        // Similar to Reversi - flip pieces in straight lines
+        let directions = [
+            (-1, -1), (-1, 0), (-1, 1),
+            (0, -1),           (0, 1),
+            (1, -1),  (1, 0),  (1, 1)
+        ];
+        
+        for (dr, dc) in directions.iter() {
+            let flips = get_flips_in_direction(&state["zones"][zone_id], row, col, *dr, *dc, entity);
+            for (flip_row, flip_col) in flips {
+                ops.push(json!({
+                    "op": "replace",
+                    "path": format!("/zones/{}/{}/{}", zone_id, flip_row, flip_col),
+                    "value": entity
+                }));
+            }
+        }
+    }
+    
+    json!(ops)
+}
+
+fn apply_capture_effect(
+    state: &mut Value,
+    effect: &Value,
+    zone_id: &str,
+    row: usize,
+    col: usize,
+    actor: &str,
+) -> Value {
+    let mut ops = Vec::new();
+    let capture_type = effect["captureType"].as_str().unwrap_or("adjacent");
+    
+    if capture_type == "adjacent" {
+        // Capture all adjacent opponent pieces
+        let directions = [
+            (-1, -1), (-1, 0), (-1, 1),
+            (0, -1),           (0, 1),
+            (1, -1),  (1, 0),  (1, 1)
+        ];
+        
+        if let Some(zone) = state["zones"][zone_id].as_array() {
+            for (dr, dc) in directions.iter() {
+                let adj_row = row as i32 + dr;
+                let adj_col = col as i32 + dc;
+                
+                if adj_row >= 0 && adj_row < zone.len() as i32 && adj_col >= 0 {
+                    if let Some(cell) = zone.get(adj_row as usize)
+                        .and_then(|r| r.as_array())
+                        .and_then(|r| r.get(adj_col as usize))
+                        .and_then(|c| c.as_str()) {
+                        
+                        // Check if it's an opponent's piece
+                        if !cell.is_empty() && !cell.contains(&format!("_{}", actor)) {
+                            ops.push(json!({
+                                "op": "replace",
+                                "path": format!("/zones/{}/{}/{}", zone_id, adj_row, adj_col),
+                                "value": null
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    json!(ops)
+}
+
+fn apply_transform_effect(
+    _bundle: &Bundle,
+    _state: &mut Value,
+    effect: &Value,
+    zone_id: &str,
+    row: usize,
+    col: usize,
+    entity: &str,
+    actor: &str,
+) -> Value {
+    let mut ops = Vec::new();
+    
+    // Check if transformation condition is met
+    if let Some(condition) = effect.get("when") {
+        let condition_type = condition["type"].as_str().unwrap_or("");
+        
+        if condition_type == "reachesRow" {
+            let target_row = condition["row"].as_str().unwrap_or("");
+            let should_transform = match target_row {
+                "opposite" => {
+                    (entity.contains("_p1") && row == 0) ||
+                    (entity.contains("_p2") && row == 7)
+                }
+                _ => {
+                    if let Ok(specific_row) = target_row.parse::<usize>() {
+                        row == specific_row
+                    } else {
+                        false
+                    }
+                }
+            };
+            
+            if should_transform {
+                if let Some(to_template) = effect["to"].as_str() {
+                    let new_entity = to_template.replace("{actor}", actor);
+                    ops.push(json!({
+                        "op": "replace",
+                        "path": format!("/zones/{}/{}/{}", zone_id, row, col),
+                        "value": new_entity
+                    }));
+                }
+            }
+        }
+    }
+    
+    json!(ops)
+}
+
+/* --------------------------------------------------------------------------
+   Check if player has no pieces remaining (for checkers win condition)
+   ----------------------------------------------------------------------- */
+fn check_no_pieces_remaining(state: &Value, condition: &Value, player: &str) -> bool {
+    let zone_name = condition["params"]["zone"].as_str().unwrap_or("");
+    
+    // For checkers, check if player has any pieces OR kings
+    if let Some(board) = state["zones"][zone_name].as_array() {
+        for row in board {
+            if let Some(cells) = row.as_array() {
+                for cell in cells {
+                    if let Some(cell_entity) = cell.as_str() {
+                        // Check if this entity belongs to the player
+                        if cell_entity.ends_with(&format!("_{}", player)) {
+                            return false; // Found at least one piece belonging to this player
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    true // No pieces found for this player
+}
+
+/* --------------------------------------------------------------------------
+   Check if player has no valid moves (for checkers stalemate)
+   ----------------------------------------------------------------------- */
+fn check_no_valid_moves(_state: &Value, _condition: &Value, _player: &str) -> bool {
+    // This would require checking all pieces and their possible moves
+    // For now, return false to not trigger this condition
+    // In a full implementation, this would check if the player has any legal moves
+    false
+}
+
+/* --------------------------------------------------------------------------
+   Select entity for two-step interactions (e.g., checkers piece selection)
+   ----------------------------------------------------------------------- */
+fn apply_select_entity(
+    _bundle: &Bundle,
+    state: &mut Value,
+    spec: &Value,
+    action: &Value,
+    actor: &str,
+) -> Value {
+    let zone = spec["params"]["zone"].as_str().unwrap_or("");
+    let row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
+    let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
+    
+    // Store the selection in state
+    let selection = json!({
+        "actor": actor,
+        "zone": zone,
+        "row": row,
+        "col": col
+    });
+    
+    state["meta"]["selection"] = selection.clone();
+    
+    json!([{
+        "op": "add",
+        "path": "/meta/selection",
+        "value": selection
+    }])
+}
+
+/* --------------------------------------------------------------------------
+   Move the previously selected entity (for checkers)
+   ----------------------------------------------------------------------- */
+fn apply_move_selected_entity(
+    bundle: &Bundle,
+    state: &mut Value,
+    spec: &Value,
+    action: &Value,
+    actor: &str,
+) -> Value {
+    // Get the current selection and extract values we need
+    let (source_zone, source_row, source_col) = {
+        let selection = match state.get("meta").and_then(|m| m.get("selection")) {
+            Some(sel) => sel,
+            None => return json!([]),
+        };
+        
+        // Verify the selection belongs to the current actor
+        if selection["actor"].as_str() != Some(actor) {
+            return json!([]);
+        }
+        
+        (
+            selection["zone"].as_str().unwrap_or("").to_string(),
+            selection["row"].as_u64().unwrap_or(0) as usize,
+            selection["col"].as_u64().unwrap_or(0) as usize,
+        )
+    };
+    
+    let target_zone = spec["params"]["target"]["zone"].as_str().unwrap_or("");
+    let target_row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
+    let target_col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
+    
+    let mut ops = Vec::new();
+    
+    // Get the entity from source position
+    let entity = if let Some(zone_val) = state["zones"].get(&source_zone) {
+        if let Some(row_arr) = zone_val.as_array().and_then(|z| z.get(source_row)) {
+            if let Some(cell) = row_arr.as_array().and_then(|r| r.get(source_col)) {
+                cell.as_str().unwrap_or("").to_string()
+            } else {
+                return json!([]);
+            }
+        } else {
+            return json!([]);
+        }
+    } else {
+        return json!([]);
+    };
+    
+    if entity.is_empty() {
+        return json!([]);
+    }
+    
+    // Check if this is a capture move (diagonal with a piece to capture)
+    let is_capture = (source_row as i32 - target_row as i32).abs() == 2 &&
+                     (source_col as i32 - target_col as i32).abs() == 2;
+    
+    if is_capture {
+        // Calculate the captured piece position
+        let captured_row = ((source_row + target_row) / 2) as usize;
+        let captured_col = ((source_col + target_col) / 2) as usize;
+        
+        // Remove the captured piece
+        if let Some(zone_val) = state["zones"].get_mut(&target_zone) {
+            if let Some(row_arr) = zone_val.as_array_mut().and_then(|z| z.get_mut(captured_row)) {
+                if let Some(cells) = row_arr.as_array_mut() {
+                    cells[captured_col] = Value::Null;
+                    ops.push(json!({
+                        "op": "replace",
+                        "path": format!("/zones/{}/{}/{}", target_zone, captured_row, captured_col),
+                        "value": null
+                    }));
+                }
+            }
+        }
+    }
+    
+    // We'll handle promotion through the transform effect system now
+    let final_entity = entity.clone();
+    
+    // Move the piece to target
+    if let Some(zone_val) = state["zones"].get_mut(&target_zone) {
+        if let Some(row_arr) = zone_val.as_array_mut().and_then(|z| z.get_mut(target_row)) {
+            if let Some(cells) = row_arr.as_array_mut() {
+                if cells[target_col].is_null() {
+                    cells[target_col] = Value::String(final_entity.clone());
+                    ops.push(json!({
+                        "op": "replace",
+                        "path": format!("/zones/{}/{}/{}", target_zone, target_row, target_col),
+                        "value": final_entity.clone()
+                    }));
+                }
+            }
+        }
+    }
+    
+    // Remove from source
+    if let Some(zone_val) = state["zones"].get_mut(&source_zone) {
+        if let Some(row_arr) = zone_val.as_array_mut().and_then(|z| z.get_mut(source_row)) {
+            if let Some(cells) = row_arr.as_array_mut() {
+                cells[source_col] = Value::Null;
+                ops.push(json!({
+                    "op": "replace",
+                    "path": format!("/zones/{}/{}/{}", source_zone, source_row, source_col),
+                    "value": null
+                }));
+            }
+        }
+    }
+    
+    // Clear the selection
+    ops.push(json!({
+        "op": "remove",
+        "path": "/meta/selection"
+    }));
+    
+    // Apply any transform effects (like king promotion)
+    if let Some(effects) = spec["params"]["effects"].as_array() {
+        for effect in effects {
+            if effect["type"].as_str() == Some("transform") {
+                let transform_ops = apply_transform_effect(bundle, state, effect, &target_zone, target_row, target_col, &final_entity, actor);
+                if let Some(arr) = transform_ops.as_array() {
+                    ops.extend_from_slice(arr);
+                }
+            }
+        }
+    }
+    
+    // Check if this was a capture move by a king and more captures are available
+    if is_capture && final_entity.contains("king_") {
+        // Check if there are more captures available from the new position
+        let mut has_more_captures = false;
+        
+        // Check all four diagonal directions for potential captures
+        for dr in [-2i32, 2].iter() {
+            for dc in [-2i32, 2].iter() {
+                let next_row = target_row as i32 + dr;
+                let next_col = target_col as i32 + dc;
+                
+                if next_row >= 0 && next_row < 8 && next_col >= 0 && next_col < 8 {
+                    let mid_row = ((target_row as i32 + next_row) / 2) as usize;
+                    let mid_col = ((target_col as i32 + next_col) / 2) as usize;
+                    
+                    // Check if the destination is empty and there's an opponent piece to jump
+                    if let Some(zone_val) = state["zones"].get(&target_zone) {
+                        if let Some(dest_cell) = zone_val.as_array()
+                            .and_then(|z| z.get(next_row as usize))
+                            .and_then(|r| r.as_array())
+                            .and_then(|r| r.get(next_col as usize)) {
+                            
+                            if dest_cell.is_null() {
+                                if let Some(mid_cell) = zone_val.as_array()
+                                    .and_then(|z| z.get(mid_row))
+                                    .and_then(|r| r.as_array())
+                                    .and_then(|r| r.get(mid_col))
+                                    .and_then(|c| c.as_str()) {
+                                    
+                                    // Check if it's an opponent's piece
+                                    if !mid_cell.contains(&format!("_{}", actor)) && !mid_cell.is_empty() {
+                                        has_more_captures = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if has_more_captures {
+                break;
+            }
+        }
+        
+        // If more captures are available, automatically select the king at its new position
+        if has_more_captures {
+            ops.push(json!({
+                "op": "add",
+                "path": "/meta/selection",
+                "value": {
+                    "actor": actor,
+                    "zone": target_zone,
+                    "row": target_row,
+                    "col": target_col
+                }
+            }));
+            
+            // Don't advance turn - same player continues
+            return Value::Array(ops);
+        }
+    }
+    
+    // Advance turn if we're not continuing with multiple jumps
+    let next_turn = {
+        if let Some(players) = state["players"].as_array() {
+            players
+                .iter()
+                .position(|p| p["id"].as_str() == Some(actor))
+                .map(|idx| {
+                    players[(idx + 1) % players.len()]["id"]
+                        .as_str()
+                        .unwrap()
+                        .to_string()
+                })
+        } else {
+            None
+        }
+    };
+
+    if let Some(next) = next_turn {
+        ops.push(json!({ "op": "replace", "path": "/turn", "value": next }));
+    }
+    
+    Value::Array(ops)
+}
+
+fn apply_zone_reset(
+    bundle: &Bundle,
+    state: &mut Value,
+    spec: &Value,
+    _action: &Value,
+    actor: &str,
+) -> Value {
+    let mut ops = Vec::new();
+    
+    // Support both old 'params' and new 'with' terminology
+    let params = spec.get("with").or_else(|| spec.get("params"));
+    let params = params.unwrap_or(&spec["params"]);
+    
+    if let Some(zones) = params["zones"].as_array() {
+        for zone_ref in zones {
+            let zone_id = zone_ref.as_str().unwrap_or("").replace("{actor}", actor);
+            
+            // Find the zone definition in the bundle
+            if let Some(zone_def) = bundle.zones.as_object()
+                .and_then(|zones| zones.get(&zone_id)) {
+                
+                // Reset based on zone type
+                if let Some(zone_type) = zone_def["type"].as_str() {
+                    match zone_type {
+                        "grid" => {
+                            // Reset grid to empty cells
+                            if let Some(rows) = zone_def["rows"].as_u64() {
+                                if let Some(cols) = zone_def["cols"].as_u64() {
+                                    let empty_grid: Vec<Vec<Value>> = (0..rows)
+                                        .map(|_| vec![Value::Null; cols as usize])
+                                        .collect();
+                                    ops.push(json!({
+                                        "op": "replace",
+                                        "path": format!("/zones/{}", zone_id),
+                                        "value": empty_grid
+                                    }));
+                                }
+                            }
+                        }
+                        "list" => {
+                            // Reset list to empty or infinite source
+                            if zone_def.get("infinite").is_some() {
+                                // Keep infinite zones as is
+                            } else {
+                                ops.push(json!({
+                                    "op": "replace",
+                                    "path": format!("/zones/{}/items", zone_id),
+                                    "value": []
+                                }));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    
+    Value::Array(ops)
+}
+
+fn apply_turn_reset(state: &Value) -> Value {
+    let mut ops = Vec::new();
+    
+    // Reset to first player
+    if let Some(players) = state["players"].as_array() {
+        if let Some(first_player) = players.first() {
+            if let Some(player_id) = first_player["id"].as_str() {
+                ops.push(json!({
+                    "op": "replace",
+                    "path": "/turn",
+                    "value": player_id
+                }));
+            }
+        }
+    }
+    
+    // Reset game status
+    ops.push(json!({
+        "op": "replace",
+        "path": "/meta/gameStatus",
+        "value": {
+            "state": "playing"
+        }
+    }));
+    
+    Value::Array(ops)
+}
+
+fn apply_game_end(
+    _state: &Value,
+    spec: &Value,
+    _action: &Value,
+    _caller: &str,
+) -> Value {
+    let mut ops = Vec::new();
+    
+    // Support both old 'params' and new 'with' terminology
+    let params = spec.get("with").or_else(|| spec.get("params"));
+    let params = params.unwrap_or(&spec["params"]);
+    
+    // Determine game result
+    let game_status = if let Some(winner) = params.get("winner").and_then(|w| w.as_str()) {
+        json!({
+            "state": "ended",
+            "winner": winner
+        })
+    } else if params.get("result").and_then(|r| r.as_str()) == Some("tie") {
+        json!({
+            "state": "ended",
+            "result": "tie"
+        })
+    } else {
+        json!({
+            "state": "ended"
+        })
+    };
+    
+    ops.push(json!({
+        "op": "replace",
+        "path": "/meta/gameStatus",
+        "value": game_status
+    }));
+    
+    Value::Array(ops)
 }

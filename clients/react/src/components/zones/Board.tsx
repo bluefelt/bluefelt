@@ -10,6 +10,7 @@ interface BoardProps {
   zoneMetadata?: any[]; // Array of zone definitions from manifest
   playerNames?: string[]; // Array of player names
   possibleVerbs?: any[]; // Array of possible verbs for current player
+  selection?: any; // Current selection state
 }
 
 interface ZoneProps {
@@ -22,10 +23,11 @@ interface ZoneProps {
   isSingleZone?: boolean;
   playerNames?: string[];
   possibleVerbs?: any[];
+  selection?: any;
 }
 
-import { usePlayer } from '../context/PlayerContext';
-import { getColorById, getPlayerColor, PLAYER_COLORS } from '../config/colors';
+import { usePlayer } from '../../context/PlayerContext.tsx';
+import { getColorById, getPlayerColor, PLAYER_COLORS } from '../../config/colors.ts';
 
 // Get mark color based on player colors
 const useMarkColor = () => {
@@ -57,7 +59,7 @@ const useMarkColor = () => {
   };
 };
 
-function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, isSingleZone = false, playerNames, possibleVerbs }: ZoneProps) {
+function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, isSingleZone = false, playerNames, possibleVerbs, selection }: ZoneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(60); // Start with a reasonable default
   const lastContainerWidth = useRef<number>(0);
@@ -67,7 +69,16 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
   const rows = boardData.length;
   const cols = boardData[0].length;
   const maxCellSize = 100;
-  const minCellSize = 40;
+  // Larger minimum size for touch devices
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const minCellSize = isTouchDevice ? 48 : 40;
+  
+  // Get zone info from metadata
+  const zoneInfo = zoneMetadata?.find(z => z.id === zoneId);
+  
+  // Check if board should be rotated for player 2
+  const shouldRotate = zoneInfo?.ui?.rotateForPlayer && player && playerNames && 
+    playerNames.findIndex(name => name === player.username) === 1;
   
   // Use layout effect for initial size calculation
   useLayoutEffect(() => {
@@ -105,7 +116,18 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
       // Calculate the maximum cell size that would fit
       const maxCellWidth = Math.floor(availableWidth / cols);
       const maxCellHeight = Math.floor(availableHeight / rows);
-      const optimalCellSize = Math.min(maxCellWidth, maxCellHeight);
+      
+      // For height, we always want to fit within the viewport
+      // For width, we allow overflow if needed to maintain minimum cell size
+      let optimalCellSize;
+      
+      if (maxCellWidth < minCellSize) {
+        // Board is too wide for container - use minCellSize and allow horizontal scroll
+        optimalCellSize = Math.min(minCellSize, maxCellHeight);
+      } else {
+        // Board fits - use the smaller of width/height constraints
+        optimalCellSize = Math.min(maxCellWidth, maxCellHeight);
+      }
       
       // Apply constraints
       const newCellSize = Math.max(minCellSize, Math.min(maxCellSize, optimalCellSize));
@@ -148,7 +170,14 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
       
       const maxCellWidth = Math.floor(availableWidth / cols);
       const maxCellHeight = Math.floor(availableHeight / rows);
-      const optimalCellSize = Math.min(maxCellWidth, maxCellHeight);
+      
+      // Same logic as initial calculation
+      let optimalCellSize;
+      if (maxCellWidth < minCellSize) {
+        optimalCellSize = Math.min(minCellSize, maxCellHeight);
+      } else {
+        optimalCellSize = Math.min(maxCellWidth, maxCellHeight);
+      }
       
       const newCellSize = Math.max(minCellSize, Math.min(maxCellSize, optimalCellSize));
       
@@ -173,21 +202,18 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
     if (entity?.ui?.tokenType) {
       return { type: 'token', tokenType: entity.ui.tokenType };
     }
-    return { type: 'glyph', glyph: entity?.ui?.glyph || (cell === 'mark_p1' ? 'X' : 'O') };
+    return { type: 'glyph', glyph: entity?.ui?.glyph || (cell === 'stone_p1' ? 'X' : cell === 'stone_p2' ? 'O' : (cell === 'mark_p1' ? 'X' : 'O')) };
   };
   
   // Handle cell clicks for this specific zone
   const handleCellClick = (row: number, col: number) => {
-    if (isMyTurn && boardData[row][col] === null && onCellClick) {
-      // For tic-tac-toe games, we typically interact with the first/main board
-      if (zoneId === 'board' || zoneId === 'da-board') {
-        onCellClick(row, col);
-      }
+    if (isMyTurn && onCellClick) {
+      // Always pass clicks through if it's the player's turn
+      onCellClick(row, col);
     }
   };
 
   // Get zone name from metadata if available
-  const zoneInfo = zoneMetadata?.find(z => z.id === zoneId);
   let zoneName = zoneInfo?.name || zoneId;
   
   // Temporary mapping until server is restarted with zone metadata
@@ -208,8 +234,11 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
       <h2 className="text-xl font-semibold mb-4 text-white">
         {zoneName}
       </h2>
-      <div className="flex-1 flex items-center justify-center overflow-auto p-4">
-        <div className="bg-black p-4 rounded">
+      <div className="flex-1 overflow-auto p-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800" 
+           style={{ 
+             WebkitOverflowScrolling: 'touch'
+           }}>
+          <div className="bg-black p-4 rounded inline-block">
           <div 
             className="grid gap-0 border-2 border-white"
             style={{
@@ -221,28 +250,49 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
           >
             {boardData.map((row, rowIndex) =>
               row.map((cell: any, colIndex: number) => {
-                const isEmpty = cell === null;
+                // Get the actual cell data considering rotation
+                const actualRow = shouldRotate ? (rows - 1 - rowIndex) : rowIndex;
+                const actualCol = shouldRotate ? (cols - 1 - colIndex) : colIndex;
+                const actualCell = boardData[actualRow][actualCol];
+                
+                const isEmpty = actualCell === null;
+                
+                // Check if this cell is selected
+                const isSelected = selection && 
+                  selection.zone === zoneId && 
+                  selection.row === actualRow && 
+                  selection.col === actualCol;
                 
                 // Check if this cell is a valid move based on possibleVerbs
                 let isClickable = false;
-                if (isMyTurn && isEmpty && (zoneId === 'board' || zoneId === 'da-board')) {
+                if (isMyTurn) {
                   if (possibleVerbs !== undefined) {
                     // If possibleVerbs is provided (even if empty), use it
                     isClickable = possibleVerbs.some(verb => 
                       verb.validOptions?.some(opt => 
-                        opt.zone === zoneId && opt.row === rowIndex && opt.col === colIndex
+                        opt.zone === zoneId && opt.row === actualRow && opt.col === actualCol
                       )
                     );
-                  } else {
+                  } else if (isEmpty && (zoneId === 'board' || zoneId === 'da-board')) {
                     // Only fall back to old logic if possibleVerbs is not provided at all
                     isClickable = true;
                   }
                 }
                 
+                // Check if this zone uses checkerboard pattern
+                const useCheckerPattern = zoneInfo?.ui?.checkerPattern || false;
+                const isDarkSquare = (rowIndex + colIndex) % 2 === 1;
+                
+                // Calculate cell background color
+                let cellBgColor = '#000000'; // Default black
+                if (useCheckerPattern) {
+                  cellBgColor = isDarkSquare ? '#000000' : '#1a1a1a'; // Pure black / Very dark grey
+                }
+                
                 return (
                   <div
                     key={`${rowIndex}-${colIndex}`}
-                    className="relative border border-gray-700"
+                    className={`relative border ${isSelected ? 'border-yellow-400 border-2' : 'border-gray-700'}`}
                     style={{ width: `${cellSize}px`, height: `${cellSize}px` }}
                   >
                     {isEmpty ? (
@@ -255,29 +305,43 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                             `radial-gradient(circle, ${getColorById(player.color).hex} 1px, transparent 1px)` : 
                             'none',
                           backgroundSize: '10px 10px',
-                          backgroundColor: isClickable ? '#1a202c' : '#000000'
+                          backgroundColor: isClickable ? (useCheckerPattern ? (isDarkSquare ? '#0a0a0a' : '#2a2a2a') : '#1a202c') : cellBgColor
                         }}
-                        onClick={() => handleCellClick(rowIndex, colIndex)}
+                        onClick={() => isClickable && handleCellClick(actualRow, actualCol)}
                         onMouseEnter={(e) => {
                           if (isClickable) {
                             e.currentTarget.style.backgroundColor = 'rgba(75, 85, 99, 0.5)';
                           }
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = isClickable ? '#1a202c' : '#000000';
+                          e.currentTarget.style.backgroundColor = isClickable ? (useCheckerPattern ? (isDarkSquare ? '#0a0a0a' : '#2a2a2a') : '#1a202c') : cellBgColor;
                         }}
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-black">
+                      <div 
+                        className={`w-full h-full flex items-center justify-center relative ${
+                          isClickable ? 'cursor-pointer' : ''
+                        }`}
+                        style={{ 
+                          backgroundColor: cellBgColor,
+                          // Add interactive affordance for selectable pieces
+                          backgroundImage: isClickable && player && !selection ? 
+                            `radial-gradient(circle, ${getColorById(player.color).hex} 1px, transparent 1px)` : 
+                            'none',
+                          backgroundSize: '10px 10px',
+                        }}
+                        onClick={() => isClickable && handleCellClick(actualRow, actualCol)}
+                      >
                         {(() => {
-                          const display = getEntityDisplay(cell);
-                          const color = getMarkColor(cell, playerNames);
+                          const display = getEntityDisplay(actualCell);
+                          const color = getMarkColor(actualCell, playerNames);
                           
                           if (display.type === 'token') {
                             // Render SVG token
                             const tokenSize = cellSize * 0.525; // 52.5% of cell size (reduced by 25%)
                             return (
                               <div 
+                                className="relative z-10"
                                 style={{ 
                                   width: `${tokenSize}px`, 
                                   height: `${tokenSize}px`,
@@ -297,7 +361,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                             // Render text glyph
                             return (
                               <span 
-                                className={`${fontSize} font-bold`}
+                                className={`${fontSize} font-bold relative z-10`}
                                 style={{ color }}
                               >
                                 {display.glyph}
@@ -327,7 +391,8 @@ export default function Board({
   isMyTurn = false,
   zoneMetadata,
   playerNames,
-  possibleVerbs
+  possibleVerbs,
+  selection
 }: BoardProps) {
   if (!zones) {
     return null;
@@ -363,6 +428,7 @@ export default function Board({
           isSingleZone={gridZones.length === 1}
           playerNames={playerNames}
           possibleVerbs={possibleVerbs}
+          selection={selection}
         />
       ))}
     </div>

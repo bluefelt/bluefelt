@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import PlayerProfile from '../components/PlayerProfile';
+import SiteHeader from '../components/structure/SiteHeader.tsx';
 import LobbiesList from '../components/LobbiesList';
 import ProtectedRoute from '../components/ProtectedRoute';
 

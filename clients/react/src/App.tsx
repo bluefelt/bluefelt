@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { PlayerProvider } from "./context/PlayerContext";
 import { WebSocketProvider } from "./context/WebSocketContext";
-import Layout from "./components/Layout";
+import Layout from "./layout/Layout.tsx";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import LobbiesPage from "./pages/LobbiesPage";

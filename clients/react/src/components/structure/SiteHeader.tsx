@@ -1,8 +1,8 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { usePlayer } from '../context/PlayerContext';
-import ColorPicker from './ColorPicker';
+import { usePlayer } from '../../context/PlayerContext.tsx';
+import ColorPicker from '../ColorPicker.tsx';
 
-export default function PlayerProfile() {
+export default function SiteHeader() {
   const { player, logout } = usePlayer();
   const navigate = useNavigate();
   if (!player) return null;

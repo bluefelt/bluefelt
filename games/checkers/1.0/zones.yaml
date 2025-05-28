@@ -1,0 +1,29 @@
+- id: board
+  name: "Board"
+  shape: grid
+  gridProps:
+    width: 8
+    height: 8
+  contents:
+    # Checkers initial setup - pieces on dark squares only
+    # Player 2 pieces at top (will appear at bottom for player 2)
+    - [null, piece_p2, null, piece_p2, null, piece_p2, null, piece_p2]
+    - [piece_p2, null, piece_p2, null, piece_p2, null, piece_p2, null]
+    - [null, piece_p2, null, piece_p2, null, piece_p2, null, piece_p2]
+    # Empty rows
+    - [null, null, null, null, null, null, null, null]
+    - [null, null, null, null, null, null, null, null]
+    # Player 1 pieces at bottom (will appear at bottom for player 1)
+    - [piece_p1, null, piece_p1, null, piece_p1, null, piece_p1, null]
+    - [null, piece_p1, null, piece_p1, null, piece_p1, null, piece_p1]
+    - [piece_p1, null, piece_p1, null, piece_p1, null, piece_p1, null]
+  visibility: all
+  ui:
+    rotateForPlayer: true  # This will rotate the board 180° for player 2
+    checkerPattern: true   # Show checkerboard pattern
+
+# Supply zones for captured pieces (not visible)
+- id: captured_{player}
+  shape: list
+  contents: empty
+  visibility: none

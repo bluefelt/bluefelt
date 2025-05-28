@@ -1,9 +1,12 @@
 - id: placeDisc
-  builtin: placePieceReversi
+  builtin: moveEntity
   params:
     source: discs_{actor}
     target:
       zone: board
+    effects:
+      - type: flip
+        pattern: straight
   ui:
     direction: "Place a disc to flip opponent pieces"
     logTemplate: "{player} placed a disc at row {row}, column {col}"

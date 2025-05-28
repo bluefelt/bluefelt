@@ -1,0 +1,26 @@
+- id: placeStone
+  builtin: moveEntity
+  params:
+    source: supply_{actor}
+    target:
+      zone: board
+  triggers:
+    - nextTurn
+    - checkWin
+  ui:
+    direction: "Place a stone"
+    logTemplate: "{player} placed a stone at ({row}, {col})"
+
+- id: nextTurn
+  builtin: nextTurn
+  auto: true
+
+- id: checkWin
+  conditions:
+    - type: consecutiveMarksInRow
+      params:
+        zone: board
+        count: 5
+        entity: stone_{actor}
+      result: gameWin
+  auto: true

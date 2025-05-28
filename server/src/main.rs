@@ -228,6 +228,12 @@ async fn ws_handler(
                 "type": "error",
                 "message": "Lobby does not exist"
             }).to_string())).await;
+            // Close the socket immediately after sending the error with policy violation code
+            let _ = sock.send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                code: 1008, // Policy violation - lobby doesn't exist
+                reason: std::borrow::Cow::from("Lobby does not exist"),
+            }))).await;
+            let _ = sock.close().await;
         });
     };
     

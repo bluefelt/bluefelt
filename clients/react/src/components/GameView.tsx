@@ -6,7 +6,7 @@ import { getLobby } from '../api/lobbies';
 import { getPlayerColor } from '../config/colors';
 import GameHeader from './GameHeader';
 import TurnBanner from './TurnBanner';
-import Board from './Board';
+import Board from './zones/Board.tsx';
 import GameLog from './GameLog';
 import GameResultBanner from './GameResultBanner';
 import type { GameManifest } from '../api/games';
@@ -233,6 +233,7 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
                 zoneMetadata={lobbyState.meta?.zones}
                 playerNames={lobbyState.meta?.players}
                 possibleVerbs={lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || []}
+                selection={lobbyState.state?.meta?.selection}
               />
             </>
           ) : (

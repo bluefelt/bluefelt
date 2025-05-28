@@ -1,0 +1,22 @@
+- id: board
+  type: grid
+  gridProps:
+    rows: 3
+    cols: 3
+  contents: empty
+  visibility: all
+
+# Supply zones for marks (infinite)
+- id: marks_p1
+  type: list
+  contents:
+    entity: mark_p1
+    count: infinite
+  visibility: none
+
+- id: marks_p2
+  type: list
+  contents:
+    entity: mark_p2
+    count: infinite
+  visibility: none

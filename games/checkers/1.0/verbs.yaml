@@ -1,0 +1,36 @@
+- id: selectPiece
+  builtin: selectEntity
+  params:
+    zone: board
+  ui:
+    direction: "Select a piece to move"
+    logTemplate: "{player} selected a piece"
+
+- id: movePiece
+  builtin: moveSelectedEntity
+  params:
+    target:
+      zone: board
+    effects:
+      - type: transform
+        when:
+          type: reachesRow
+          row: opposite
+        to: king_{actor}
+  triggers:
+    - checkGameEnd
+  ui:
+    direction: "Move to highlighted square"
+    logTemplate: "{player} moved a piece to ({row}, {col})"
+
+- id: nextTurn
+  builtin: nextTurn
+  auto: true
+
+- id: checkGameEnd
+  conditions:
+    - type: noPiecesRemaining
+      params:
+        zone: board
+      result: gameLose
+  auto: true

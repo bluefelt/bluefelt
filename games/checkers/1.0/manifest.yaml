@@ -1,0 +1,10 @@
+gameId: checkers
+version: 1.0
+specVersion: 1
+metadata:
+  name: "Checkers"
+  description: "The classic game of Checkers (Draughts)"
+  author: "Bluefelt Games"
+  players:
+    min: 2
+    max: 2

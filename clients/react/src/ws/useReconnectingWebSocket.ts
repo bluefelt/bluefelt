@@ -71,12 +71,18 @@ export function useReconnectingWebSocket(
         onOpen?.();
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setState('disconnected');
         wsRef.current = null;
         onClose?.();
 
-        if (shouldReconnect && reconnectCountRef.current < reconnectAttempts) {
+        // Don't reconnect if we received a close code indicating we shouldn't
+        // 1000 = Normal closure
+        // 1001 = Going away
+        // 1008 = Policy violation (we'll use this for "lobby doesn't exist")
+        const shouldNotReconnect = [1000, 1001, 1008].includes(event.code);
+        
+        if (shouldReconnect && !shouldNotReconnect && reconnectCountRef.current < reconnectAttempts) {
           const timeout = Math.min(
             reconnectInterval * Math.pow(reconnectDecay, reconnectCountRef.current),
             maxReconnectInterval

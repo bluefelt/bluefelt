@@ -1,0 +1,31 @@
+# Regular pieces
+- id: piece_p1
+  props:
+    type: "regular"
+    player: 1
+  ui:
+    tokenType: "o"
+
+- id: piece_p2
+  props:
+    type: "regular" 
+    player: 2
+  ui:
+    tokenType: "o"
+
+# King pieces (promoted)
+- id: king_p1
+  props:
+    type: "king"
+    player: 1
+  ui:
+    tokenType: "x"
+    glyph: "♔"
+
+- id: king_p2
+  props:
+    type: "king"
+    player: 2
+  ui:
+    tokenType: "o"
+    glyph: "♔"

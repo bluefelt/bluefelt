@@ -251,22 +251,37 @@ impl Lobby {
         }
 
         let turn_player = state["turn"].as_str().unwrap_or("");
+        println!("[DEBUG possible_verbs] Current turn player: {}", turn_player);
 
         if let Some(players) = state["players"].as_array() {
+            println!("[DEBUG possible_verbs] Players in game: {:?}", players);
             for player in players {
                 if let Some(id) = player["id"].as_str() {
+                    println!("[DEBUG possible_verbs] Checking verbs for player: {}", id);
                     let mut verbs_by_id: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
                     
                     if id == turn_player {
+                        println!("[DEBUG possible_verbs] Player {} is the current turn player", id);
                         if let Some(verblist) = bundle.verbs.as_array() {
+                            println!("[DEBUG possible_verbs] Found {} verbs in bundle", verblist.len());
                             for v in verblist {
-                                if v["builtin"].as_str() == Some("moveEntity") || v["builtin"].as_str() == Some("placePieceReversi") {
+                                // Support both 'uses' (new) and 'builtin' (old)
+                                let verb_impl = v["uses"].as_str()
+                                    .or_else(|| v["builtin"].as_str());
+                                println!("[DEBUG possible_verbs] Verb {} has implementation: {:?}", v["id"].as_str().unwrap_or("unknown"), verb_impl);
+                                if verb_impl == Some("grid.move") || verb_impl == Some("moveEntity") {
+                                    println!("[DEBUG] Found grid.move verb: {:?}", v["id"]);
                                     if let Some(verb_id) = v["id"].as_str() {
-                                        if let Some(target_zone) = v["params"]["target"]["zone"].as_str() {
+                                        // Support both 'with' (new) and 'params' (old)
+                                        let params = v.get("with").or_else(|| v.get("params"));
+                                        if let Some(params) = params {
+                                            if let Some(target_zone) = params["target"]["zone"].as_str() {
+                                                println!("[DEBUG] Target zone: {}", target_zone);
                                             let zone_state = &state["zones"][target_zone];
+                                            println!("[DEBUG] Zone state for {}: {:?}", target_zone, zone_state);
                                             if zone_state.is_array() {
                                                 let mut valid_options = Vec::new();
-                                                let gravity = v["params"]["target"]["gravity"].as_bool().unwrap_or(false);
+                                                let gravity = params["target"]["gravity"].as_bool().unwrap_or(false);
                                                 
                                                 if gravity {
                                                     // For gravity mode, only check top row (row 0) and exclude full columns
@@ -292,20 +307,43 @@ impl Lobby {
                                                             }
                                                         }
                                                     }
-                                                } else if v["builtin"].as_str() == Some("placePieceReversi") {
-                                                    // Reversi mode - only show moves that would flip at least one piece
-                                                    let source_template = v["params"]["source"].as_str().unwrap_or("");
-                                                    let source_id = source_template.replace("{actor}", id);
-                                                    let player_piece = if let Some(z) = state["zones"].get(&source_id) {
-                                                        z["infinite"].as_str().unwrap_or("")
-                                                    } else {
-                                                        ""
-                                                    };
+                                                } else if verb_impl == Some("grid.move") || verb_impl == Some("moveEntity") {
+                                                    println!("[DEBUG] Checking for flip effects");
+                                                    // Check if this has flip effect (Reversi-style)
+                                                    let has_flip_effect = params.get("effects").and_then(|e| e.as_array())
+                                                        .map(|effects| effects.iter().any(|e| e["type"].as_str() == Some("flip")))
+                                                        .unwrap_or(false);
                                                     
-                                                    if !player_piece.is_empty() {
+                                                    if has_flip_effect {
+                                                        // Only show moves that would flip at least one piece
+                                                        let source_template = params["source"].as_str().unwrap_or("");
+                                                        let source_id = source_template.replace("{actor}", id);
+                                                        let player_piece = if let Some(z) = state["zones"].get(&source_id) {
+                                                            z["infinite"].as_str().unwrap_or("")
+                                                        } else {
+                                                            ""
+                                                        };
+                                                        
+                                                        if !player_piece.is_empty() {
+                                                            for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
+                                                                for (c, cell) in row.as_array().unwrap().iter().enumerate() {
+                                                                    if cell.is_null() && would_flip_any(zone_state, r, c, player_piece) {
+                                                                        valid_options.push(serde_json::json!({
+                                                                            "zone": target_zone,
+                                                                            "row": r,
+                                                                            "col": c
+                                                                        }));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    } else {
+                                                        // Normal moveEntity without special effects
+                                                        println!("[DEBUG] Normal grid.move without flip effects");
                                                         for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
                                                             for (c, cell) in row.as_array().unwrap().iter().enumerate() {
-                                                                if cell.is_null() && would_flip_any(zone_state, r, c, player_piece) {
+                                                                if cell.is_null() {
+                                                                    println!("[DEBUG] Found empty cell at row {} col {}", r, c);
                                                                     valid_options.push(serde_json::json!({
                                                                         "zone": target_zone,
                                                                         "row": r,
@@ -341,10 +379,230 @@ impl Lobby {
                                             }
                                         }
                                     }
-                                } else if v["builtin"].as_str() == Some("drawCard") {
+                                    }
+                                } else if verb_impl == Some("grid.select") || verb_impl == Some("selectEntity") {
+                                    // Handle piece selection for checkers
+                                    if let Some(verb_id) = v["id"].as_str() {
+                                        // Support both 'with' (new) and 'params' (old)
+                                        let params = v.get("with").or_else(|| v.get("params"));
+                                        if let Some(params) = params {
+                                            if let Some(zone_name) = params["zone"].as_str() {
+                                            let zone_state = &state["zones"][zone_name];
+                                            if zone_state.is_array() {
+                                                let mut valid_options = Vec::new();
+                                                
+                                                // Find all of this player's pieces
+                                                for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
+                                                    for (c, cell) in row.as_array().unwrap().iter().enumerate() {
+                                                        if let Some(entity) = cell.as_str() {
+                                                            if entity.contains(&format!("_{}", id)) {
+                                                                // This is the player's piece, check if it has valid moves
+                                                                let is_king = entity.contains("king_");
+                                                                let is_player1 = entity.contains("_p1");
+                                                                let mut has_valid_move = false;
+                                                                
+                                                                // Check all possible moves for this piece
+                                                                for dr in [-2i32, -1, 1, 2].iter() {
+                                                                    for dc in [-2i32, -1, 1, 2].iter() {
+                                                                        if dr.abs() != dc.abs() {
+                                                                            continue; // Only diagonal moves
+                                                                        }
+                                                                        
+                                                                        // Regular pieces can only move forward
+                                                                        if !is_king {
+                                                                            if (is_player1 && *dr > 0) || (!is_player1 && *dr < 0) {
+                                                                                continue;
+                                                                            }
+                                                                        }
+                                                                        
+                                                                        let new_row = r as i32 + dr;
+                                                                        let new_col = c as i32 + dc;
+                                                                        
+                                                                        if new_row >= 0 && new_row < 8 && new_col >= 0 && new_col < 8 {
+                                                                            if let Some(target_cell) = zone_state.as_array()
+                                                                                .and_then(|z| z.get(new_row as usize))
+                                                                                .and_then(|row| row.as_array())
+                                                                                .and_then(|row| row.get(new_col as usize)) {
+                                                                                
+                                                                                if target_cell.is_null() {
+                                                                                    if dr.abs() == 2 {
+                                                                                        // Check for capture
+                                                                                        let mid_row = ((r as i32 + new_row) / 2) as usize;
+                                                                                        let mid_col = ((c as i32 + new_col) / 2) as usize;
+                                                                                        if let Some(mid_cell) = zone_state.as_array()
+                                                                                            .and_then(|z| z.get(mid_row))
+                                                                                            .and_then(|row| row.as_array())
+                                                                                            .and_then(|row| row.get(mid_col))
+                                                                                            .and_then(|cell| cell.as_str()) {
+                                                                                            if !mid_cell.contains(&format!("_{}", id)) && !mid_cell.is_empty() {
+                                                                                                has_valid_move = true;
+                                                                                                break;
+                                                                                            }
+                                                                                        }
+                                                                                    } else {
+                                                                                        has_valid_move = true;
+                                                                                        break;
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    if has_valid_move {
+                                                                        break;
+                                                                    }
+                                                                }
+                                                                
+                                                                if has_valid_move {
+                                                                    valid_options.push(serde_json::json!({
+                                                                        "zone": zone_name,
+                                                                        "row": r,
+                                                                        "col": c
+                                                                    }));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                if !valid_options.is_empty() {
+                                                    let direction = v["ui"]["direction"].as_str().unwrap_or("Select a piece");
+                                                    verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
+                                                        "verb": verb_id,
+                                                        "direction": direction,
+                                                        "validOptions": valid_options
+                                                    }));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    }
+                                } else if verb_impl == Some("grid.moveSelected") || verb_impl == Some("moveSelectedEntity") {
+                                    // Handle moving a selected piece
+                                    if let Some(verb_id) = v["id"].as_str() {
+                                        // Check if there's a selection for this player
+                                        if let Some(selection) = state.get("meta").and_then(|m| m.get("selection")) {
+                                            if selection["actor"].as_str() == Some(id) {
+                                                let source_row = selection["row"].as_u64().unwrap_or(0) as usize;
+                                                let source_col = selection["col"].as_u64().unwrap_or(0) as usize;
+                                                
+                                                // Support both 'with' (new) and 'params' (old)
+                                                let params = v.get("with").or_else(|| v.get("params"));
+                                                if let Some(params) = params {
+                                                    if let Some(target_zone) = params["target"]["zone"].as_str() {
+                                                    let zone_state = &state["zones"][target_zone];
+                                                    if zone_state.is_array() {
+                                                        let mut valid_options = Vec::new();
+                                                        
+                                                        // Get the selected piece to check if it's a king
+                                                        let (is_king, is_player1) = {
+                                                            if let Some(selected_piece) = zone_state.as_array()
+                                                                .and_then(|z| z.get(source_row))
+                                                                .and_then(|r| r.as_array())
+                                                                .and_then(|r| r.get(source_col))
+                                                                .and_then(|c| c.as_str()) {
+                                                                (selected_piece.contains("king_"), selected_piece.contains("_p1"))
+                                                            } else {
+                                                                (false, false)
+                                                            }
+                                                        };
+                                                        
+                                                        let must_capture_only = is_king;
+                                                        
+                                                        let mut capture_moves = Vec::new();
+                                                        let mut regular_moves = Vec::new();
+                                                        
+                                                        // Calculate valid moves (diagonals only for checkers)
+                                                        for dr in [-2i32, -1, 1, 2].iter() {
+                                                            for dc in [-2i32, -1, 1, 2].iter() {
+                                                                if dr.abs() != dc.abs() {
+                                                                    continue; // Only diagonal moves
+                                                                }
+                                                                
+                                                                // Regular pieces can only move forward
+                                                                if !is_king {
+                                                                    // Player 1 pieces move up (negative dr), Player 2 pieces move down (positive dr)
+                                                                    if (is_player1 && *dr > 0) || (!is_player1 && *dr < 0) {
+                                                                        continue; // Skip backward moves for regular pieces
+                                                                    }
+                                                                }
+                                                                
+                                                                let new_row = source_row as i32 + dr;
+                                                                let new_col = source_col as i32 + dc;
+                                                                
+                                                                if new_row >= 0 && new_row < 8 && new_col >= 0 && new_col < 8 {
+                                                                    let target_row = new_row as usize;
+                                                                    let target_col = new_col as usize;
+                                                                    
+                                                                    // Check if target is empty
+                                                                    if let Some(target_cell) = zone_state.as_array()
+                                                                        .and_then(|z| z.get(target_row))
+                                                                        .and_then(|r| r.as_array())
+                                                                        .and_then(|r| r.get(target_col)) {
+                                                                        
+                                                                        if target_cell.is_null() {
+                                                                            // For captures, check if there's an opponent piece to jump
+                                                                            if dr.abs() == 2 {
+                                                                                let mid_row = ((source_row as i32 + new_row) / 2) as usize;
+                                                                                let mid_col = ((source_col as i32 + new_col) / 2) as usize;
+                                                                                
+                                                                                if let Some(mid_cell) = zone_state.as_array()
+                                                                                    .and_then(|z| z.get(mid_row))
+                                                                                    .and_then(|r| r.as_array())
+                                                                                    .and_then(|r| r.get(mid_col))
+                                                                                    .and_then(|c| c.as_str()) {
+                                                                                    
+                                                                                    // Check if it's opponent's piece
+                                                                                    if !mid_cell.contains(&format!("_{}", id)) && !mid_cell.is_empty() {
+                                                                                        capture_moves.push(serde_json::json!({
+                                                                                            "zone": target_zone,
+                                                                                            "row": target_row,
+                                                                                            "col": target_col
+                                                                                        }));
+                                                                                    }
+                                                                                }
+                                                                            } else {
+                                                                                // Regular move
+                                                                                regular_moves.push(serde_json::json!({
+                                                                                    "zone": target_zone,
+                                                                                    "row": target_row,
+                                                                                    "col": target_col
+                                                                                }));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        // If this is a king that can capture, only show capture moves
+                                                        if must_capture_only && !capture_moves.is_empty() {
+                                                            valid_options = capture_moves;
+                                                        } else if !capture_moves.is_empty() || !regular_moves.is_empty() {
+                                                            valid_options = capture_moves;
+                                                            valid_options.extend(regular_moves);
+                                                        }
+                                                        
+                                                        if !valid_options.is_empty() {
+                                                            let direction = v["ui"]["direction"].as_str().unwrap_or("Move piece");
+                                                            verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
+                                                                "verb": verb_id,
+                                                                "direction": direction,
+                                                                "validOptions": valid_options
+                                                            }));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    }
+                                } else if verb_impl == Some("deck.draw") || verb_impl == Some("drawCard") {
                                     if let Some(verb_id) = v["id"].as_str() {
                                         // For drawCard, check if source deck has cards
-                                        if let Some(source) = v["params"]["source"].as_str() {
+                                        // Support both 'with' (new) and 'params' (old)
+                                        let params = v.get("with").or_else(|| v.get("params"));
+                                        if let Some(params) = params {
+                                            if let Some(source) = params["source"].as_str() {
                                             if let Some(deck) = state["zones"][source].get("items").and_then(|i| i.as_array()) {
                                                 if !deck.is_empty() {
                                                     let direction = v["ui"]["direction"].as_str().unwrap_or("Draw a card");
@@ -356,6 +614,7 @@ impl Lobby {
                                                 }
                                             }
                                         }
+                                    }
                                     }
                                 }
                             }
@@ -399,6 +658,10 @@ impl Lobby {
                 meta_obj.insert("players".to_string(), json!(self.player_list()));
                 meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
                 meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
+                // Ensure gameLog exists
+                if !meta_obj.contains_key("gameLog") {
+                    meta_obj.insert("gameLog".to_string(), json!([]));
+                }
             }
             
             json!({

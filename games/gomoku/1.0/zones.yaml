@@ -1,0 +1,16 @@
+- id: board
+  name: "Board"
+  shape: grid
+  gridProps:
+    width: 15
+    height: 15
+  contents: empty
+  visibility: all
+
+# Supply zones for stones (infinite)
+- id: supply_{player}
+  shape: list
+  contents:
+    entity: stone_{player}
+    count: infinite
+  visibility: none

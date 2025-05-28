@@ -1,0 +1,10 @@
+gameId: go-fish
+version: 1.0
+specVersion: 1
+metadata:
+  name: "Go Fish"
+  description: "The classic card game of collecting sets of four cards"
+  author: "Bluefelt Games"
+  players:
+    min: 2
+    max: 2

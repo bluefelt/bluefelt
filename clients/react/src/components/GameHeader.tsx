@@ -31,50 +31,101 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
   };
 
   return (
-    <div className="bg-gray-800 border-b border-gray-700">
-      <div className="container mx-auto px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            {/* Breadcrumb */}
-            <Link to="/lobbies" className="text-yellow-500 hover:text-yellow-400">
-              Lobbies
-            </Link>
-            <span className="text-gray-500">›</span>
+    <div>
+      <div>
+        <Link to="/lobbies" className="text-blue-400 hover:text-blue-300">
+          Lobbies
+        </Link>
+      </div>
+      <div style={styles.gameHeader}>
+        <div style={styles.gameNameAndId}>
+          <h1 style={styles.gameTitle}>
+            {gameName}
+          </h1>
+          <span style={styles.gameId}>#{gameId}</span>
+        </div>
+        <div style={styles.gameStatusContainer}>
+          <span style={{
+            ...styles.gameStatus,
+            ...(status === 'in_progress'
+              ? styles.gameStatus_inProgress
+              : status === 'finished'
+              ? styles.gameStatus_finished
+              : styles.gameStatus_waiting)
+          }} />
+          <span>
+            {status === 'in_progress' ? 'In Progress' : status === 'finished' ? 'Finished' : 'Waiting'}
+          </span>
+        </div>
 
-            {/* Game title */}
-            <h1 className="text-xl font-semibold text-white">
-              {gameName} <span className="text-gray-500 text-sm">#{gameId}</span>
-            </h1>
-
-            {/* Status badge */}
-            <span className={`px-3 py-1 rounded text-sm font-medium ${
-              status === 'in_progress' 
-                ? 'bg-green-900 text-green-300' 
-                : status === 'finished'
-                ? 'bg-gray-700 text-gray-300'
-                : 'bg-yellow-900 text-yellow-300'
-            }`}>
-              {status === 'in_progress' ? 'In Progress' : status === 'finished' ? 'Finished' : 'Waiting'}
+      </div>
+      <div className="flex items-center space-x-3">
+        {players.map((p, i) => (
+          <div key={p.username} className="flex items-center space-x-2">
+            <div
+              className="w-4 h-4 rounded-sm"
+              style={{ backgroundColor: getHeaderPlayerColor(p.username) }}
+            />
+            <span className={`text-sm ${p.isConnected ? 'text-gray-300' : 'text-gray-500'}`}>
+              {p.username}
+              {p.username === currentPlayer && ' ●'}
             </span>
           </div>
-
-          {/* Player indicators */}
-          <div className="flex items-center space-x-3">
-            {players.map((p, i) => (
-              <div key={p.username} className="flex items-center space-x-2">
-                <div
-                  className="w-4 h-4 rounded-sm"
-                  style={{ backgroundColor: getHeaderPlayerColor(p.username) }}
-                />
-                <span className={`text-sm ${p.isConnected ? 'text-gray-300' : 'text-gray-500'}`}>
-                  {p.username}
-                  {p.username === currentPlayer && ' ●'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );
+}
+
+const styles = {
+  gameHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    backgroundColor: "black",
+    border: "2px solid #D8B260",
+    margin: "10px",
+    padding: "10px 12px 0 12px",
+  },
+  gameTitle: {
+    fontFamily: "Josefin Sans, sans-serif",
+    fontSize: "24pt",
+  },
+  gameNameAndId: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: "0.5em",
+  },
+  gameId: {
+    fontFamily: "Roboto Condensed, sans-serif",
+    fontWeight: "bold",
+    color: "#9AA5B3",
+  },
+  gameStatusContainer: {
+    fontFamily: "Roboto Condensed, sans-serif",
+    fontSize: "12pt",
+    color: "white",
+    fontWeight: "bold",
+    padding: "0.25em 0.75em",
+    borderRadius: "1em",
+    backgroundColor: "#727272",
+    alignSelf: "center",
+  },
+  gameStatus: {
+    display: "inline-block",
+    width: "12px",
+    height: "12px",
+    borderRadius: "50%",
+    marginRight: "0.5em"
+  },
+  gameStatus_waiting: {
+    backgroundColor: "yellow"
+  },
+  gameStatus_inProgress: {
+    backgroundColor: "#14F600"
+  },
+  gameStatus_finished: {
+    backgroundColor: "white"
+  },
 }
