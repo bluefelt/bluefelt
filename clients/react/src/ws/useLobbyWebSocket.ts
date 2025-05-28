@@ -110,11 +110,16 @@ export function useLobbyWebSocket(
       setLobbyState((prev) => ({ ...prev, error: data.message }));
       // If lobby doesn't exist, don't try to reconnect
       if (data.message === 'Lobby does not exist') {
+        // Clear the stored lastTick for this lobby
+        localStorage.removeItem(`lobby_${lobbyId}_lastTick`);
+        setShouldReconnect(false);
         disconnect();
       }
     },
   };
 
+  const [shouldReconnect, setShouldReconnect] = useState(true);
+  
   const { messages, sendMessage, connected, state, disconnect } = useReconnectingWebSocket(url, (dataStr) => {
     try {
       const data = JSON.parse(dataStr) as ServerMessage;
@@ -126,7 +131,7 @@ export function useLobbyWebSocket(
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
     }
-  });
+  }, { shouldReconnect });
 
   useEffect(() => {
     return () => {

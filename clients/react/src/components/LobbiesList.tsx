@@ -36,7 +36,11 @@ export default function LobbiesList({ onLobbySelected }: Props) {
     // Fetch initial lobbies list
     getLobbies().then(() => {
       // The WebSocket will handle updates
-    }).catch(console.error);
+    }).catch(error => {
+      console.error('Failed to fetch lobbies:', error);
+      // If server is not running, redirect to home
+      navigate('/');
+    });
 
     // Fetch games
     getGames().then(gamesList => {
@@ -45,8 +49,12 @@ export default function LobbiesList({ onLobbySelected }: Props) {
         gamesMap[game.id] = game;
       });
       setGames(gamesMap);
-    }).catch(console.error);
-  }, []);
+    }).catch(error => {
+      console.error('Failed to fetch games:', error);
+      // If server is not running, redirect to home
+      navigate('/');
+    });
+  }, [navigate]);
 
   // Enhanced lobbies with game names
   const lobbiesWithDetails: LobbyWithDetails[] = lobbies.map(lobby => {
