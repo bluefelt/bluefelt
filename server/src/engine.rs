@@ -159,6 +159,12 @@ pub fn apply_verb(
         apply_move_entity(bundle, state, spec, action, caller)
     } else if spec["builtin"].as_str() == Some("nextTurn") {
         apply_next_turn(state, caller)
+    } else if spec["builtin"].as_str() == Some("placePieceReversi") {
+        apply_place_piece_reversi(bundle, state, spec, action, caller)
+    } else if spec["builtin"].as_str() == Some("drawCard") {
+        apply_draw_card(bundle, state, spec, action, caller)
+    } else if spec["builtin"].as_str() == Some("transferCards") {
+        apply_transfer_cards(bundle, state, spec, action, caller)
     } else if spec.get("hook").is_some() {
         apply_hook(bundle, state, spec, action, caller)
     } else if spec.get("conditions").is_some() {
@@ -416,6 +422,7 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
             let condition_met = match condition_type {
                 "consecutiveMarksInRow" => check_consecutive_marks(state, condition, check_player),
                 "allCellsFilled" => check_all_cells_filled(state, condition),
+                "deckEmpty" => check_deck_empty(state, condition),
                 "any" => {
                     // Handle nested conditions for "any" type
                     if let Some(sub_conditions) = condition["conditions"].as_array() {
@@ -609,6 +616,16 @@ fn check_consecutive_marks(state: &Value, condition: &Value, caller: &str) -> bo
     false
 }
 
+fn check_deck_empty(state: &Value, condition: &Value) -> bool {
+    let zone_id = condition["params"]["zone"].as_str().unwrap_or("");
+    if let Some(zone) = state["zones"].get(zone_id) {
+        if let Some(items) = zone.get("items").and_then(|i| i.as_array()) {
+            return items.is_empty();
+        }
+    }
+    false
+}
+
 fn check_all_cells_filled(state: &Value, condition: &Value) -> bool {
     let params = &condition["params"];
     let zone_name = params["zone"].as_str().unwrap_or("");
@@ -716,6 +733,266 @@ fn check_winner(board: &[Value]) -> Option<String> {
     }
 
     None
+}
+
+/* --------------------------------------------------------------------------
+   Card game mechanics - draw cards from deck
+   ----------------------------------------------------------------------- */
+fn apply_draw_card(
+    _bundle: &Bundle,
+    state: &mut Value,
+    spec: &Value,
+    _action: &Value,
+    actor: &str,
+) -> Value {
+    let source = spec["params"]["source"].as_str().unwrap_or("");
+    let target_template = spec["params"]["target"].as_str().unwrap_or("");
+    let target = target_template.replace("{actor}", actor);
+    let count = spec["params"]["count"].as_u64().unwrap_or(1) as usize;
+    
+    let mut ops = Vec::new();
+    
+    // Get cards from deck
+    let mut drawn_cards = Vec::new();
+    if let Some(deck) = state["zones"][source].get_mut("items").and_then(|v| v.as_array_mut()) {
+        for _ in 0..count {
+            if let Some(card) = deck.pop() {
+                drawn_cards.push(card);
+            } else {
+                break; // No more cards in deck
+            }
+        }
+    }
+    
+    if drawn_cards.is_empty() {
+        return json!([]);
+    }
+    
+    // Add to target hand
+    if let Some(hand) = state["zones"][&target].get_mut("items").and_then(|v| v.as_array_mut()) {
+        for card in drawn_cards.iter() {
+            hand.push(card.clone());
+            ops.push(json!({
+                "op": "add",
+                "path": format!("/zones/{}/items/-", target),
+                "value": card
+            }));
+        }
+        
+        // Remove operations were already handled by deck.pop() above
+        let deck_len = state["zones"][source]["items"].as_array().map(|a| a.len()).unwrap_or(0);
+        for i in 0..drawn_cards.len() {
+            ops.insert(0, json!({
+                "op": "remove",
+                "path": format!("/zones/{}/items/{}", source, deck_len + i)
+            }));
+        }
+    }
+    
+    Value::Array(ops)
+}
+
+/* --------------------------------------------------------------------------
+   Transfer cards between players (for Go Fish asking)
+   ----------------------------------------------------------------------- */
+fn apply_transfer_cards(
+    bundle: &Bundle,
+    state: &mut Value,
+    _spec: &Value,
+    action: &Value,
+    actor: &str,
+) -> Value {
+    let target_player = action["args"]["targetPlayer"].as_str().unwrap_or("");
+    let requested_rank = action["args"]["rank"].as_str().unwrap_or("");
+    
+    let source_zone = format!("hand_{}", target_player);
+    let target_zone = format!("hand_{}", actor);
+    
+    let mut ops = Vec::new();
+    let mut transferred_cards = Vec::new();
+    
+    // Get entities from bundle
+    let entities = bundle.entities.as_array();
+    
+    // Find and remove matching cards from target player's hand
+    if let Some(source_hand) = state["zones"][&source_zone].get_mut("items").and_then(|v| v.as_array_mut()) {
+        let mut i = 0;
+        while i < source_hand.len() {
+            let card = &source_hand[i];
+            
+            // Check if card matches requested rank
+            if let Some(entities_array) = entities {
+                if let Some(entity) = entities_array.iter().find(|e| &e["id"] == card) {
+                    if entity["props"]["rank"].as_str() == Some(requested_rank) {
+                        transferred_cards.push(source_hand.remove(i));
+                        continue;
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+    
+    // Add cards to requester's hand
+    if !transferred_cards.is_empty() {
+        if let Some(target_hand) = state["zones"][&target_zone].get_mut("items").and_then(|v| v.as_array_mut()) {
+            for card in &transferred_cards {
+                target_hand.push(card.clone());
+                ops.push(json!({
+                    "op": "add",
+                    "path": format!("/zones/{}/items/-", target_zone),
+                    "value": card
+                }));
+            }
+            
+            // Remove from source (in reverse order to maintain indices)
+            if let Some(source_hand) = state["zones"][&source_zone].as_array() {
+                let original_len = source_hand.len() + transferred_cards.len();
+                for i in 0..transferred_cards.len() {
+                    ops.push(json!({
+                        "op": "remove",
+                        "path": format!("/zones/{}/items/{}", source_zone, original_len - i - 1)
+                    }));
+                }
+            }
+        }
+    }
+    
+    // Add metadata about the transfer result
+    ops.push(json!({
+        "op": "add",
+        "path": "/meta/lastAskResult",
+        "value": {
+            "asker": actor,
+            "target": target_player,
+            "rank": requested_rank,
+            "cardsTransferred": transferred_cards.len()
+        }
+    }));
+    
+    Value::Array(ops)
+}
+
+/* --------------------------------------------------------------------------
+   Reversi-specific piece placement with flipping
+   ----------------------------------------------------------------------- */
+fn apply_place_piece_reversi(
+    _bundle: &Bundle,
+    state: &mut Value,
+    spec: &Value,
+    action: &Value,
+    actor: &str,
+) -> Value {
+    let source_template = spec["params"]["source"].as_str().unwrap_or("");
+    let source_id = source_template.replace("{actor}", actor);
+    let target_zone = spec["params"]["target"]["zone"].as_str().unwrap_or("");
+    
+    // Get piece from source
+    let entity = if let Some(z) = state["zones"].get(&source_id) {
+        z["infinite"].as_str().unwrap_or("").to_string()
+    } else {
+        return json!([]);
+    };
+    
+    if entity.is_empty() {
+        return json!([]);
+    }
+    
+    let row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
+    let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
+    
+    let mut ops = Vec::new();
+    
+    // Place the piece
+    if let Some(zone_val) = state["zones"].get_mut(&target_zone) {
+        if zone_val.is_array() && zone_val[row][col].is_null() {
+            zone_val[row][col] = Value::String(entity.clone());
+            ops.push(json!({
+                "op": "replace",
+                "path": format!("/zones/{}/{}/{}", target_zone, row, col),
+                "value": entity.clone()
+            }));
+            
+            // Now check all 8 directions for pieces to flip
+            let directions = [
+                (-1, -1), (-1, 0), (-1, 1),
+                (0, -1),           (0, 1),
+                (1, -1),  (1, 0),  (1, 1)
+            ];
+            
+            for (dr, dc) in directions.iter() {
+                let flips = get_flips_in_direction(zone_val, row, col, *dr, *dc, &entity);
+                for (flip_row, flip_col) in flips {
+                    zone_val[flip_row][flip_col] = Value::String(entity.clone());
+                    ops.push(json!({
+                        "op": "replace",
+                        "path": format!("/zones/{}/{}/{}", target_zone, flip_row, flip_col),
+                        "value": entity.clone()
+                    }));
+                }
+            }
+        }
+    }
+    
+    Value::Array(ops)
+}
+
+fn get_flips_in_direction(
+    board: &Value,
+    start_row: usize,
+    start_col: usize,
+    dr: i32,
+    dc: i32,
+    player_piece: &str,
+) -> Vec<(usize, usize)> {
+    let flips = Vec::new();
+    let mut temp_flips = Vec::new();
+    
+    let board_array = match board.as_array() {
+        Some(arr) => arr,
+        None => return flips,
+    };
+    
+    let board_size = board_array.len();
+    let mut r = start_row as i32 + dr;
+    let mut c = start_col as i32 + dc;
+    
+    // Get the opponent's piece type
+    let opponent_piece = if player_piece.contains("_p1") {
+        player_piece.replace("_p1", "_p2")
+    } else {
+        player_piece.replace("_p2", "_p1")
+    };
+    
+    // Look for opponent pieces
+    while r >= 0 && r < board_size as i32 && c >= 0 && c < board_size as i32 {
+        let row_idx = r as usize;
+        let col_idx = c as usize;
+        
+        if let Some(row_array) = board_array[row_idx].as_array() {
+            if col_idx < row_array.len() {
+                match row_array[col_idx].as_str() {
+                    Some(piece) if piece == opponent_piece => {
+                        temp_flips.push((row_idx, col_idx));
+                    }
+                    Some(piece) if piece == player_piece => {
+                        // Found our own piece - all temp_flips are valid
+                        return temp_flips;
+                    }
+                    _ => {
+                        // Empty cell or edge - no flips in this direction
+                        return flips;
+                    }
+                }
+            }
+        }
+        
+        r += dr;
+        c += dc;
+    }
+    
+    // Hit edge without finding our piece - no flips
+    flips
 }
 
 fn check_line(a: &Option<String>, b: &Option<String>, c: &Option<String>) -> Option<String> {

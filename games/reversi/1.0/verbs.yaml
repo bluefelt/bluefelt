@@ -1,0 +1,24 @@
+- id: placeDisc
+  builtin: placePieceReversi
+  params:
+    source: discs_{actor}
+    target:
+      zone: board
+  ui:
+    direction: "Place a disc to flip opponent pieces"
+    logTemplate: "{player} placed a disc at row {row}, column {col}"
+  triggers:
+    - nextTurn
+    - checkGameEnd
+
+- id: nextTurn
+  builtin: nextTurn
+  auto: true
+
+- id: checkGameEnd
+  auto: true
+  conditions:
+    - type: allCellsFilled
+      params:
+        zone: board
+      result: gameTie

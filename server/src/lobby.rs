@@ -260,7 +260,7 @@ impl Lobby {
                     if id == turn_player {
                         if let Some(verblist) = bundle.verbs.as_array() {
                             for v in verblist {
-                                if v["builtin"].as_str() == Some("moveEntity") {
+                                if v["builtin"].as_str() == Some("moveEntity") || v["builtin"].as_str() == Some("placePieceReversi") {
                                     if let Some(verb_id) = v["id"].as_str() {
                                         if let Some(target_zone) = v["params"]["target"]["zone"].as_str() {
                                             let zone_state = &state["zones"][target_zone];
@@ -292,6 +292,29 @@ impl Lobby {
                                                             }
                                                         }
                                                     }
+                                                } else if v["builtin"].as_str() == Some("placePieceReversi") {
+                                                    // Reversi mode - only show moves that would flip at least one piece
+                                                    let source_template = v["params"]["source"].as_str().unwrap_or("");
+                                                    let source_id = source_template.replace("{actor}", id);
+                                                    let player_piece = if let Some(z) = state["zones"].get(&source_id) {
+                                                        z["infinite"].as_str().unwrap_or("")
+                                                    } else {
+                                                        ""
+                                                    };
+                                                    
+                                                    if !player_piece.is_empty() {
+                                                        for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
+                                                            for (c, cell) in row.as_array().unwrap().iter().enumerate() {
+                                                                if cell.is_null() && would_flip_any(zone_state, r, c, player_piece) {
+                                                                    valid_options.push(serde_json::json!({
+                                                                        "zone": target_zone,
+                                                                        "row": r,
+                                                                        "col": c
+                                                                    }));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 } else {
                                                     // Normal mode - check all empty cells
                                                     for (r, row) in zone_state.as_array().unwrap().iter().enumerate() {
@@ -313,6 +336,22 @@ impl Lobby {
                                                         "verb": verb_id,
                                                         "direction": direction,
                                                         "validOptions": valid_options
+                                                    }));
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if v["builtin"].as_str() == Some("drawCard") {
+                                    if let Some(verb_id) = v["id"].as_str() {
+                                        // For drawCard, check if source deck has cards
+                                        if let Some(source) = v["params"]["source"].as_str() {
+                                            if let Some(deck) = state["zones"][source].get("items").and_then(|i| i.as_array()) {
+                                                if !deck.is_empty() {
+                                                    let direction = v["ui"]["direction"].as_str().unwrap_or("Draw a card");
+                                                    verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
+                                                        "verb": verb_id,
+                                                        "direction": direction,
+                                                        "validOptions": [{"action": "draw"}]
                                                     }));
                                                 }
                                             }
@@ -707,4 +746,58 @@ pub fn start_game(&self) {
 
         forward.abort();
     }
+}
+
+// Helper function to check if placing a piece at (row, col) would flip any opponent pieces
+fn would_flip_any(board: &serde_json::Value, row: usize, col: usize, player_piece: &str) -> bool {
+    let directions = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),           (0, 1),
+        (1, -1),  (1, 0),  (1, 1)
+    ];
+    
+    let board_array = match board.as_array() {
+        Some(arr) => arr,
+        None => return false,
+    };
+    
+    let board_size = board_array.len();
+    let opponent_piece = if player_piece.contains("_p1") {
+        player_piece.replace("_p1", "_p2")
+    } else {
+        player_piece.replace("_p2", "_p1")
+    };
+    
+    for (dr, dc) in directions.iter() {
+        let mut r = row as i32 + dr;
+        let mut c = col as i32 + dc;
+        let mut found_opponent = false;
+        
+        while r >= 0 && r < board_size as i32 && c >= 0 && c < board_size as i32 {
+            let row_idx = r as usize;
+            let col_idx = c as usize;
+            
+            if let Some(row_array) = board_array[row_idx].as_array() {
+                if col_idx < row_array.len() {
+                    match row_array[col_idx].as_str() {
+                        Some(piece) if piece == opponent_piece => {
+                            found_opponent = true;
+                        }
+                        Some(piece) if piece == player_piece => {
+                            if found_opponent {
+                                return true; // Would flip at least one piece
+                            }
+                            break;
+                        }
+                        _ => break, // Empty cell or edge
+                    }
+                }
+            }
+            
+            r += dr;
+            c += dc;
+        }
+    }
+    
+    false
 }
