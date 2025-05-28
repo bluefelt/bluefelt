@@ -25,26 +25,35 @@ interface ZoneProps {
 }
 
 import { usePlayer } from '../context/PlayerContext';
-import { getColorById, getPlayerColor } from '../config/colors';
+import { getColorById, getPlayerColor, PLAYER_COLORS } from '../config/colors';
 
 // Get mark color based on player colors
 const useMarkColor = () => {
   const { player } = usePlayer();
   
   return (cell: string, playerNames?: string[]) => {
-    if (!player || !playerNames) return '#888';
+    if (!playerNames) return '#888';
     
     // Find which player this entity belongs to - matches mark_p1, chip_p1, etc.
     const match = cell.match(/_p(\d+)$/);
     if (!match) return '#888';
     
     const entityPlayerIndex = parseInt(match[1]) - 1;
-    const myPlayerIndex = playerNames.findIndex(name => name === player.username);
     
-    if (myPlayerIndex === -1) return '#888';
+    if (player) {
+      const myPlayerIndex = playerNames.findIndex(name => name === player.username);
+      
+      if (myPlayerIndex !== -1) {
+        // Current player is in the game - use their color preference
+        const color = getPlayerColor(entityPlayerIndex, player.color, myPlayerIndex);
+        return color.hex;
+      }
+    }
     
-    const color = getPlayerColor(entityPlayerIndex, player.color, myPlayerIndex);
-    return color.hex;
+    // Spectator or player not in game - assign colors based on player index
+    // Use a consistent color assignment for spectators
+    const colorIndex = entityPlayerIndex % PLAYER_COLORS.length;
+    return PLAYER_COLORS[colorIndex].hex;
   };
 };
 
