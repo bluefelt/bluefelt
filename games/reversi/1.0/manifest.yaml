@@ -4,7 +4,7 @@ specVersion: 1
 metadata:
   name: "Reversi"
   description: "The classic strategy game of flipping discs. Also known as Othello."
-  author: "Bluefelt Games"
+  author: "Matt Henry"
   players:
     min: 2
     max: 2

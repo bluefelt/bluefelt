@@ -54,6 +54,7 @@ export type EntityDefinition = {
   };
   ui?: {
     glyph?: string;
+    tokenType?: string;
   };
 };
 

@@ -4,7 +4,7 @@ specVersion: 1
 metadata:
   name: "Gomoku"
   description: "Five in a Row - Place five stones in a row to win"
-  author: "System"
+  author: "Matt Henry"
   players:
     min: 2
     max: 2

@@ -1,16 +1,4 @@
-// Central configuration for player colors
-export const PLAYER_COLORS = [
-  { id: 'pink', name: 'Pink', hex: '#FF1493' },
-  { id: 'gold', name: 'Gold', hex: '#FFD700' },
-  { id: 'blue', name: 'Blue', hex: '#1E90FF' },
-  { id: 'purple', name: 'Purple', hex: '#9370DB' },
-  { id: 'orange', name: 'Orange', hex: '#FF8C00' },
-  { id: 'cyan', name: 'Cyan', hex: '#00CED1' }
-];
-
-export type ColorId = 'pink' | 'gold' | 'blue' | 'purple' | 'orange' | 'cyan';
-
-export const DEFAULT_COLOR: ColorId = 'pink';
+export type ColorId = 'coral' | 'emerald' | 'gold' | 'azure' | 'rose' | 'lime' | 'violet' | 'amber';
 
 // Player color type
 export type PlayerColor = {
@@ -18,6 +6,19 @@ export type PlayerColor = {
   name: string;
   hex: string;
 };
+
+// Central configuration for player colors
+// Ordered to maximize visual distinction between adjacent colors
+export const PLAYER_COLORS: PlayerColor[] = [
+  { id: 'coral', name: 'Coral', hex: '#FF6B6B' },     // Warm red-orange
+  { id: 'emerald', name: 'Emerald', hex: '#26D07C' }, // Vibrant green
+  { id: 'gold', name: 'Gold', hex: '#FFD93D' },       // Bright yellow
+  { id: 'rose', name: 'Rose', hex: '#FF6FCF' },       // Hot pink
+  { id: 'amber', name: 'Amber', hex: '#FFA400' },     // Orange
+  { id: 'violet', name: 'Violet', hex: '#B19CD9' },   // Light purple
+];
+
+export const DEFAULT_COLOR: ColorId = 'coral';
 
 // Get color by ID
 export function getColorById(colorId: ColorId | undefined): PlayerColor {

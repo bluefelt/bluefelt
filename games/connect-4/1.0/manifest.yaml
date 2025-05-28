@@ -1,9 +1,9 @@
 gameId: connect-4
-version: "1.0"
-specVersion: "0.1"
+version: 1.0
+specVersion: 1
 metadata:
   name: "Connect 4"
-  author: "Bluefelt Team"
+  author: "Matt Henry"
   players:
     min: 2
     max: 2

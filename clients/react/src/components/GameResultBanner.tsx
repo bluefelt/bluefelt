@@ -1,4 +1,3 @@
-import React from 'react';
 
 type GameResultBannerProps = {
   gameStatus?: {
@@ -28,7 +27,6 @@ export default function GameResultBanner({ gameStatus, you, playerNames }: GameR
   }
 
   const isWinner = gameStatus.winner === you;
-  const isLoser = gameStatus.winner && !isWinner && you !== 'spectator';
   const isTie = gameStatus.tie;
   const winnerName = gameStatus.winner ? getPlayerName(gameStatus.winner, playerNames) : '';
 

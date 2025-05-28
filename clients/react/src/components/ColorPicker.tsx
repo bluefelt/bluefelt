@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { PLAYER_COLORS, getColorById } from '../config/colors';
-import type { ColorId } from '../config/colors';
 import { usePlayer } from '../context/PlayerContext';
 
 export default function ColorPicker() {

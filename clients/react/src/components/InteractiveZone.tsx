@@ -52,7 +52,7 @@ interface CellProps {
   col: number;
   isClickable: boolean;
   onClick: () => void;
-  glyphMapping: Record<string, string>;
+  glyphMapping: Map<string, string>;
 }
 
 const Cell = React.memo(function Cell({ value, row, col, isClickable, onClick, glyphMapping }: CellProps) {

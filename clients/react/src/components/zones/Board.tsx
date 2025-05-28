@@ -1,10 +1,8 @@
-import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState } from 'react';
 
 interface BoardProps {
   zones: any;
-  playerId: string;
   entityDefinitions?: any[];
-  currentPlayer?: string;
   onCellClick?: (row: number, col: number) => void;
   isMyTurn?: boolean;
   zoneMetadata?: any[]; // Array of zone definitions from manifest
@@ -59,7 +57,7 @@ const useMarkColor = () => {
   };
 };
 
-function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, isSingleZone = false, playerNames, possibleVerbs, selection }: ZoneProps) {
+function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, playerNames, possibleVerbs, selection }: ZoneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(60); // Start with a reasonable default
   const lastContainerWidth = useRef<number>(0);
@@ -78,7 +76,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
   
   // Check if board should be rotated for player 2
   const shouldRotate = zoneInfo?.ui?.rotateForPlayer && player && playerNames && 
-    playerNames.findIndex(name => name === player.username) === 1;
+    playerNames.findIndex(name => name === player?.username) === 1;
   
   // Use layout effect for initial size calculation
   useLayoutEffect(() => {
@@ -249,7 +247,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
             }}
           >
             {boardData.map((row, rowIndex) =>
-              row.map((cell: any, colIndex: number) => {
+              row.map((_cell: any, colIndex: number) => {
                 // Get the actual cell data considering rotation
                 const actualRow = shouldRotate ? (rows - 1 - rowIndex) : rowIndex;
                 const actualCol = shouldRotate ? (cols - 1 - colIndex) : colIndex;
@@ -269,7 +267,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                   if (possibleVerbs !== undefined) {
                     // If possibleVerbs is provided (even if empty), use it
                     isClickable = possibleVerbs.some(verb => 
-                      verb.validOptions?.some(opt => 
+                      verb.validOptions?.some((opt: any) => 
                         opt.zone === zoneId && opt.row === actualRow && opt.col === actualCol
                       )
                     );
@@ -384,9 +382,7 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
 
 export default function Board({ 
   zones, 
-  playerId, 
   entityDefinitions, 
-  currentPlayer,
   onCellClick,
   isMyTurn = false,
   zoneMetadata,

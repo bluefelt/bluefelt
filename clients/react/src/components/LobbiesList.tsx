@@ -84,9 +84,9 @@ export default function LobbiesList({ onLobbySelected }: Props) {
     let statusColor = 'text-yellow-400';
     
     if (isFinished) {
-      if (lobby.gameStatus.tie) {
+      if (lobby.gameStatus?.tie) {
         statusText = 'Tie Game';
-      } else if (lobby.gameStatus.winner) {
+      } else if (lobby.gameStatus?.winner) {
         // Map winner ID (p1/p2) to player name
         const winnerIndex = lobby.gameStatus.winner === 'p1' ? 0 : 1;
         const winnerName = lobby.players[winnerIndex] || lobby.gameStatus.winner;

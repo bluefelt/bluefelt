@@ -5,7 +5,6 @@ import { useLobbyWebSocket } from '../ws/useLobbyWebSocket';
 import { getLobby } from '../api/lobbies';
 import { getPlayerColor } from '../config/colors';
 import GameHeader from './GameHeader';
-import TurnBanner from './TurnBanner';
 import Board from './zones/Board.tsx';
 import GameLog from './GameLog';
 import GameResultBanner from './GameResultBanner';
@@ -23,7 +22,7 @@ interface LogEntry {
   isYou?: boolean;
 }
 
-export default function GameView({ lobbyId, onLeave }: GameViewProps) {
+export default function GameView({ lobbyId }: GameViewProps) {
   const navigate = useNavigate();
   const { player } = usePlayer();
   const { sendMessage, lobbyState, connectionState, joinLobby, leaveLobby, startGame, disconnect } = useLobbyWebSocket(
@@ -131,16 +130,10 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
   const currentPlayerIndex = lobbyState.state?.turn ? parseInt(lobbyState.state.turn.replace('p', '')) - 1 : -1;
   const currentPlayerName = lobbyState.meta?.players?.[currentPlayerIndex] || '';
 
-  // Get action instruction
-  const instruction = useMemo(() => {
-    if (!isYourTurn) return '';
-    const verbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
-    return verbs[0]?.direction || 'Make your move';
-  }, [isYourTurn, lobbyState.meta?.possibleVerbs, lobbyState.you]);
 
   // Prepare player data for header
   const players = useMemo(() => {
-    return lobbyState.meta?.players?.map((username, index) => ({
+    return lobbyState.meta?.players?.map((username) => ({
       username,
       isConnected: true // You might want to track actual connection state
     })) || [];
@@ -227,15 +220,13 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
               
               <Board
                 zones={lobbyState.state?.zones}
-                playerId={player!.username}
                 entityDefinitions={lobbyState.meta?.entities}
-                currentPlayer={lobbyState.state?.turn}
                 onCellClick={handleCellClick}
                 isMyTurn={!!isYourTurn}
-                zoneMetadata={lobbyState.meta?.zones}
+                zoneMetadata={(lobbyInfo.manifest as any)?.zones || (lobbyState.meta as any)?.zones}
                 playerNames={lobbyState.meta?.players}
                 possibleVerbs={lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || []}
-                selection={lobbyState.state?.meta?.selection}
+                selection={(lobbyState.state as any)?.meta?.selection}
               />
             </>
           ) : (
@@ -248,7 +239,9 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
                   <div className="space-y-3 text-gray-300">
                     <p><strong className="text-white">Lobby ID:</strong> {lobbyId}</p>
                     <p><strong className="text-white">Game:</strong> {lobbyInfo.manifest.metadata.name}</p>
-                    <p><strong className="text-white">Players:</strong> {lobbyInfo.players.length} / {lobbyInfo.manifest.metadata.players.min}-{lobbyInfo.manifest.metadata.players.max}</p>
+                    <p><strong className="text-white">Players:</strong> {lobbyInfo.players.length} / {lobbyInfo.manifest.metadata.players.min === lobbyInfo.manifest.metadata.players.max 
+                      ? lobbyInfo.manifest.metadata.players.min 
+                      : `${lobbyInfo.manifest.metadata.players.min}-${lobbyInfo.manifest.metadata.players.max}`}</p>
                     <div>
                       <strong className="text-white">Connected Players:</strong>
                       <ul className="mt-2 space-y-1">
@@ -296,7 +289,9 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
                     <p><strong className="text-white">Author:</strong> {lobbyInfo.manifest.metadata.author}</p>
                     <p><strong className="text-white">Description:</strong> {lobbyInfo.manifest.metadata.description}</p>
                     <p><strong className="text-white">Version:</strong> {lobbyInfo.manifest.version}</p>
-                    <p><strong className="text-white">Players Required:</strong> {lobbyInfo.manifest.metadata.players.min} - {lobbyInfo.manifest.metadata.players.max}</p>
+                    <p><strong className="text-white">Players Required:</strong> {lobbyInfo.manifest.metadata.players.min === lobbyInfo.manifest.metadata.players.max 
+                      ? lobbyInfo.manifest.metadata.players.min 
+                      : `${lobbyInfo.manifest.metadata.players.min} - ${lobbyInfo.manifest.metadata.players.max}`}</p>
                   </div>
                   
                   {!canStart && !lobbyState.started && lobbyInfo.players.length > 0 && (

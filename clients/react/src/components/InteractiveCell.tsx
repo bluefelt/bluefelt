@@ -1,9 +1,7 @@
-import React from 'react';
 
 interface InteractiveCellProps {
   zone: string;
   position: [number, number];
-  playerId: string;
   disabled?: boolean;
   className?: string;
   onAction?: (action: any) => void;
@@ -12,7 +10,6 @@ interface InteractiveCellProps {
 export default function InteractiveCell({ 
   zone, 
   position, 
-  playerId, 
   disabled = false, 
   className = '',
   onAction

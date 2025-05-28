@@ -1,5 +1,5 @@
-import React, { Component, ReactNode } from 'react';
-import { NavigateFunction } from 'react-router-dom';
+import React, { Component, type ReactNode } from 'react';
+import { type NavigateFunction } from 'react-router-dom';
 
 interface Props {
   children: ReactNode;

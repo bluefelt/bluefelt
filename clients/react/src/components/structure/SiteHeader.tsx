@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../../context/PlayerContext.tsx';
 import ColorPicker from '../ColorPicker.tsx';
 
@@ -35,7 +35,7 @@ export default function SiteHeader() {
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   playerProfile: {
     height: "65px",
     backgroundColor: "pink",
@@ -70,7 +70,7 @@ const styles = {
     paddingLeft: "0.25em"
   },
   colorPickerWrapper: {
-    position: "absolute" as const,
+    position: "absolute",
     top: "15px",
     right: "10px",
     zIndex: 100,
@@ -87,9 +87,7 @@ const styles = {
     backgroundColor: "#D8B260",
     color: "black",
     border: "2px solid #1E2939",
-    shadowOffsetX: "2px",
-    shadowOffsetY: "2px",
-    shadowColor: "#1E2939",
+    boxShadow: "2px 2px 0 #1E2939",
     fontSize: "0.8rem",
     height: "20px",
     cursor: "pointer",

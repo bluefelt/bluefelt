@@ -1,7 +1,7 @@
-import { Link } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
-import { getColorById, getPlayerColor } from '../config/colors';
+import { getPlayerColor } from '../config/colors';
 import { getPlayerEntity, getEntityDisplay } from '../utils/entityUtils';
+import Breadcrumbs from './Breadcrumbs';
 
 interface GameHeaderProps {
   lobbyId: string;
@@ -13,7 +13,7 @@ interface GameHeaderProps {
   entityDefinitions?: any[];
 }
 
-export default function GameHeader({ lobbyId, gameId, gameName, status, players, currentPlayer, entityDefinitions }: GameHeaderProps) {
+export default function GameHeader({ gameId, gameName, status, players, currentPlayer, entityDefinitions }: GameHeaderProps) {
   const { player } = usePlayer();
 
   const getHeaderPlayerColor = (username: string) => {
@@ -28,20 +28,13 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
     return color.hex;
   };
 
-  const getInitials = (username: string) => {
-    return username.slice(0, 2).toUpperCase();
-  };
 
   return (
     <div>
-      <div style={styles.breadcrumbs}>
-        <Link style={styles.breadcrumbsLink} to="/lobbies">
-          Lobbies
-        </Link>
-        <span>
-          {' > '}
-        </span>
-      </div>
+      <Breadcrumbs items={[
+        { label: 'Lobbies', href: '/lobbies' },
+        { label: gameName }
+      ]} />
       <div style={styles.gameHeader}>
         <div style={styles.gameNameAndId}>
           <h1 style={styles.gameTitle}>
@@ -68,13 +61,19 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
         {players.map((p, i) => {
           const playerColor = getHeaderPlayerColor(p.username);
           const isCurrentTurn = currentPlayer === p.username;
-          const isMe = player?.username === p.username;
           const playerIndex = i;
           const playerNum = playerIndex + 1;
           
           // Get the player's representative entity and display info
           const playerEntity = getPlayerEntity(entityDefinitions, playerNum);
           const entityDisplay = getEntityDisplay(playerEntity, playerNum);
+          
+          // Debug logging
+          console.log(`Player ${playerNum} (${p.username}):`, {
+            playerEntity,
+            entityDisplay,
+            entityDefinitions
+          });
           
           return (
             <div key={p.username} className="flex items-center space-x-2 relative">
@@ -133,17 +132,6 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
                       marginBottom: '6px' // Adjust for bubble tail
                     }}
                   />
-                ) : entityDisplay.type === 'svg' ? (
-                  <div 
-                    style={{ 
-                      width: '16px', 
-                      height: '16px',
-                      fill: playerColor,
-                      color: playerColor,
-                      marginBottom: '2px' // Adjust for bubble tail
-                    }}
-                    dangerouslySetInnerHTML={{ __html: entityDisplay.svg?.replace(/fill="[^"]*"/g, `fill="${playerColor}"`) }}
-                  />
                 ) : (
                   <span style={{ marginBottom: '2px' }}>{entityDisplay.text}</span>
                 )}
@@ -179,17 +167,7 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
   );
 }
 
-const styles = {
-  breadcrumbs: {
-    margin: "10px",
-    fontFamily: "Roboto Condensed, sans-serif",
-    fontSize: "16pt",
-    color: "#D8B260",
-
-  },
-  breadcrumbsLink: {
-    textDecoration: "underline",
-  },
+const styles: Record<string, React.CSSProperties> = {
   gameHeader: {
     display: "flex",
     alignItems: "baseline",

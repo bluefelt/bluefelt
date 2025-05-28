@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { createLobby } from '../api/lobbies';
 import { getGames, getGameManifest } from '../api/games';
-import type { Game, GameManifest } from '../api/games';
+import type { GameManifest } from '../api/games';
 import ProtectedRoute from '../components/ProtectedRoute';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 export default function CreateLobbyPage() {
   const navigate = useNavigate();
@@ -39,7 +40,7 @@ export default function CreateLobbyPage() {
     setError(null);
     
     try {
-      const lobby = await createLobby(gameId, player.username);
+      const lobby = await createLobby(gameId);
       navigate(`/lobby/${lobby.id}`);
     } catch (err) {
       console.error('Failed to create lobby:', err);
@@ -61,6 +62,11 @@ export default function CreateLobbyPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-900 text-white">
+        <Breadcrumbs items={[
+          { label: 'Lobbies', href: '/lobbies' },
+          { label: 'Create New Lobby' }
+        ]} />
+        
         <div className="container mx-auto px-4 py-8">
           {/* Header */}
           <div className="mb-8">
@@ -132,16 +138,6 @@ export default function CreateLobbyPage() {
               ))}
             </div>
           )}
-
-          {/* Back button */}
-          <div className="mt-8 text-center">
-            <button
-              onClick={() => navigate('/lobbies')}
-              className="text-gray-400 hover:text-white transition-colors"
-            >
-              ← Back to Lobbies
-            </button>
-          </div>
         </div>
       </div>
     </ProtectedRoute>
