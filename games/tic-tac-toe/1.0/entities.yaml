@@ -1,9 +1,12 @@
+# Player marks
 - id: mark_p1
+  type: token
   props:
     value: "x"
   ui:
     tokenType: "x"
 - id: mark_p2
+  type: token
   props:
     value: "o"
   ui:

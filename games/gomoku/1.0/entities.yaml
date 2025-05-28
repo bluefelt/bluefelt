@@ -3,11 +3,11 @@
   props:
     player: 1
   ui:
-    tokenType: "o"
+    tokenType: "circle"
 
 # White stone for player 2
 - id: stone_p2
   props:
     player: 2
   ui:
-    tokenType: "o"
+    tokenType: "circle"

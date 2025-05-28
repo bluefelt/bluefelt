@@ -14,9 +14,7 @@ export default function SiteHeader() {
 
   return (
     <nav style={styles.playerProfile}>
-      <a href="#">
-        <img src="/bluefelt_logo.jpg" alt="Bluefelt Logo" style={styles.bfLogo} />
-      </a>
+      <img src="/bluefelt_logo.jpg" alt="Bluefelt Logo" style={styles.bfLogo} />
       <div style={styles.colorPickerWrapper}>
         <ColorPicker />
       </div>

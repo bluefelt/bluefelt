@@ -4,14 +4,14 @@
     type: "regular"
     player: 1
   ui:
-    tokenType: "o"
+    tokenType: "circle"
 
 - id: piece_p2
   props:
     type: "regular" 
     player: 2
   ui:
-    tokenType: "o"
+    tokenType: "circle"
 
 # King pieces (promoted)
 - id: king_p1
@@ -27,5 +27,5 @@
     type: "king"
     player: 2
   ui:
-    tokenType: "o"
+    tokenType: "x"
     glyph: "♔"

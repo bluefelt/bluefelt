@@ -1,17 +1,22 @@
 - id: board
-  name: "Board"
-  shape: grid
+  type: grid
   gridProps:
-    width: 3
-    height: 3
+    rows: 3
+    cols: 3
   contents: empty
   visibility: all
-- id: marks_{player}
-  shape: list
+
+# Supply zones for marks (infinite)
+- id: marks_p1
+  type: list
   contents:
-    p1:
-      entity: mark_p1
-      count: infinite
-    p2:
-      entity: mark_p2
-      count: infinite
+    entity: mark_p1
+    count: infinite
+  visibility: none
+
+- id: marks_p2
+  type: list
+  contents:
+    entity: mark_p2
+    count: infinite
+  visibility: none

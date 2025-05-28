@@ -2,10 +2,10 @@
   props:
     value: "black"
   ui:
-    tokenType: "o"
+    tokenType: "circle"
     
 - id: disc_p2
   props:
     value: "white"
   ui:
-    tokenType: "o"
+    tokenType: "circle"

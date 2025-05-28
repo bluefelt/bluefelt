@@ -118,6 +118,15 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
   const isYourTurn = lobbyState.you && 
                      lobbyState.you !== 'spectator' && 
                      lobbyState.state?.turn === lobbyState.you;
+  
+  // Debug logging
+  console.log('[GameView Debug]', {
+    you: lobbyState.you,
+    turn: lobbyState.state?.turn,
+    isYourTurn,
+    possibleVerbs: lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''],
+    players: lobbyState.meta?.players
+  });
 
   const currentPlayerIndex = lobbyState.state?.turn ? parseInt(lobbyState.state.turn.replace('p', '')) - 1 : -1;
   const currentPlayerName = lobbyState.meta?.players?.[currentPlayerIndex] || '';
@@ -198,17 +207,10 @@ export default function GameView({ lobbyId, onLeave }: GameViewProps) {
         status={lobbyState.meta?.gameStatus?.state === 'ended' ? 'finished' : 
                 lobbyState.started ? 'in_progress' : 'waiting'}
         players={players}
-        currentPlayer={lobbyState.state?.turn}
+        currentPlayer={currentPlayerName}
+        entityDefinitions={lobbyState.meta?.entities}
       />
 
-      {/* Turn indicator - only show during active game */}
-      {lobbyState.started && lobbyState.meta?.gameStatus?.state !== 'ended' && (
-        <TurnBanner
-          isYourTurn={!!isYourTurn}
-          currentPlayer={currentPlayerName}
-          instruction={instruction}
-        />
-      )}
 
       {/* Main content */}
       <div className="flex-1 flex flex-col">

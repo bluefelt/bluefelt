@@ -1,11 +1,11 @@
 - id: chip_p1
   ui:
-    tokenType: "o"
+    tokenType: "circle"
   props:
     value: "1"
 
 - id: chip_p2
   ui:
-    tokenType: "o"
+    tokenType: "circle"
   props:
     value: "2"

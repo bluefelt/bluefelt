@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { getColorById, getPlayerColor } from '../config/colors';
+import { getPlayerEntity, getEntityDisplay } from '../utils/entityUtils';
 
 interface GameHeaderProps {
   lobbyId: string;
@@ -9,9 +10,10 @@ interface GameHeaderProps {
   status: 'waiting' | 'in_progress' | 'finished';
   players: { username: string; isConnected: boolean }[];
   currentPlayer?: string;
+  entityDefinitions?: any[];
 }
 
-export default function GameHeader({ lobbyId, gameId, gameName, status, players, currentPlayer }: GameHeaderProps) {
+export default function GameHeader({ lobbyId, gameId, gameName, status, players, currentPlayer, entityDefinitions }: GameHeaderProps) {
   const { player } = usePlayer();
 
   const getHeaderPlayerColor = (username: string) => {
@@ -32,10 +34,13 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
 
   return (
     <div>
-      <div>
-        <Link to="/lobbies" className="text-blue-400 hover:text-blue-300">
+      <div style={styles.breadcrumbs}>
+        <Link style={styles.breadcrumbsLink} to="/lobbies">
           Lobbies
         </Link>
+        <span>
+          {' > '}
+        </span>
       </div>
       <div style={styles.gameHeader}>
         <div style={styles.gameNameAndId}>
@@ -59,25 +64,132 @@ export default function GameHeader({ lobbyId, gameId, gameName, status, players,
         </div>
 
       </div>
-      <div className="flex items-center space-x-3">
-        {players.map((p, i) => (
-          <div key={p.username} className="flex items-center space-x-2">
-            <div
-              className="w-4 h-4 rounded-sm"
-              style={{ backgroundColor: getHeaderPlayerColor(p.username) }}
-            />
-            <span className={`text-sm ${p.isConnected ? 'text-gray-300' : 'text-gray-500'}`}>
-              {p.username}
-              {p.username === currentPlayer && ' ●'}
+      <div className="flex items-center space-x-6 mt-4" style={{margin: "10px"}}>
+        {players.map((p, i) => {
+          const playerColor = getHeaderPlayerColor(p.username);
+          const isCurrentTurn = currentPlayer === p.username;
+          const isMe = player?.username === p.username;
+          const playerIndex = i;
+          const playerNum = playerIndex + 1;
+          
+          // Get the player's representative entity and display info
+          const playerEntity = getPlayerEntity(entityDefinitions, playerNum);
+          const entityDisplay = getEntityDisplay(playerEntity, playerNum);
+          
+          return (
+            <div key={p.username} className="flex items-center space-x-2 relative">
+              {/* Color box - filled if current turn, outline if not */}
+              <div
+                style={{ 
+                  backgroundColor: isCurrentTurn ? playerColor : 'transparent',
+                  borderColor: playerColor,
+                  height: '12px',
+                  width: '12px',
+                  borderWidth: '2px',
+                }}
+              />
+              <span 
+                className={`text-sm font-bold ${!p.isConnected ? 'opacity-50' : ''}`}
+                style={{ color: playerColor, fontFamily: 'Josefin Sans, sans-serif', fontSize: '14pt' }}
+              >
+                {p.username}
+              </span>
+              {/* Speech bubble with player mark */}
+              <div 
+                className="relative ml-1"
+                style={{
+                  backgroundImage: 'url(/cute_bubble.svg)',
+                  backgroundSize: 'contain',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'center',
+                  position: 'relative',
+                  top: '-16px',
+                  left: '-10px',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  color: playerColor
+                }}
+              >
+                {entityDisplay.type === 'token' && entityDisplay.value ? (
+                  <div 
+                    style={{ 
+                      width: '14px',
+                      height: '14px',
+                      backgroundColor: playerColor,
+                      maskImage: `url(/tokens/token_${entityDisplay.value}.svg)`,
+                      maskSize: 'contain',
+                      maskRepeat: 'no-repeat',
+                      maskPosition: 'center',
+                      WebkitMaskImage: `url(/tokens/token_${entityDisplay.value}.svg)`,
+                      WebkitMaskSize: 'contain',
+                      WebkitMaskRepeat: 'no-repeat',
+                      WebkitMaskPosition: 'center',
+                      marginLeft: '3px',
+                      marginBottom: '6px' // Adjust for bubble tail
+                    }}
+                  />
+                ) : entityDisplay.type === 'svg' ? (
+                  <div 
+                    style={{ 
+                      width: '16px', 
+                      height: '16px',
+                      fill: playerColor,
+                      color: playerColor,
+                      marginBottom: '2px' // Adjust for bubble tail
+                    }}
+                    dangerouslySetInnerHTML={{ __html: entityDisplay.svg?.replace(/fill="[^"]*"/g, `fill="${playerColor}"`) }}
+                  />
+                ) : (
+                  <span style={{ marginBottom: '2px' }}>{entityDisplay.text}</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Turn indicator banner */}
+      {currentPlayer && status === 'in_progress' && (
+        <div className="mt-6 relative">
+          <div 
+            className="px-8 py-4 flex items-center"
+            style={{
+              backgroundColor: player?.username === currentPlayer ? '#D8B260' : '#727272',
+              color: player?.username === currentPlayer ? 'black' : 'white',
+              fontFamily: 'Roboto Condensed, sans-serif',
+              borderRadius: '0',
+              alignItems: 'baseline',
+              gap: '0.5rem',
+            }}
+          >
+            <span className="text-xl font-bold uppercase tracking-wide">
+              {player?.username === currentPlayer ? 'YOUR TURN' : `${currentPlayer.toUpperCase()}'S TURN`}
+            </span>
+            <span className="text-base">
+              Place a mark on the board
             </span>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
+  breadcrumbs: {
+    margin: "10px",
+    fontFamily: "Roboto Condensed, sans-serif",
+    fontSize: "16pt",
+    color: "#D8B260",
+
+  },
+  breadcrumbsLink: {
+    textDecoration: "underline",
+  },
   gameHeader: {
     display: "flex",
     alignItems: "baseline",

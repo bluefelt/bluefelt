@@ -1,21 +1,19 @@
-- id: place
-  builtin: moveEntity
-  params:
+- id: placeMark
+  uses: grid.move
+  with:
     source: marks_{actor}
     target:
       zone: board
-      constraints:
-        vacant: true
-  ui:
-    direction: "Choose a cell to place a mark"
-    logTemplate: "{player} placed a mark at row {row}, column {col}"
-  triggers:
-    - nextTurn
-    - checkGameEnd
-- id: nextTurn
-  builtin: nextTurn
+  then:
+    - action: advanceTurn
+    - action: checkWin
+    - action: checkTie
+
+- id: advanceTurn
+  uses: turn.advance
   auto: true
-- id: checkGameEnd
+
+- id: checkWin
   auto: true
   conditions:
     - type: consecutiveMarksInRow
@@ -24,7 +22,18 @@
         count: 3
         entity: mark_{actor}
       result: gameWin
+
+- id: checkTie
+  auto: true
+  conditions:
     - type: allCellsFilled
       params:
         zone: board
       result: gameTie
+
+- id: resetGame
+  uses: zone.reset
+  with:
+    zones: [board]
+  then:
+    - action: turn.reset
