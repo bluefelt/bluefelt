@@ -1,4 +1,5 @@
 import Card from './Card';
+import { getPlayerColor } from '../config/colors';
 
 interface CardEntity {
   id: string;
@@ -23,6 +24,9 @@ interface CardZoneProps {
     cardId: string;
     verb: string;
   }>;
+  playerNames?: string[];
+  you?: string;
+  playerColor?: string;
 }
 
 export default function CardZone({
@@ -34,7 +38,10 @@ export default function CardZone({
   showCount = false,
   showTop = false,
   onCardClick,
-  possibleActions = []
+  possibleActions = [],
+  playerNames = [],
+  you,
+  playerColor
 }: CardZoneProps) {
 
   // Determine if cards should be face up
@@ -128,6 +135,36 @@ export default function CardZone({
     overflow: (layout === 'spread' || layout === 'fan') ? 'auto' : 'hidden'
   };
 
+  // Parse zone name to replace player placeholders with actual names
+  const parseZoneName = (name: string): React.ReactNode => {
+    // Check if the name contains player placeholders like {p1}, {p2}, etc.
+    const playerMatch = name.match(/\{(p\d+)\}/);
+    
+    if (playerMatch) {
+      const playerId = playerMatch[1]; // e.g., "p1"
+      const playerIndex = parseInt(playerId.substring(1)) - 1; // Convert p1 to 0, p2 to 1, etc.
+      const playerName = playerNames[playerIndex] || `Player ${playerIndex + 1}`;
+      
+      // Get the player's color
+      const myIndex = you ? parseInt(you.substring(1)) - 1 : 0;
+      const playerColorObj = getPlayerColor(playerIndex, playerColor as any || 'coral', myIndex);
+      
+      // Replace the placeholder with styled player name
+      const parts = name.split(playerMatch[0]);
+      return (
+        <>
+          {parts[0]}
+          <span style={{ color: playerColorObj.hex, fontWeight: 'bold' }}>
+            {playerName}
+          </span>
+          {parts[1]}
+        </>
+      );
+    }
+    
+    return name;
+  };
+
   const labelStyle: React.CSSProperties = {
     fontSize: 14,
     color: '#D8B260',
@@ -149,7 +186,7 @@ export default function CardZone({
   if (layout === 'stack' && visibility === 'none' && !showTop) {
     return (
       <div style={containerStyle}>
-        <div style={labelStyle}>{zoneName}</div>
+        <div style={labelStyle}>{parseZoneName(zoneName)}</div>
         {showCount && <div style={countStyle}>{cards.length} cards</div>}
         {cards.length > 0 && (
           <Card 
@@ -163,7 +200,7 @@ export default function CardZone({
 
   return (
     <div style={containerStyle}>
-      <div style={labelStyle}>{zoneName}</div>
+      <div style={labelStyle}>{parseZoneName(zoneName)}</div>
       {showCount && <div style={countStyle}>{cards.length} cards</div>}
       
       <div style={{ 

@@ -135,6 +135,9 @@ export default function GameZones({
               }
             }}
             possibleActions={getCardActions(zoneId)}
+            playerNames={playerNames}
+            you={you}
+            playerColor={player?.color}
           />
         );
       })}
