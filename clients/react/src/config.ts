@@ -9,8 +9,8 @@ const getApiHost = () => {
     return 'localhost:8000';
   }
   
-  // Otherwise, use the same host as the frontend but on port 8000
-  return `${window.location.hostname}:8000`;
+  // In production, use the same host without port (nginx handles routing)
+  return window.location.host;
 };
 
 const API_HOST = getApiHost();
