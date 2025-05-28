@@ -16,13 +16,13 @@ export type Lobby = {
 };
 
 export async function getLobbies(): Promise<Lobby[]> {
-  return apiClient.get<Lobby[]>('/lobbies');
+  return apiClient.get<Lobby[]>('/api/lobbies');
 }
 
 export async function createLobby(game_id: string): Promise<Lobby> {
-  return apiClient.post<Lobby>('/lobbies', { game_id });
+  return apiClient.post<Lobby>('/api/lobbies', { game_id });
 }
 
 export async function getLobby(id: string): Promise<Lobby & { manifest: GameManifest }> {
-  return apiClient.get<Lobby & { manifest: GameManifest }>(`/lobbies/${id}`);
+  return apiClient.get<Lobby & { manifest: GameManifest }>(`/api/lobbies/${id}`);
 }

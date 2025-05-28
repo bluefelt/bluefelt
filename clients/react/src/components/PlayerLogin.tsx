@@ -24,6 +24,7 @@ export default function PlayerLogin() {
               value={username}
               onChange={e => setUsername(e.target.value)}
               placeholder="Enter your username"
+              autoCapitalize={"false"}
               autoFocus
             />
           </div>

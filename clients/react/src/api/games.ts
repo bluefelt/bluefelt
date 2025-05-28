@@ -6,7 +6,7 @@ export type Game = {
 };
 
 export async function getGames(): Promise<Game[]> {
-  return apiClient.get<Game[]>('/games');
+  return apiClient.get<Game[]>('/api/games');
 }
 
 export type GameManifest = {
@@ -22,5 +22,5 @@ export type GameManifest = {
 };
 
 export async function getGameManifest(gameId: string): Promise<GameManifest> {
-  return apiClient.get<GameManifest>(`/games/${gameId}`);
+  return apiClient.get<GameManifest>(`/api/games/${gameId}`);
 }

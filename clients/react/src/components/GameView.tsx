@@ -5,7 +5,7 @@ import { useLobbyWebSocket } from '../ws/useLobbyWebSocket';
 import { getLobby } from '../api/lobbies';
 import { getPlayerColor } from '../config/colors';
 import GameHeader from './GameHeader';
-import Board from './zones/Board.tsx';
+import GameZones from './GameZones';
 import GameLog from './GameLog';
 import GameResultBanner from './GameResultBanner';
 import type { GameManifest } from '../api/games';
@@ -160,6 +160,27 @@ export default function GameView({ lobbyId }: GameViewProps) {
     }
   };
 
+  // Handle card actions
+  const handleCardAction = (zoneId: string, cardId: string) => {
+    if (!isYourTurn) return;
+    
+    // Get the appropriate verb for this card
+    const verbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
+    const matchingVerb = verbs.find(v => 
+      v.validOptions?.some(opt => 
+        opt.zone === zoneId && opt.entity === cardId
+      )
+    );
+    
+    if (matchingVerb) {
+      const message = JSON.stringify({
+        verb: matchingVerb.verb,
+        args: { card: cardId }
+      });
+      sendMessage(message);
+    }
+  };
+
 
   // Check if can start game
   const canStart = lobbyInfo &&
@@ -202,6 +223,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
         players={players}
         currentPlayer={currentPlayerName}
         entityDefinitions={lobbyState.meta?.entities}
+        turnPrompt={lobbyState.meta?.possibleVerbs?.[lobbyState.you || '']?.[0]?.direction}
       />
 
 
@@ -218,15 +240,17 @@ export default function GameView({ lobbyId }: GameViewProps) {
                 playerNames={lobbyState.meta?.players}
               />
               
-              <Board
+              <GameZones
                 zones={lobbyState.state?.zones}
                 entityDefinitions={lobbyState.meta?.entities}
                 onCellClick={handleCellClick}
+                onCardAction={handleCardAction}
                 isMyTurn={!!isYourTurn}
                 zoneMetadata={(lobbyInfo.manifest as any)?.zones || (lobbyState.meta as any)?.zones}
                 playerNames={lobbyState.meta?.players}
                 possibleVerbs={lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || []}
                 selection={(lobbyState.state as any)?.meta?.selection}
+                you={lobbyState.you}
               />
             </>
           ) : (

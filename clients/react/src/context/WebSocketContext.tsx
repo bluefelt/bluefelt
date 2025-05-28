@@ -18,7 +18,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [lobbies, setLobbies] = React.useState<Lobby[]>([]);
 
   const lobbiesWS = useReconnectingWebSocket(
-    `${WS_BASE_URL}/lobbies/ws`,
+    `${WS_BASE_URL}/api/lobbies/ws`,
     (data) => {
       try {
         const parsed = JSON.parse(data);

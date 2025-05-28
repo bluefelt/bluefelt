@@ -54,9 +54,9 @@ async fn main() -> anyhow::Result<()> {
         .expose_headers(Any);    // Use Any to expose all headers
 
     let app = Router::new()
-        .route("/games", get(move || list_games(bundles_for_games.clone())))
-        .route("/games/:id", get(move |path| get_game(path, bundles_for_manifest.clone())))
-        .route("/lobbies", post(
+        .route("/api/games", get(move || list_games(bundles_for_games.clone())))
+        .route("/api/games/:id", get(move |path| get_game(path, bundles_for_manifest.clone())))
+        .route("/api/lobbies", post(
             move |req| create_lobby(
                 req,
                 bundles_for_lobbies.clone(),
@@ -66,11 +66,11 @@ async fn main() -> anyhow::Result<()> {
         ).get(
             move || list_lobbies(lobbies_for_lobbies_route.clone())
         ))
-        .route("/lobbies/:id", get(move |path| get_lobby(path, lobbies.clone())))
-        .route("/lobbies/ws", get(
+        .route("/api/lobbies/:id", get(move |path| get_lobby(path, lobbies.clone())))
+        .route("/api/lobbies/ws", get(
             move |ws| lobbies_ws_handler(ws, lobby_updates_for_ws_list.clone(), lobbies_for_ws_list.clone())
         ))
-        .route("/lobbies/:id/ws", get(
+        .route("/api/lobbies/:id/ws", get(
             move |path, ws, query| ws_handler(path, ws, query, lobbies_for_ws.clone())
         ))
         // Apply the CORS middleware

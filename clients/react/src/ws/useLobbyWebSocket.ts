@@ -6,8 +6,9 @@ import type { ServerMessage, WelcomeMessage, PlayerUpdateMessage, DiffMessage, G
 
 export type VerbOption = {
   zone: string;
-  row: number;
-  col: number;
+  row?: number;
+  col?: number;
+  entity?: string;
 };
 
 export type GroupedVerb = {
@@ -57,7 +58,7 @@ export function useLobbyWebSocket(
   // Create URL with initial lastTick value
   const url = React.useMemo(() => {
     const initialTick = Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || '0');
-    return `${WS_BASE_URL}/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
+    return `${WS_BASE_URL}/api/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
       playerId,
     )}&join=${autoJoin ? 1 : 0}&since=${initialTick}`;
   }, [lobbyId, playerId, autoJoin]);

@@ -11,9 +11,10 @@ interface GameHeaderProps {
   players: { username: string; isConnected: boolean }[];
   currentPlayer?: string;
   entityDefinitions?: any[];
+  turnPrompt?: string;
 }
 
-export default function GameHeader({ gameId, gameName, status, players, currentPlayer, entityDefinitions }: GameHeaderProps) {
+export default function GameHeader({ gameId, gameName, status, players, currentPlayer, entityDefinitions, turnPrompt }: GameHeaderProps) {
   const { player } = usePlayer();
 
   const getHeaderPlayerColor = (username: string) => {
@@ -158,7 +159,7 @@ export default function GameHeader({ gameId, gameName, status, players, currentP
               {player?.username === currentPlayer ? 'YOUR TURN' : `${currentPlayer.toUpperCase()}'S TURN`}
             </span>
             <span className="text-base">
-              Place a mark on the board
+              {turnPrompt || 'Make your move'}
             </span>
           </div>
         </div>
@@ -191,6 +192,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "Roboto Condensed, sans-serif",
     fontWeight: "bold",
     color: "#9AA5B3",
+    textTransform: "lowercase",
   },
   gameStatusContainer: {
     fontFamily: "Roboto Condensed, sans-serif",

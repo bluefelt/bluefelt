@@ -3,7 +3,7 @@ import { useReconnectingWebSocket } from './useReconnectingWebSocket';
 import { WS_BASE_URL } from '../config';
 
 export function useLobbiesWebSocket(onLobbies: (lobbies: Lobby[]) => void) {
-  const ws = useReconnectingWebSocket(`${WS_BASE_URL}/lobbies/ws`, (data) => {
+  const ws = useReconnectingWebSocket(`${WS_BASE_URL}/api/lobbies/ws`, (data) => {
     try {
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed)) {
