@@ -74,23 +74,41 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
         }
     }
 
-    // Get initial phase from manifest setup section
-    let initial_phase = bundle.manifest.setup
+    // Get initial phases from manifest setup section
+    let initial_phases = bundle.manifest.setup
         .as_ref()
-        .and_then(|s| s.get("initialPhase"))
-        .and_then(|p| p.as_str())
-        .unwrap_or("play"); // Default to "play" if not specified
+        .and_then(|s| s.get("initialPhases"))
+        .cloned()
+        .unwrap_or_else(|| json!({"game": "game.setup"}));
+    
+    let mut phase_states = json!({});
+    
+    // Initialize phase states
+    if let Some(phases_obj) = initial_phases.as_object() {
+        for (track, phase) in phases_obj {
+            if !phase.is_null() {
+                phase_states[track] = json!({
+                    "current": phase,
+                    "count": 0,
+                    "actionsProcessed": 0
+                });
+            }
+        }
+    }
+    
+    let meta = json!({
+        "phaseStates": phase_states,
+        "gameStatus": {
+            "state": "active"
+        },
+        "phaseDisplayMessages": []
+    });
     
     json!({
         "zones": Value::Object(zones),
         "players": players,
         "turn": "p1",
-        "meta": {
-            "currentPhase": initial_phase,
-            "gameStatus": {
-                "state": "active"
-            }
-        }
+        "meta": meta
     })
 }
 
@@ -147,6 +165,323 @@ fn init_list(contents: &Value) -> Value {
         }
     }
     json!({"items": []})
+}
+
+/* --------------------------------------------------------------------------
+   Phase Processing
+   ----------------------------------------------------------------------- */
+pub fn process_phases(bundle: &Bundle, state: &mut Value) -> Value {
+    println!("[DEBUG process_phases] ============ Starting phase processing ============");
+    let mut patches = vec![];
+    
+    // Get current phase states
+    let phase_states = state.get("meta")
+        .and_then(|m| m.get("phaseStates"))
+        .cloned()
+        .unwrap_or(json!({}));
+    
+    println!("[DEBUG process_phases] Current phase states: {:?}", phase_states);
+    
+    // Check each phase track
+    if let Some(phase_states_obj) = phase_states.as_object() {
+        println!("[DEBUG process_phases] Processing {} phase tracks", phase_states_obj.len());
+        for (track_name, track_state) in phase_states_obj {
+            println!("[DEBUG process_phases] Processing track: {}, state: {:?}", track_name, track_state);
+            if let Some(current_phase_id) = track_state.get("current").and_then(|p| p.as_str()) {
+                println!("[DEBUG process_phases] Current phase for track {}: {}", track_name, current_phase_id);
+                // Find the phase definition
+                if let Some(phases_array) = bundle.phases.as_array() {
+                    println!("[DEBUG process_phases] Bundle has {} phase definitions", phases_array.len());
+                    if let Some(phase_def) = phases_array.iter().find(|p| p["id"].as_str() == Some(current_phase_id)) {
+                        let phase_type = phase_def["type"].as_str().unwrap_or("container");
+                        
+                        match phase_type {
+                            "automatic" => {
+                                // Check if we need to show the phase message first
+                                let processed_count = track_state.get("actionsProcessed")
+                                    .and_then(|c| c.as_u64())
+                                    .unwrap_or(0) as usize;
+                                
+                                println!("[DEBUG process_phases] Automatic phase {} - processed_count: {}", current_phase_id, processed_count);
+                                
+                                // First pass - show phase message only
+                                if processed_count == 0 && phase_def.get("displayMessage").is_some() {
+                                    if let Some(display_msg) = phase_def["displayMessage"].as_str() {
+                                        println!("[DEBUG process_phases] Showing phase message: {}", display_msg);
+                                        let phase_message = json!({
+                                            "track": track_name,
+                                            "phase": current_phase_id,
+                                            "message": display_msg,
+                                            "timestamp": std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap()
+                                                .as_millis() as u64
+                                        });
+                                        
+                                        patches.push(json!({
+                                            "op": "add",
+                                            "path": "/meta/phaseDisplayMessages/-",
+                                            "value": phase_message
+                                        }));
+                                        
+                                        // Increment processed count without executing an action
+                                        patches.push(json!({
+                                            "op": "replace",
+                                            "path": format!("/meta/phaseStates/{}/actionsProcessed", track_name),
+                                            "value": 1
+                                        }));
+                                        
+                                        return json!(patches);
+                                    }
+                                }
+                                
+                                // Process actions
+                                if let Some(actions) = phase_def["actions"].as_array() {
+                                    // If we have a display message, the first iteration (processed_count=0) shows the message
+                                    // So actual actions start at processed_count=1
+                                    let action_index = if phase_def.get("displayMessage").is_some() && processed_count > 0 {
+                                        processed_count - 1  // Subtract 1 because iteration 0 was the phase message
+                                    } else if phase_def.get("displayMessage").is_none() {
+                                        processed_count  // No display message, so processed_count maps directly to action index
+                                    } else {
+                                        // This means processed_count=0 and we have a display message, so no action to process
+                                        return json!(patches);
+                                    };
+                                    
+                                    println!("[DEBUG process_phases] Phase has {} actions, action index: {}", actions.len(), action_index);
+                                    
+                                    if action_index < actions.len() {
+                                        // Process just the next action
+                                        if let Some(action_def) = actions.get(action_index) {
+                                            let action_id = if let Some(id) = action_def.get("id").and_then(|v| v.as_str()) {
+                                                id
+                                            } else if let Some(id) = action_def.as_str() {
+                                                id
+                                            } else {
+                                                return json!(patches);
+                                            };
+                                                
+                                            // Show action message
+                                            if let Some(display_msg) = action_def.get("displayMessage").and_then(|m| m.as_str()) {
+                                                let action_message = json!({
+                                                    "action": action_id,
+                                                    "message": display_msg,
+                                                    "timestamp": std::time::SystemTime::now()
+                                                        .duration_since(std::time::UNIX_EPOCH)
+                                                        .unwrap()
+                                                        .as_millis() as u64
+                                                });
+                                                patches.push(json!({
+                                                    "op": "add",
+                                                    "path": "/meta/phaseDisplayMessages/-",
+                                                    "value": action_message
+                                                }));
+                                            }
+                                            
+                                            // Execute the action
+                                            println!("[DEBUG process_phases] Executing action: {}", action_id);
+                                            let action_json = json!({"action": action_id});
+                                            let action_patches = apply_action(bundle, state, "system", &action_json);
+                                            if let Some(arr) = action_patches.as_array() {
+                                                patches.extend_from_slice(arr);
+                                            }
+                                            
+                                            // Update processed count
+                                            patches.push(json!({
+                                                "op": "replace",
+                                                "path": format!("/meta/phaseStates/{}/actionsProcessed", track_name),
+                                                "value": processed_count + 1
+                                            }));
+                                            
+                                            
+                                            // Return here to process one action at a time
+                                            return json!(patches);
+                                        }
+                                    } else {
+                                        // All actions processed, advance to next phase
+                                        if let Some(next_phase) = phase_def["next"].as_str() {
+                                            advance_phase(state, track_name, next_phase, &mut patches);
+                                        }
+                                    }
+                                } else {
+                                    // No actions, but we might still need to show phase message
+                                    if processed_count == 0 && phase_def.get("displayMessage").is_some() {
+                                        // Show phase message first
+                                        if let Some(display_msg) = phase_def["displayMessage"].as_str() {
+                                            let phase_message = json!({
+                                                "track": track_name,
+                                                "phase": current_phase_id,
+                                                "message": display_msg,
+                                                "timestamp": std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .unwrap()
+                                                    .as_millis() as u64
+                                            });
+                                            
+                                            patches.push(json!({
+                                                "op": "add",
+                                                "path": "/meta/phaseDisplayMessages/-",
+                                                "value": phase_message
+                                            }));
+                                            
+                                            // Increment processed count to indicate message was shown
+                                            patches.push(json!({
+                                                "op": "replace",
+                                                "path": format!("/meta/phaseStates/{}/actionsProcessed", track_name),
+                                                "value": 1
+                                            }));
+                                            
+                                            return json!(patches);
+                                        }
+                                    } else {
+                                        // Already showed message (processed_count > 0) or no message to show
+                                        // Advance to next phase
+                                        if let Some(next_phase) = phase_def["next"].as_str() {
+                                            advance_phase(state, track_name, next_phase, &mut patches);
+                                        }
+                                    }
+                                }
+                            }
+                            "playerTurns" => {
+                                // Handle player turn ordering
+                                let _order_by = phase_def["orderBy"].as_str().unwrap_or("alternating");
+                                
+                                // Activate turn phase track if specified (only once)
+                                if let Some(subtrack) = phase_def["subtrack"].as_str() {
+                                    let already_activated = track_state.get("subtrackActivated")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    
+                                    if !already_activated {
+                                        activate_phase_track(state, subtrack, &mut patches);
+                                        
+                                        patches.push(json!({
+                                            "op": "add",
+                                            "path": format!("/meta/phaseStates/{}/subtrackActivated", track_name),
+                                            "value": true
+                                        }));
+                                    }
+                                }
+                            }
+                            _ => {
+                                // Container phases just activate subtracks once
+                                if let Some(subtrack) = phase_def["subtrack"].as_str() {
+                                    // Check if we've already activated this subtrack
+                                    let already_activated = track_state.get("subtrackActivated")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    
+                                    if !already_activated {
+                                        println!("[DEBUG process_phases] Container phase {} activating subtrack: {}", current_phase_id, subtrack);
+                                        activate_phase_track(state, subtrack, &mut patches);
+                                        
+                                        // Mark that we've activated the subtrack
+                                        patches.push(json!({
+                                            "op": "add",
+                                            "path": format!("/meta/phaseStates/{}/subtrackActivated", track_name),
+                                            "value": true
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    json!(patches)
+}
+
+fn advance_phase(state: &mut Value, track: &str, next_phase: &str, patches: &mut Vec<Value>) {
+    if let Some(phase_states) = state.get_mut("meta")
+        .and_then(|m| m.get_mut("phaseStates"))
+        .and_then(|p| p.as_object_mut()) {
+        
+        if let Some(track_state) = phase_states.get_mut(track).and_then(|t| t.as_object_mut()) {
+            track_state.insert("current".to_string(), json!(next_phase));
+            track_state.insert("actionsProcessed".to_string(), json!(0)); // Reset action count
+            if let Some(count) = track_state.get("count").and_then(|c| c.as_u64()) {
+                track_state.insert("count".to_string(), json!(count + 1));
+            }
+            
+            let count_val = track_state.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+            
+            patches.push(json!({
+                "op": "replace",
+                "path": format!("/meta/phaseStates/{}/current", track),
+                "value": next_phase
+            }));
+            
+            patches.push(json!({
+                "op": "replace",
+                "path": format!("/meta/phaseStates/{}/actionsProcessed", track),
+                "value": 0
+            }));
+            
+            patches.push(json!({
+                "op": "replace",
+                "path": format!("/meta/phaseStates/{}/count", track),
+                "value": count_val + 1
+            }));
+            
+            // Add game log entry for phase transition
+            let phase_name = next_phase.split('.').last().unwrap_or(next_phase);
+            let formatted_name = phase_name.chars().enumerate()
+                .map(|(i, c)| if i == 0 { c.to_uppercase().to_string() } else { c.to_string() })
+                .collect::<String>();
+            
+            patches.push(json!({
+                "op": "add",
+                "path": "/meta/gameLog/-",
+                "value": {
+                    "message": format!("Entering {} phase", formatted_name),
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    "isSystem": true
+                }
+            }));
+        }
+    }
+}
+
+fn activate_phase_track(state: &mut Value, track: &str, patches: &mut Vec<Value>) {
+    println!("[DEBUG activate_phase_track] Activating track: {}", track);
+    if let Some(phase_states) = state.get_mut("meta")
+        .and_then(|m| m.get_mut("phaseStates"))
+        .and_then(|p| p.as_object_mut()) {
+        
+        if !phase_states.contains_key(track) {
+            // Find first phase for this track - special handling for known tracks
+            let first_phase = match track {
+                "turn" => "turn.player".to_string(),      // First turn phase
+                "turnPhase" => "turnPhase.draw".to_string(), // First turn sub-phase
+                _ => format!("{}.setup", track)  // Default naming convention
+            };
+            
+            println!("[DEBUG activate_phase_track] Creating new track {} with initial phase: {}", track, first_phase);
+            phase_states.insert(track.to_string(), json!({
+                "current": first_phase,
+                "count": 0,
+                "actionsProcessed": 0
+            }));
+            
+            patches.push(json!({
+                "op": "add",
+                "path": format!("/meta/phaseStates/{}", track),
+                "value": {
+                    "current": first_phase,
+                    "count": 0,
+                    "actionsProcessed": 0
+                }
+            }));
+        } else {
+            println!("[DEBUG activate_phase_track] Track {} already exists with state: {:?}", track, phase_states.get(track));
+        }
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -237,7 +572,16 @@ pub fn apply_action(
     println!("[DEBUG apply_action] Action {} has implementation: {:?}", action_id, implementation);
     println!("[DEBUG apply_action] About to match implementation for {}", action_id);
     
-    let action_patches = match implementation {
+    // Strip "presets." prefix if present for matching
+    let implementation_core = implementation.map(|s| {
+        if s.starts_with("presets.") {
+            &s[8..] // Remove "presets." prefix
+        } else {
+            s
+        }
+    });
+    
+    let action_patches = match implementation_core {
         Some("entity.move") | Some("grid.move") | Some("moveEntity") => {
             println!("[DEBUG apply_action] Matched entity move action - calling apply_move_entity");
             apply_move_entity(bundle, state, spec, action, caller)
@@ -268,6 +612,12 @@ pub fn apply_action(
         }
         Some("phase.set") | Some("setPhase") => {
             apply_set_phase(state, spec, caller)
+        }
+        Some("phase.advance") => {
+            apply_advance_phase(state, spec, caller)
+        }
+        Some("turnPhase.set") => {
+            apply_set_turn_phase(state, spec, caller)
         }
         Some("updateScore") => {
             apply_update_score(state, spec, caller)
@@ -562,12 +912,38 @@ fn apply_next_turn(state: &mut Value, caller: &str) -> Value {
         }
     };
 
+    let mut patches = vec![];
+    
     if let Some(next) = next_turn {
         state["turn"] = Value::String(next.clone());
-        return json!([{ "op": "replace", "path": "/turn", "value": next }]);
+        patches.push(json!({ "op": "replace", "path": "/turn", "value": next }));
+        
+        // Reset turn phase to first phase if turn phases are being used (old system)
+        if state.get("meta").and_then(|m| m.get("currentTurnPhase")).is_some() {
+            // Reset to "draw" or the first turn phase defined
+            // For now, we'll default to "draw" - could be made configurable
+            if let Some(meta) = state.get_mut("meta").and_then(|m| m.as_object_mut()) {
+                meta.insert("currentTurnPhase".to_string(), json!("draw"));
+            }
+            patches.push(json!({ "op": "replace", "path": "/meta/currentTurnPhase", "value": "draw" }));
+        }
+        
+        // Reset turnPhase track if it exists (new phase track system)
+        if let Some(phase_states) = state.get_mut("meta")
+            .and_then(|m| m.get_mut("phaseStates"))
+            .and_then(|p| p.as_object_mut()) {
+            
+            if let Some(turn_phase_state) = phase_states.get_mut("turnPhase").and_then(|t| t.as_object_mut()) {
+                turn_phase_state.insert("current".to_string(), json!("turnPhase.draw"));
+                turn_phase_state.insert("actionsProcessed".to_string(), json!(0));
+                
+                patches.push(json!({ "op": "replace", "path": "/meta/phaseStates/turnPhase/current", "value": "turnPhase.draw" }));
+                patches.push(json!({ "op": "replace", "path": "/meta/phaseStates/turnPhase/actionsProcessed", "value": 0 }));
+            }
+        }
     }
     
-    json!([])
+    json!(patches)
 }
 
 fn apply_set_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
@@ -581,6 +957,51 @@ fn apply_set_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
     }
     
     json!([{ "op": "replace", "path": "/meta/currentPhase", "value": new_phase }])
+}
+
+fn apply_advance_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
+    // Support both 'with' (new) and 'params' (old) syntax
+    let params = spec.get("with").or_else(|| spec.get("params")).unwrap_or(&spec["params"]);
+    let track = params["track"].as_str().unwrap_or("game");
+    
+    let mut patches = vec![];
+    
+    // Get current phase for the track
+    if let Some(phase_states) = state.get("meta")
+        .and_then(|m| m.get("phaseStates"))
+        .and_then(|p| p.as_object()) {
+        
+        if let Some(track_state) = phase_states.get(track) {
+            if let Some(current_phase) = track_state.get("current").and_then(|c| c.as_str()) {
+                // Find the phase definition and get its next phase
+                // Since we don't have access to bundle here, we'll use a simple approach
+                // For turnPhase track, we know the sequence: draw -> discard -> draw (new turn)
+                let next_phase = match (track, current_phase) {
+                    ("turnPhase", "turnPhase.draw") => "turnPhase.discard",
+                    ("turnPhase", "turnPhase.discard") => "turnPhase.draw",
+                    _ => return json!([]) // Unknown phase transition
+                };
+                
+                // Use the existing advance_phase function
+                advance_phase(state, track, next_phase, &mut patches);
+            }
+        }
+    }
+    
+    json!(patches)
+}
+
+fn apply_set_turn_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
+    // Support both 'with' (new) and 'params' (old) syntax
+    let params = spec.get("with").or_else(|| spec.get("params")).unwrap_or(&spec["params"]);
+    let new_turn_phase = params["phase"].as_str().unwrap_or("draw");
+    
+    // Update turn phase in meta
+    if let Some(meta) = state.get_mut("meta").and_then(|m| m.as_object_mut()) {
+        meta.insert("currentTurnPhase".to_string(), json!(new_turn_phase));
+    }
+    
+    json!([{ "op": "replace", "path": "/meta/currentTurnPhase", "value": new_turn_phase }])
 }
 
 fn apply_update_score(state: &mut Value, spec: &Value, caller: &str) -> Value {
@@ -792,7 +1213,7 @@ fn apply_count_cards(state: &mut Value, spec: &Value, caller: &str) -> Value {
 /* --------------------------------------------------------------------------
    Check tic-tac-toe game end
    ----------------------------------------------------------------------- */
-fn apply_patch_to_state(state: &mut Value, patch: &Value) {
+pub fn apply_patch_to_state(state: &mut Value, patch: &Value) {
     // Simple patch application for our use case
     if let (Some(op), Some(path), Some(value)) = (
         patch["op"].as_str(),

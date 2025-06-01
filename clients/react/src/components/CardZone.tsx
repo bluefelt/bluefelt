@@ -80,13 +80,21 @@ export default function CardZone({
 
     switch (layout) {
       case 'stack':
-        // Stack cards with slight offset
-        return {
-          ...baseStyle,
-          left: index * 2,
-          top: index * 2,
-          zIndex: index
-        };
+        // For stack layout, only show the top card
+        if (index === total - 1) {
+          return {
+            ...baseStyle,
+            left: 0,
+            top: 0,
+            zIndex: index
+          };
+        } else {
+          // Hide all other cards
+          return {
+            ...baseStyle,
+            display: 'none'
+          };
+        }
       
       case 'fan': {
         // Fan cards side by side with slight rotation
@@ -178,17 +186,16 @@ export default function CardZone({
   };
 
   const countStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    fontSize: 12,
-    color: '#999',
-    fontFamily: 'Roboto Condensed, sans-serif'
+    fontSize: 16,
+    color: '#D8B260',
+    fontFamily: 'Roboto Condensed, sans-serif',
+    fontWeight: 'bold',
+    marginLeft: 10
   };
 
   // For stack layout with hidden cards, show placeholder
   if (layout === 'stack' && visibility === 'none' && !showTop) {
-    const clickableStyle: React.CSSProperties = hasZoneAction ? {
+    const clickableStyle: React.CSSProperties = hasZoneAction && possibleActions.length === 0 ? {
       cursor: 'pointer',
       border: '2px solid #6B8BFF',
       boxShadow: '0 0 10px rgba(107, 139, 255, 0.5)'
@@ -200,20 +207,22 @@ export default function CardZone({
         onClick={hasZoneAction ? onZoneClick : undefined}
       >
         <div style={labelStyle}>{parseZoneName(zoneName)}</div>
-        {showCount && <div style={countStyle}>{cards.length} cards</div>}
-        {cards.length > 0 && (
-          <Card 
-            isFaceUp={false}
-            size="medium"
-            isSelectable={hasZoneAction}
-          />
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {cards.length > 0 && (
+            <Card 
+              isFaceUp={false}
+              size="medium"
+              isSelectable={hasZoneAction && possibleActions.length === 0}
+            />
+          )}
+          {showCount && cards.length > 0 && <div style={countStyle}>{cards.length}</div>}
+        </div>
       </div>
     );
   }
 
   // For other layouts including stack with showTop (discard pile)
-  const clickableStyle: React.CSSProperties = hasZoneAction && layout === 'stack' ? {
+  const clickableStyle: React.CSSProperties = hasZoneAction && layout === 'stack' && possibleActions.length === 0 ? {
     cursor: 'pointer',
     border: '2px solid #6B8BFF',
     boxShadow: '0 0 10px rgba(107, 139, 255, 0.5)'
@@ -225,17 +234,23 @@ export default function CardZone({
       onClick={hasZoneAction && layout === 'stack' ? onZoneClick : undefined}
     >
       <div style={labelStyle}>{parseZoneName(zoneName)}</div>
-      {showCount && <div style={countStyle}>{cards.length} cards</div>}
+      {showCount && layout !== 'stack' && <div style={countStyle}>{cards.length} cards</div>}
       
       <div style={{ 
         position: 'relative', 
-        width: '100%', 
+        width: layout === 'stack' ? 'auto' : '100%', 
         height: layout === 'fan' ? '120px' : '110px',
-        margin: '0 auto'
+        margin: '0 auto',
+        display: layout === 'stack' ? 'flex' : 'block',
+        alignItems: layout === 'stack' ? 'center' : 'normal',
+        justifyContent: layout === 'stack' ? 'center' : 'normal'
       }}>
         {cards.map((card, index) => {
           const isFaceUp = getCardVisibility(index);
-          const isSelectable = possibleActions.some(action => action.cardIndex === index);
+          // For stack layout, make the top card selectable if there's a zone action
+          const isTopCard = index === cards.length - 1;
+          const isSelectable = possibleActions.some(action => action.cardIndex === index) ||
+            (hasZoneAction && layout === 'stack' && isTopCard);
           
           return (
             <div
@@ -247,12 +262,20 @@ export default function CardZone({
                 rank={card.props?.rank}
                 isFaceUp={isFaceUp}
                 isSelectable={isSelectable}
-                onClick={() => isSelectable && onCardClick?.(card.id, index)}
+                onClick={(e) => {
+                  e.stopPropagation(); // Prevent event bubbling to container
+                  if (possibleActions.some(action => action.cardIndex === index)) {
+                    onCardClick?.(card.id, index);
+                  } else if (hasZoneAction && layout === 'stack' && isTopCard) {
+                    onZoneClick?.();
+                  }
+                }}
                 size="medium"
               />
             </div>
           );
         })}
+        {showCount && layout === 'stack' && cards.length > 0 && <div style={countStyle}>{cards.length}</div>}
       </div>
     </div>
   );

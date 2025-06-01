@@ -8,6 +8,7 @@ import GameHeader from './GameHeader';
 import GameZones from './GameZones';
 import GameLog from './GameLog';
 import GameResultBanner from './GameResultBanner';
+import PhaseDisplay from './PhaseDisplay';
 import type { GameManifest } from '../api/games';
 
 interface GameViewProps {
@@ -235,6 +236,12 @@ export default function GameView({ lobbyId }: GameViewProps) {
         currentPlayer={currentPlayerName}
         entityDefinitions={lobbyState.meta?.entities}
         turnPrompt={(() => {
+          // First check if there's a phase prompt
+          if (lobbyState.meta?.currentPhasePrompt) {
+            return lobbyState.meta.currentPhasePrompt;
+          }
+          
+          // Otherwise fall back to action directions
           const actionMap = lobbyState.meta?.actionMap?.[lobbyState.you || ''];
           if (!actionMap) return undefined;
           
@@ -257,6 +264,11 @@ export default function GameView({ lobbyId }: GameViewProps) {
         })()}
       />
 
+      {/* Phase display */}
+      <PhaseDisplay 
+        phaseMessages={lobbyState.meta?.phaseDisplayMessages}
+        phaseStates={lobbyState.meta?.phaseStates}
+      />
 
       {/* Main content */}
       <div className="flex-1 flex flex-col">

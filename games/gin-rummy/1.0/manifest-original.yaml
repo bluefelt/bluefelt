@@ -14,12 +14,24 @@ tags:
   - rummy
 
 setup:
-  initialPhases:
-    game: game.setup
-    round: null
-    turn: null
-    turnPhase: null
+  initialPhase: dealing
   playerOrder: alternating
+
+phases:
+  - id: dealing
+    name: "Dealing"
+    auto: true
+    then:
+      - action: dealCards
+  - id: play
+    name: "Play"
+  - id: knocking
+    name: "Knocking"
+  - id: scoring
+    name: "Scoring"
+    auto: true
+    then:
+      - action: calculateScores
 
 scoring:
   type: "points"

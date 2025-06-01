@@ -38,6 +38,7 @@ pub struct Bundle {
     pub entities: Value,
     pub zones: Value,
     pub actions: Value,
+    pub phases: Value,
     pub hooks: Option<Vec<u8>>, // WebAssembly module bytes
 }
 
@@ -73,6 +74,7 @@ impl BundleMap {
                     let entities_path = base.join("entities.yaml");
                     let zones_path = base.join("zones.yaml");
                     let actions_path = base.join("actions.yaml");
+                    let phases_path = base.join("phases.yaml");
 
                     let mut entities: Value = if entities_path.exists() {
                         serde_yaml::from_str(&fs::read_to_string(&entities_path)?)
@@ -85,6 +87,10 @@ impl BundleMap {
                     let mut actions: Value = if actions_path.exists() {
                         serde_yaml::from_str(&fs::read_to_string(&actions_path)?)
                             .map_err(|e| anyhow::anyhow!("Failed to parse actions.yaml for game '{}': {}", game_id, e))?
+                    } else { Value::Null };
+                    let phases: Value = if phases_path.exists() {
+                        serde_yaml::from_str(&fs::read_to_string(&phases_path)?)
+                            .map_err(|e| anyhow::anyhow!("Failed to parse phases.yaml for game '{}': {}", game_id, e))?
                     } else { Value::Null };
                     
                     // Expand shorthand syntax
@@ -101,7 +107,7 @@ impl BundleMap {
                     println!("Loading game: {} v{}", game_id, ver);
                     bundles.insert(
                         game_id.clone(),
-                        Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, hooks },
+                        Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, phases, hooks },
                     );
                 }
             }

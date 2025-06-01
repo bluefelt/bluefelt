@@ -212,6 +212,34 @@ impl Lobby {
         false
     }
 
+    /// Get the prompt for the current phase if it's a playerAction phase
+    fn get_current_phase_prompt(state: &serde_json::Value, bundle: &Bundle) -> Option<String> {
+        // Get current phase states
+        let phase_states = state.get("meta")
+            .and_then(|m| m.get("phaseStates"))?;
+        
+        // Look through all active phases to find playerAction phases with prompts
+        if let Some(states_obj) = phase_states.as_object() {
+            for (_track, track_state) in states_obj {
+                if let Some(current_phase_id) = track_state.get("current").and_then(|c| c.as_str()) {
+                    // Find the phase definition
+                    if let Some(phases_array) = bundle.phases.as_array() {
+                        if let Some(phase_def) = phases_array.iter().find(|p| p["id"].as_str() == Some(current_phase_id)) {
+                            // Check if it's a playerAction phase with a prompt
+                            if phase_def["type"].as_str() == Some("playerAction") {
+                                if let Some(prompt) = phase_def["prompt"].as_str() {
+                                    return Some(prompt.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+
     /// Compute action map for each player based on current state
     /// Returns a map from location (e.g., "/zones/board/0/1") to available actions
     fn compute_action_map(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
@@ -263,19 +291,47 @@ impl Lobby {
                     
                     if id == turn_player {
                         println!("[DEBUG action_map] Player {} is the current turn player", id);
-                        let current_phase = state.get("meta")
-                            .and_then(|m| m.get("currentPhase"))
-                            .and_then(|p| p.as_str())
-                            .unwrap_or("play");
+                        // Get current phases from all active tracks
+                        let phase_states = state.get("meta")
+                            .and_then(|m| m.get("phaseStates"))
+                            .cloned()
+                            .unwrap_or(json!({}));
+                        
+                        // Build list of current phases
+                        let mut current_phases = Vec::new();
+                        if let Some(states_obj) = phase_states.as_object() {
+                            for (_track, track_state) in states_obj {
+                                if let Some(current) = track_state.get("current").and_then(|c| c.as_str()) {
+                                    current_phases.push(current);
+                                }
+                            }
+                        }
                         if let Some(actionlist) = bundle.actions.as_array() {
-                            println!("[DEBUG action_map] Found {} actions in bundle, current phase: {}", actionlist.len(), current_phase);
-                            for a in actionlist {
-                                // Skip actions not in current phase
-                                if let Some(action_phase) = a["phase"].as_str() {
-                                    if action_phase != current_phase {
-                                        continue;
+                            println!("[DEBUG action_map] Found {} actions in bundle, current phases: {:?}", actionlist.len(), current_phases);
+                            
+                            // Find which actions are allowed in current phases
+                            if let Some(phases_array) = bundle.phases.as_array() {
+                                let mut allowed_actions = Vec::new();
+                                
+                                for phase_id in &current_phases {
+                                    if let Some(phase_def) = phases_array.iter().find(|p| p["id"].as_str() == Some(phase_id)) {
+                                        if let Some(actions) = phase_def["actions"].as_array() {
+                                            for action in actions {
+                                                if let Some(action_id) = action.as_str() {
+                                                    allowed_actions.push(action_id);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
+                                
+                                for a in actionlist {
+                                    let action_id = a["id"].as_str().unwrap_or("");
+                                    
+                                    // Skip actions not allowed in current phases
+                                    if !allowed_actions.contains(&action_id) {
+                                        continue;
+                                    }
                                 // Support both 'uses' (new) and 'builtin' (old)
                                 let action_impl = a["uses"].as_str()
                                     .or_else(|| a["builtin"].as_str());
@@ -640,7 +696,7 @@ impl Lobby {
                                         }
                                     }
                                     }
-                                } else if action_impl == Some("entity.move") {
+                                } else if action_impl == Some("entity.move") || action_impl == Some("presets.entity.move") {
                                     if let Some(action_id) = a["id"].as_str() {
                                         println!("[DEBUG action_map] Processing entity.move action: {}", action_id);
                                         // Handle entity.move actions for card games
@@ -712,6 +768,7 @@ impl Lobby {
                                                     if let Some(zone_data) = state["zones"][&source_zone].as_object() {
                                                         if let Some(items) = zone_data.get("items").and_then(|i| i.as_array()) {
                                                             println!("[DEBUG action_map] Hand {} has {} items", source_zone, items.len());
+                                                            println!("[DEBUG action_map] Processing action {} for hand", action_id);
                                                             
                                                             // Check conditions before adding action
                                                             let mut conditions_met = true;
@@ -723,7 +780,9 @@ impl Lobby {
                                                                                 let zone_id = with.get("zone").and_then(|z| z.as_str()).unwrap_or("").replace("{actor}", id);
                                                                                 if zone_id == source_zone {
                                                                                     if let Some(exact) = with.get("exact").and_then(|e| e.as_u64()) {
+                                                                                        println!("[DEBUG conditions] Checking exact count for {}: {} == {}", zone_id, items.len(), exact);
                                                                                         if items.len() != exact as usize {
+                                                                                            println!("[DEBUG conditions] Condition failed: {} != {}", items.len(), exact);
                                                                                             conditions_met = false;
                                                                                             break;
                                                                                         }
@@ -766,6 +825,7 @@ impl Lobby {
                                     }
                                 }
                             }
+                            } // Close phases_array check
                         }
                     }
                     
@@ -809,6 +869,21 @@ impl Lobby {
                 if !meta_obj.contains_key("gameLog") {
                     meta_obj.insert("gameLog".to_string(), json!([]));
                 }
+                // Ensure phaseDisplayMessages exists
+                if !meta_obj.contains_key("phaseDisplayMessages") {
+                    meta_obj.insert("phaseDisplayMessages".to_string(), json!([]));
+                }
+                
+                // Add current phase prompt for turn player
+                if let Some(turn_player) = snapshot.get("turn").and_then(|t| t.as_str()) {
+                    if actor == turn_player {
+                        // Get current phase prompt
+                        let phase_prompt = Lobby::get_current_phase_prompt(&snapshot, &self.bundle);
+                        if let Some(prompt) = phase_prompt {
+                            meta_obj.insert("currentPhasePrompt".to_string(), json!(prompt));
+                        }
+                    }
+                }
             }
             
             json!({
@@ -832,47 +907,16 @@ impl Lobby {
         }
     }
 
-pub fn start_game(&self) {
+pub fn start_game(self: Arc<Self>) {
     *self.game_started.lock() = true;
     
     // Get current game state
-    let mut snapshot = { let g = self.state.lock(); g.clone() };
+    let snapshot = { let g = self.state.lock(); g.clone() };
     
-    // Check if we need to trigger initial phase
-    let mut all_patches = Vec::new();
-    if let Some(current_phase) = snapshot.get("meta")
-        .and_then(|m| m.get("currentPhase"))
-        .and_then(|p| p.as_str()) {
-        // Look for phase definition in manifest
-        if let Some(phases) = self.bundle.manifest.phases.as_ref() {
-            if let Some(phases_array) = phases.as_array() {
-                for phase_def in phases_array {
-                    if phase_def["id"].as_str() == Some(current_phase) {
-                        // Execute phase actions (then)
-                        if let Some(then_actions) = phase_def.get("then").and_then(|t| t.as_array()) {
-                            for then_action in then_actions {
-                                if let Some(action_id) = then_action.get("action").and_then(|a| a.as_str()) {
-                                    // Execute the triggered action
-                                    let trigger_action = json!({
-                                        "action": action_id,
-                                        "actor": "system"
-                                    });
-                                    let patches = engine::apply_action(&self.bundle, &mut snapshot, "system", &trigger_action);
-                                    // Accumulate patches to send to clients
-                                    if let Some(patch_array) = patches.as_array() {
-                                        all_patches.extend_from_slice(patch_array);
-                                    }
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    // Don't process phases here - we'll do it after sending the initial game state
+    println!("[DEBUG start_game] Will process phases after initial state is sent");
     
-    // Update state with any changes from phase triggers
+    // Update state with any changes from phase processing
     *self.state.lock() = snapshot.clone();
     
     // Get action map after phase triggers
@@ -907,17 +951,131 @@ pub fn start_game(&self) {
     });
     let _ = self.tx.send(Message::Text(game_started_msg.to_string()));
     
-    // Send patches from phase triggers if any
-    if !all_patches.is_empty() {
-        println!("[DEBUG] Sending {} patches from phase triggers", all_patches.len());
-        let patch_msg = serde_json::json!({
-            "type": "patch",
-            "patches": all_patches
-        });
-        let _ = self.tx.send(Message::Text(patch_msg.to_string()));
-    }
-    
     self.broadcast_lobby_list();
+    
+    // Now process phases after initial state is sent
+    let self_clone = self.clone();
+    let bundle = self.bundle.clone();
+    tokio::spawn(async move {
+        // Small delay to ensure clients receive the initial state
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        
+        let mut max_iterations = 10;
+        loop {
+            println!("[DEBUG] Phase processing iteration {}", 11 - max_iterations);
+            
+            // Get current state
+            let mut snapshot = { let g = self_clone.state.lock(); g.clone() };
+            println!("[DEBUG] Current state phase states: {:?}", snapshot.get("meta").and_then(|m| m.get("phaseStates")));
+            
+            // Process phases
+            let phase_patches = engine::process_phases(&bundle, &mut snapshot);
+            
+            if let Some(phase_arr) = phase_patches.as_array() {
+                if phase_arr.is_empty() {
+                    println!("[DEBUG] No more phase patches, stopping phase processing");
+                    break;
+                }
+                
+                println!("[DEBUG] Got {} patches from phase processing", phase_arr.len());
+                
+                // Apply patches to our state
+                for patch in phase_arr {
+                    engine::apply_patch_to_state(&mut snapshot, patch);
+                }
+                
+                // Update the lobby state
+                *self_clone.state.lock() = snapshot;
+                
+                // Increment tick
+                let tick = {
+                    let mut t = self_clone.tick.lock();
+                    *t += 1;
+                    *t
+                };
+                
+                // Prepare patches for client - need to prefix paths
+                let mut client_patches = Vec::new();
+                for patch in phase_arr {
+                    if let Some(path) = patch.get("path").and_then(|p| p.as_str()) {
+                        let mut patch_obj = patch.clone();
+                        // Only prefix with /state if the path doesn't start with /meta
+                        if !path.starts_with("/meta") {
+                            patch_obj["path"] = json!(format!("/state{}", path));
+                        }
+                        client_patches.push(patch_obj);
+                    } else {
+                        client_patches.push(patch.clone());
+                    }
+                }
+                
+                // Recompute action map after phase changes
+                let current_state = { let g = self_clone.state.lock(); g.clone() };
+                let action_map = Lobby::compute_action_map(&current_state, &bundle);
+                for (pid, actions) in action_map {
+                    client_patches.push(json!({
+                        "op": "replace",
+                        "path": format!("/meta/actionMap/{}", pid),
+                        "value": actions
+                    }));
+                }
+                
+                // Add current phase prompt for turn player
+                if let Some(_turn_player) = current_state.get("turn").and_then(|t| t.as_str()) {
+                    // Get current phase prompt
+                    let phase_prompt = Lobby::get_current_phase_prompt(&current_state, &bundle);
+                    if let Some(prompt) = phase_prompt {
+                        // Use "add" or "replace" depending on whether the field exists
+                        let op = if current_state.get("meta")
+                            .and_then(|m| m.get("currentPhasePrompt"))
+                            .is_some() {
+                            "replace"
+                        } else {
+                            "add"
+                        };
+                        client_patches.push(json!({
+                            "op": op,
+                            "path": "/meta/currentPhasePrompt",
+                            "value": prompt
+                        }));
+                    } else {
+                        // Remove prompt if no playerAction phase is active
+                        // Only remove if it exists
+                        if current_state.get("meta")
+                            .and_then(|m| m.get("currentPhasePrompt"))
+                            .is_some() {
+                            client_patches.push(json!({
+                                "op": "remove",
+                                "path": "/meta/currentPhasePrompt"
+                            }));
+                        }
+                    }
+                }
+                
+                // Send patches to clients
+                let frame = json!({
+                    "type": "diff",
+                    "tick": tick,
+                    "patch": client_patches
+                });
+                self_clone.history.lock().push(frame.clone());
+                let _ = self_clone.tx.send(Message::Text(frame.to_string()));
+                
+                // Delay between phase actions for visual effect
+                tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+            } else {
+                break;
+            }
+            
+            max_iterations -= 1;
+            if max_iterations == 0 {
+                println!("[DEBUG] Max iterations reached, stopping phase processing");
+                break;
+            }
+        }
+        
+        println!("[DEBUG] Phase processing completed");
+    });
 }
 
 /// Accept a new WebSocket client, drive send/recv loops.
@@ -1025,7 +1183,7 @@ pub fn start_game(&self) {
                         }
                     } else if json["action"] == "start_game" {
                         if !self.is_started() && self.players() >= 2 {
-                            self.start_game();
+                            self.clone().start_game();
                         }
                     } else if json.get("action").is_some() && self.is_started() {
                         // Get current actor assignment
@@ -1107,7 +1265,13 @@ pub fn start_game(&self) {
                                 }
                             }
                         } else {
-                            // Game still active, compute action map normally
+                            // Game still active, process phases first
+                            let phase_patches = engine::process_phases(&self.bundle, &mut self.state.lock());
+                            if let Some(phase_arr) = phase_patches.as_array() {
+                                patch_ops.extend_from_slice(phase_arr);
+                            }
+                            
+                            // Then compute action map normally
                             let current_state = { let g = self.state.lock(); g.clone() };
                             let action_map = Lobby::compute_action_map(&current_state, &self.bundle);
                             for (pid, actions) in action_map {
@@ -1116,6 +1280,38 @@ pub fn start_game(&self) {
                                     "path": format!("/meta/actionMap/{}", pid),
                                     "value": actions
                                 }));
+                            }
+                            
+                            // Add current phase prompt for turn player
+                            if let Some(_turn_player) = current_state.get("turn").and_then(|t| t.as_str()) {
+                                // Get current phase prompt
+                                let phase_prompt = Lobby::get_current_phase_prompt(&current_state, &self.bundle);
+                                if let Some(prompt) = phase_prompt {
+                                    // Use "add" or "replace" depending on whether the field exists
+                                    let op = if current_state.get("meta")
+                                        .and_then(|m| m.get("currentPhasePrompt"))
+                                        .is_some() {
+                                        "replace"
+                                    } else {
+                                        "add"
+                                    };
+                                    patch_ops.push(serde_json::json!({
+                                        "op": op,
+                                        "path": "/meta/currentPhasePrompt",
+                                        "value": prompt
+                                    }));
+                                } else {
+                                    // Remove prompt if no playerAction phase is active
+                                    // Only remove if it exists
+                                    if current_state.get("meta")
+                                        .and_then(|m| m.get("currentPhasePrompt"))
+                                        .is_some() {
+                                        patch_ops.push(serde_json::json!({
+                                            "op": "remove",
+                                            "path": "/meta/currentPhasePrompt"
+                                        }));
+                                    }
+                                }
                             }
                         }
                         

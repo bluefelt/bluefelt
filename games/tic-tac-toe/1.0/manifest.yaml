@@ -8,3 +8,9 @@ metadata:
   players:
     min: 2
     max: 2
+
+setup:
+  initialPhases:
+    game: game.setup
+    turn: null
+    turnPhase: null

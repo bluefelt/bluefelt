@@ -8,3 +8,9 @@ metadata:
     min: 2
     max: 2
   description: "Classic Connect 4 game - be the first to get 4 in a row!"
+
+setup:
+  initialPhases:
+    game: game.setup
+    turn: null
+    turnPhase: null

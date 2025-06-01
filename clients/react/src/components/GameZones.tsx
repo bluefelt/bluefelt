@@ -155,7 +155,7 @@ export default function GameZones({
             layout={zoneMeta?.ui?.layout || (zoneId.includes('hand') ? 'fan' : 'spread')}
             visibility={zoneMeta?.visibility || 'all'}
             isOwner={isZoneOwner(zoneId)}
-            showCount={zoneMeta?.ui?.showCount || zoneId === 'deck'}
+            showCount={zoneMeta?.ui?.showCount !== undefined ? zoneMeta.ui.showCount : (zoneMeta?.ui?.layout === 'stack' || zoneId.includes('deck') || zoneId.includes('Pile'))}
             showTop={zoneMeta?.ui?.showTop}
             onCardClick={(cardId, cardIndex) => {
               if (onCardAction) {

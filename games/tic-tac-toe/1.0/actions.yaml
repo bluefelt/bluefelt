@@ -1,5 +1,5 @@
 - id: placeMark
-  uses: grid.move
+  uses: presets.grid.move
   with:
     source: marks_{actor}
     target:
@@ -10,7 +10,7 @@
     - action: checkTie
 
 - id: advanceTurn
-  uses: turn.advance
+  uses: presets.turn.advance
   auto: true
 
 - id: checkWin
@@ -32,7 +32,7 @@
       result: gameTie
 
 - id: resetGame
-  uses: zone.reset
+  uses: presets.zone.reset
   with:
     zones: [board]
   then:

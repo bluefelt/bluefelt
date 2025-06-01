@@ -111,7 +111,14 @@ fn expand_actions(actions: &mut Value, max_players: u32) {
             }
             if let Some(uses) = action.get("uses").and_then(|b| b.as_str()) {
                 println!("  Action uses: {}", uses);
-                match uses {
+                // Handle both with and without presets. prefix
+                let core_uses = if uses.starts_with("presets.") {
+                    &uses[8..]
+                } else {
+                    uses
+                };
+                
+                match core_uses {
                     "cards.deal" => {
                         println!("  Expanding cards.deal action");
                         expanded.extend(expand_deal_action(action, max_players));
@@ -154,7 +161,7 @@ fn expand_deal_action(action: &Value, max_players: u32) -> Vec<Value> {
                 
                 let deal_action = json!({
                     "id": deal_id,
-                    "uses": "entity.move",
+                    "uses": "presets.entity.move",
                     "auto": true,
                     "phase": action.get("phase").cloned().unwrap_or(json!("setup")),
                     "with": {
@@ -171,7 +178,9 @@ fn expand_deal_action(action: &Value, max_players: u32) -> Vec<Value> {
         // Add original action's then to the last deal action
         if let Some(original_then) = action.get("then") {
             if let Some(last_action) = expanded_actions.last_mut() {
-                last_action["then"] = original_then.clone();
+                if let Value::Object(ref mut obj) = last_action {
+                    obj.insert("then".to_string(), original_then.clone());
+                }
             }
         }
         
@@ -180,7 +189,7 @@ fn expand_deal_action(action: &Value, max_players: u32) -> Vec<Value> {
         if let Value::Object(ref mut obj) = trigger_action {
             obj.remove("uses");
             obj.remove("with");
-            obj["then"] = Value::Array(triggers.into_iter().map(|t| json!({"action": t})).collect());
+            obj.insert("then".to_string(), Value::Array(triggers.into_iter().map(|t| json!({"action": t})).collect()));
         }
         
         // Add the trigger action first
@@ -189,7 +198,7 @@ fn expand_deal_action(action: &Value, max_players: u32) -> Vec<Value> {
         // Single target dealing - just convert to moveEntity
         let mut expanded = action.clone();
         if let Value::Object(ref mut obj) = expanded {
-            obj["uses"] = json!("entity.move");
+            obj["uses"] = json!("presets.entity.move");
         }
         expanded_actions.push(expanded);
     }
@@ -201,7 +210,7 @@ fn expand_deal_action(action: &Value, max_players: u32) -> Vec<Value> {
 fn expand_reveal_action(action: &Value) -> Value {
     let mut expanded = action.clone();
     if let Value::Object(ref mut obj) = expanded {
-        obj["uses"] = json!("entity.move");
+        obj["uses"] = json!("presets.entity.move");
     }
     expanded
 }

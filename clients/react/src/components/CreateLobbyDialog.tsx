@@ -15,7 +15,13 @@ export default function CreateLobbyDialog({ onCreated, onCancel }: Props) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getGames().then(setGames);
+    getGames().then(games => {
+      // Sort games alphabetically by name
+      const sortedGames = [...games].sort((a, b) => 
+        a.name.localeCompare(b.name)
+      );
+      setGames(sortedGames);
+    });
   }, []);
 
   async function handleCreate(e: React.FormEvent) {

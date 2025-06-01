@@ -6,7 +6,7 @@ interface CardProps {
   isFaceUp: boolean;
   isSelectable?: boolean;
   isSelected?: boolean;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
   size?: 'small' | 'medium' | 'large';
 }
 
@@ -49,14 +49,14 @@ export default function Card({
     width: currentSize.width,
     height: currentSize.height,
     borderRadius: 8,
-    border: `2px solid ${isSelected ? '#FFD700' : '#333'}`,
+    border: `2px solid ${isSelected ? '#FFD700' : isSelectable ? '#6B8BFF' : '#333'}`,
     backgroundColor: isFaceUp ? '#FFFFFF' : '#2B5CE6',
     backgroundImage: !isFaceUp ? 'linear-gradient(45deg, #2B5CE6 25%, #1E40AF 25%, #1E40AF 50%, #2B5CE6 50%, #2B5CE6 75%, #1E40AF 75%, #1E40AF)' : 'none',
     backgroundSize: '20px 20px',
     cursor: isSelectable ? 'pointer' : 'default',
     transition: 'all 0.2s ease',
     transform: isHovered && isSelectable ? 'translateY(-5px)' : 'none',
-    boxShadow: isHovered && isSelectable ? '0 5px 15px rgba(0,0,0,0.3)' : '0 2px 5px rgba(0,0,0,0.2)',
+    boxShadow: isSelectable ? '0 0 10px rgba(107, 139, 255, 0.5)' : isHovered && isSelectable ? '0 5px 15px rgba(0,0,0,0.3)' : '0 2px 5px rgba(0,0,0,0.2)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
