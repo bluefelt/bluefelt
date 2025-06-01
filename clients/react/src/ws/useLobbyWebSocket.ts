@@ -4,17 +4,17 @@ import { useReconnectingWebSocket } from './useReconnectingWebSocket';
 import { WS_BASE_URL } from '../config';
 import type { ServerMessage, WelcomeMessage, PlayerUpdateMessage, DiffMessage, GameStartedMessage } from '../types/messages';
 
-export type VerbOption = {
+export type ActionOption = {
   zone: string;
   row?: number;
   col?: number;
   entity?: string;
 };
 
-export type GroupedVerb = {
-  verb: string;
+export type GroupedAction = {
+  action: string;
   direction: string;
-  validOptions: VerbOption[];
+  validOptions: ActionOption[];
 };
 
 import type { EntityDefinition } from '../types/messages';
@@ -22,7 +22,7 @@ import type { EntityDefinition } from '../types/messages';
 export type LobbyState = {
   you?: string;
   meta?: {
-    possibleVerbs?: Record<string, GroupedVerb[]>;
+    possibleActions?: Record<string, GroupedAction[]>;
     players?: string[];
     entities?: EntityDefinition[];
     gameStatus?: {

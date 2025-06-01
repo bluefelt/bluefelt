@@ -1,5 +1,5 @@
 //! lobby.rs – minimal in-memory lobby with broadcast fan-out
-//! Supports: welcome snapshot → JSON verb → diff broadcast
+//! Supports: welcome snapshot → JSON action → diff broadcast
 
 use crate::{bundle::Bundle, engine};
 use axum::extract::ws::{Message, WebSocket};
@@ -212,11 +212,12 @@ impl Lobby {
         false
     }
 
-    /// Compute possible verbs for each player based on current state
-    fn possible_verbs(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
-        let mut map = serde_json::Map::new();
+    /// Compute action map for each player based on current state
+    /// Returns a map from location (e.g., "/zones/board/0/1") to available actions
+    fn compute_action_map(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
+        let mut player_action_maps = serde_json::Map::new();
 
-        println!("[DEBUG possible_verbs] Checking game state - meta exists: {}, meta.gameStatus exists: {}", 
+        println!("[DEBUG action_map] Checking game state - meta exists: {}, meta.gameStatus exists: {}", 
             state.get("meta").is_some(),
             state.get("meta").and_then(|m| m.get("gameStatus")).is_some()
         );
@@ -238,42 +239,52 @@ impl Lobby {
                 .unwrap_or(false);
                 
         if game_ended {
-            println!("[DEBUG] Game has ended, returning empty possibleVerbs for all players");
+            println!("[DEBUG] Game has ended, returning empty action maps for all players");
             // Game has ended, no moves possible
             if let Some(players) = state["players"].as_array() {
                 for player in players {
                     if let Some(id) = player["id"].as_str() {
-                        map.insert(id.to_string(), serde_json::Value::Array(vec![]));
+                        player_action_maps.insert(id.to_string(), json!({}));
                     }
                 }
             }
-            return map;
+            return player_action_maps;
         }
 
         let turn_player = state["turn"].as_str().unwrap_or("");
-        println!("[DEBUG possible_verbs] Current turn player: {}", turn_player);
+        println!("[DEBUG action_map] Current turn player: {}", turn_player);
 
         if let Some(players) = state["players"].as_array() {
-            println!("[DEBUG possible_verbs] Players in game: {:?}", players);
+            println!("[DEBUG action_map] Players in game: {:?}", players);
             for player in players {
                 if let Some(id) = player["id"].as_str() {
-                    println!("[DEBUG possible_verbs] Checking verbs for player: {}", id);
-                    let mut verbs_by_id: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+                    println!("[DEBUG action_map] Checking actions for player: {}", id);
+                    let mut action_map = serde_json::Map::new();
                     
                     if id == turn_player {
-                        println!("[DEBUG possible_verbs] Player {} is the current turn player", id);
-                        if let Some(verblist) = bundle.verbs.as_array() {
-                            println!("[DEBUG possible_verbs] Found {} verbs in bundle", verblist.len());
-                            for v in verblist {
+                        println!("[DEBUG action_map] Player {} is the current turn player", id);
+                        let current_phase = state.get("meta")
+                            .and_then(|m| m.get("currentPhase"))
+                            .and_then(|p| p.as_str())
+                            .unwrap_or("play");
+                        if let Some(actionlist) = bundle.actions.as_array() {
+                            println!("[DEBUG action_map] Found {} actions in bundle, current phase: {}", actionlist.len(), current_phase);
+                            for a in actionlist {
+                                // Skip actions not in current phase
+                                if let Some(action_phase) = a["phase"].as_str() {
+                                    if action_phase != current_phase {
+                                        continue;
+                                    }
+                                }
                                 // Support both 'uses' (new) and 'builtin' (old)
-                                let verb_impl = v["uses"].as_str()
-                                    .or_else(|| v["builtin"].as_str());
-                                println!("[DEBUG possible_verbs] Verb {} has implementation: {:?}", v["id"].as_str().unwrap_or("unknown"), verb_impl);
-                                if verb_impl == Some("grid.move") || verb_impl == Some("moveEntity") {
-                                    println!("[DEBUG] Found grid.move verb: {:?}", v["id"]);
-                                    if let Some(verb_id) = v["id"].as_str() {
+                                let action_impl = a["uses"].as_str()
+                                    .or_else(|| a["builtin"].as_str());
+                                println!("[DEBUG action_map] Action {} has implementation: {:?}", a["id"].as_str().unwrap_or("unknown"), action_impl);
+                                if action_impl == Some("grid.move") || action_impl == Some("moveEntity") {
+                                    println!("[DEBUG] Found grid.move action: {:?}", a["id"]);
+                                    if let Some(action_id) = a["id"].as_str() {
                                         // Support both 'with' (new) and 'params' (old)
-                                        let params = v.get("with").or_else(|| v.get("params"));
+                                        let params = a.get("with").or_else(|| a.get("params"));
                                         if let Some(params) = params {
                                             if let Some(target_zone) = params["target"]["zone"].as_str() {
                                                 println!("[DEBUG] Target zone: {}", target_zone);
@@ -307,7 +318,7 @@ impl Lobby {
                                                             }
                                                         }
                                                     }
-                                                } else if verb_impl == Some("grid.move") || verb_impl == Some("moveEntity") {
+                                                } else if action_impl == Some("grid.move") || action_impl == Some("moveEntity") {
                                                     println!("[DEBUG] Checking for flip effects");
                                                     // Check if this has flip effect (Reversi-style)
                                                     let has_flip_effect = params.get("effects").and_then(|e| e.as_array())
@@ -368,23 +379,27 @@ impl Lobby {
                                                     }
                                                 }
                                                 
-                                                if !valid_options.is_empty() {
-                                                    let direction = v["ui"]["direction"].as_str().unwrap_or("Make a move");
-                                                    verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
-                                                        "verb": verb_id,
-                                                        "direction": direction,
-                                                        "validOptions": valid_options
-                                                    }));
+                                                // Add each valid option to the action map
+                                                let direction = a["ui"]["direction"].as_str().unwrap_or("Make a move");
+                                                for option in valid_options {
+                                                    if let (Some(zone), Some(row), Some(col)) = 
+                                                        (option["zone"].as_str(), option["row"].as_u64(), option["col"].as_u64()) {
+                                                        let location = format!("/zones/{}/{}/{}", zone, row, col);
+                                                        action_map.insert(location, json!({
+                                                            "action": action_id,
+                                                            "direction": direction
+                                                        }));
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                     }
-                                } else if verb_impl == Some("grid.select") || verb_impl == Some("selectEntity") {
+                                } else if action_impl == Some("grid.select") || action_impl == Some("selectEntity") {
                                     // Handle piece selection for checkers
-                                    if let Some(verb_id) = v["id"].as_str() {
+                                    if let Some(action_id) = a["id"].as_str() {
                                         // Support both 'with' (new) and 'params' (old)
-                                        let params = v.get("with").or_else(|| v.get("params"));
+                                        let params = a.get("with").or_else(|| a.get("params"));
                                         if let Some(params) = params {
                                             if let Some(zone_name) = params["zone"].as_str() {
                                             let zone_state = &state["zones"][zone_name];
@@ -464,21 +479,25 @@ impl Lobby {
                                                     }
                                                 }
                                                 
-                                                if !valid_options.is_empty() {
-                                                    let direction = v["ui"]["direction"].as_str().unwrap_or("Select a piece");
-                                                    verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
-                                                        "verb": verb_id,
-                                                        "direction": direction,
-                                                        "validOptions": valid_options
-                                                    }));
+                                                // Add each valid option to the action map
+                                                let direction = a["ui"]["direction"].as_str().unwrap_or("Select a piece");
+                                                for option in valid_options {
+                                                    if let (Some(zone), Some(row), Some(col)) = 
+                                                        (option["zone"].as_str(), option["row"].as_u64(), option["col"].as_u64()) {
+                                                        let location = format!("/zones/{}/{}/{}", zone, row, col);
+                                                        action_map.insert(location, json!({
+                                                            "action": action_id,
+                                                            "direction": direction
+                                                        }));
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                     }
-                                } else if verb_impl == Some("grid.moveSelected") || verb_impl == Some("moveSelectedEntity") {
+                                } else if action_impl == Some("grid.moveSelected") || action_impl == Some("moveSelectedEntity") {
                                     // Handle moving a selected piece
-                                    if let Some(verb_id) = v["id"].as_str() {
+                                    if let Some(action_id) = a["id"].as_str() {
                                         // Check if there's a selection for this player
                                         if let Some(selection) = state.get("meta").and_then(|m| m.get("selection")) {
                                             if selection["actor"].as_str() == Some(id) {
@@ -486,7 +505,7 @@ impl Lobby {
                                                 let source_col = selection["col"].as_u64().unwrap_or(0) as usize;
                                                 
                                                 // Support both 'with' (new) and 'params' (old)
-                                                let params = v.get("with").or_else(|| v.get("params"));
+                                                let params = a.get("with").or_else(|| a.get("params"));
                                                 if let Some(params) = params {
                                                     if let Some(target_zone) = params["target"]["zone"].as_str() {
                                                     let zone_state = &state["zones"][target_zone];
@@ -582,13 +601,17 @@ impl Lobby {
                                                             valid_options.extend(regular_moves);
                                                         }
                                                         
-                                                        if !valid_options.is_empty() {
-                                                            let direction = v["ui"]["direction"].as_str().unwrap_or("Move piece");
-                                                            verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
-                                                                "verb": verb_id,
-                                                                "direction": direction,
-                                                                "validOptions": valid_options
-                                                            }));
+                                                        // Add each valid option to the action map
+                                                        let direction = a["ui"]["direction"].as_str().unwrap_or("Move piece");
+                                                        for option in valid_options {
+                                                            if let (Some(zone), Some(row), Some(col)) = 
+                                                                (option["zone"].as_str(), option["row"].as_u64(), option["col"].as_u64()) {
+                                                                let location = format!("/zones/{}/{}/{}", zone, row, col);
+                                                                action_map.insert(location, json!({
+                                                                    "action": action_id,
+                                                                    "direction": direction
+                                                                }));
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -596,39 +619,163 @@ impl Lobby {
                                         }
                                     }
                                     }
-                                } else if verb_impl == Some("deck.draw") || verb_impl == Some("drawCard") {
-                                    if let Some(verb_id) = v["id"].as_str() {
+                                } else if action_impl == Some("deck.draw") || action_impl == Some("drawCard") {
+                                    if let Some(action_id) = a["id"].as_str() {
                                         // For drawCard, check if source deck has cards
                                         // Support both 'with' (new) and 'params' (old)
-                                        let params = v.get("with").or_else(|| v.get("params"));
+                                        let params = a.get("with").or_else(|| a.get("params"));
                                         if let Some(params) = params {
                                             if let Some(source) = params["source"].as_str() {
                                             if let Some(deck) = state["zones"][source].get("items").and_then(|i| i.as_array()) {
                                                 if !deck.is_empty() {
-                                                    let direction = v["ui"]["direction"].as_str().unwrap_or("Draw a card");
-                                                    verbs_by_id.insert(verb_id.to_string(), serde_json::json!({
-                                                        "verb": verb_id,
-                                                        "direction": direction,
-                                                        "validOptions": [{"action": "draw"}]
+                                                    let direction = a["ui"]["direction"].as_str().unwrap_or("Draw a card");
+                                                    // For non-grid zones, use the zone itself as the location
+                                                    let location = format!("/zones/{}", source);
+                                                    action_map.insert(location, json!({
+                                                        "action": action_id,
+                                                        "direction": direction
                                                     }));
                                                 }
                                             }
                                         }
                                     }
                                     }
+                                } else if action_impl == Some("entity.move") {
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        println!("[DEBUG action_map] Processing entity.move action: {}", action_id);
+                                        // Handle entity.move actions for card games
+                                        let params = a.get("with").or_else(|| a.get("params"));
+                                        if let Some(params) = params {
+                                            if let Some(source) = params["source"].as_str() {
+                                                let source_zone = source.replace("{actor}", id);
+                                                println!("[DEBUG action_map] Source zone: {} (from {})", source_zone, source);
+                                                
+                                                // Check if this is a zone-level action (drawing from deck/discard)
+                                                if source_zone == "drawPile" || source_zone == "discardPile" {
+                                                    if let Some(zone_data) = state["zones"][&source_zone].as_object() {
+                                                        if let Some(items) = zone_data.get("items").and_then(|i| i.as_array()) {
+                                                            println!("[DEBUG action_map] Zone {} has {} items", source_zone, items.len());
+                                                            if !items.is_empty() {
+                                                                // Check conditions before adding action
+                                                                let mut conditions_met = true;
+                                                                if let Some(conditions) = a.get("conditions").and_then(|c| c.as_array()) {
+                                                                    for condition in conditions {
+                                                                        if let Some(cond_type) = condition.get("type").and_then(|t| t.as_str()) {
+                                                                            if cond_type == "zone.count" {
+                                                                                if let Some(with) = condition.get("with") {
+                                                                                    let zone_id = with.get("zone").and_then(|z| z.as_str()).unwrap_or("").replace("{actor}", id);
+                                                                                    // Get the zone we're checking
+                                                                                    if let Some(check_zone) = state["zones"].get(&zone_id) {
+                                                                                        if let Some(check_items) = check_zone.get("items").and_then(|i| i.as_array()) {
+                                                                                            let count = check_items.len();
+                                                                                            if let Some(exact) = with.get("exact").and_then(|e| e.as_u64()) {
+                                                                                                println!("[DEBUG conditions] Checking zone.count exact: {} == {}", count, exact);
+                                                                                                if count != exact as usize {
+                                                                                                    conditions_met = false;
+                                                                                                    break;
+                                                                                                }
+                                                                                            }
+                                                                                            if let Some(min) = with.get("min").and_then(|m| m.as_u64()) {
+                                                                                                if count < min as usize {
+                                                                                                    conditions_met = false;
+                                                                                                    break;
+                                                                                                }
+                                                                                            }
+                                                                                            if let Some(max) = with.get("max").and_then(|m| m.as_u64()) {
+                                                                                                if count > max as usize {
+                                                                                                    conditions_met = false;
+                                                                                                    break;
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                
+                                                                if conditions_met {
+                                                                    let direction = a["ui"]["direction"].as_str().unwrap_or("Select");
+                                                                    let location = format!("/zones/{}", source_zone);
+                                                                    println!("[DEBUG action_map] Adding zone action at {} -> {}", location, action_id);
+                                                                    action_map.insert(location, json!({
+                                                                        "action": action_id,
+                                                                        "direction": direction
+                                                                    }));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else if source_zone.starts_with("hand_") {
+                                                    // This is for discarding cards from hand
+                                                    if let Some(zone_data) = state["zones"][&source_zone].as_object() {
+                                                        if let Some(items) = zone_data.get("items").and_then(|i| i.as_array()) {
+                                                            println!("[DEBUG action_map] Hand {} has {} items", source_zone, items.len());
+                                                            
+                                                            // Check conditions before adding action
+                                                            let mut conditions_met = true;
+                                                            if let Some(conditions) = a.get("conditions").and_then(|c| c.as_array()) {
+                                                                for condition in conditions {
+                                                                    if let Some(cond_type) = condition.get("type").and_then(|t| t.as_str()) {
+                                                                        if cond_type == "zone.count" {
+                                                                            if let Some(with) = condition.get("with") {
+                                                                                let zone_id = with.get("zone").and_then(|z| z.as_str()).unwrap_or("").replace("{actor}", id);
+                                                                                if zone_id == source_zone {
+                                                                                    if let Some(exact) = with.get("exact").and_then(|e| e.as_u64()) {
+                                                                                        if items.len() != exact as usize {
+                                                                                            conditions_met = false;
+                                                                                            break;
+                                                                                        }
+                                                                                    }
+                                                                                    if let Some(min) = with.get("min").and_then(|m| m.as_u64()) {
+                                                                                        if items.len() < min as usize {
+                                                                                            conditions_met = false;
+                                                                                            break;
+                                                                                        }
+                                                                                    }
+                                                                                    if let Some(max) = with.get("max").and_then(|m| m.as_u64()) {
+                                                                                        if items.len() > max as usize {
+                                                                                            conditions_met = false;
+                                                                                            break;
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            
+                                                            if conditions_met {
+                                                                let direction = a["ui"]["direction"].as_str().unwrap_or("Select card");
+                                                                // Add action for each card in hand
+                                                                for (index, _card) in items.iter().enumerate() {
+                                                                    let location = format!("/zones/{}/{}", source_zone, index);
+                                                                    action_map.insert(location, json!({
+                                                                        "action": action_id,
+                                                                        "direction": direction
+                                                                    }));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                     
-                    // Convert HashMap to Vec
-                    let verbs: Vec<serde_json::Value> = verbs_by_id.into_values().collect();
-                    map.insert(id.to_string(), serde_json::Value::Array(verbs));
+                    // Insert the action map for this player
+                    player_action_maps.insert(id.to_string(), json!(action_map));
                 }
             }
         }
 
-        map
+        player_action_maps
     }
 
     /// Check if the game has started
@@ -643,7 +790,7 @@ impl Lobby {
         
         if include_state {
             let snapshot = { let g = self.state.lock(); g.clone() };
-            let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
+            let action_map = Lobby::compute_action_map(&snapshot, &self.bundle);
             
             // Build meta object preserving existing meta data
             let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
@@ -654,7 +801,7 @@ impl Lobby {
             
             // Update with current data
             if let Some(meta_obj) = meta.as_object_mut() {
-                meta_obj.insert("possibleVerbs".to_string(), json!(possible));
+                meta_obj.insert("actionMap".to_string(), json!(action_map));
                 meta_obj.insert("players".to_string(), json!(self.player_list()));
                 meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
                 meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
@@ -688,9 +835,48 @@ impl Lobby {
 pub fn start_game(&self) {
     *self.game_started.lock() = true;
     
-    // Get current game state and possible verbs
-    let snapshot = { let g = self.state.lock(); g.clone() };
-    let possible = Lobby::possible_verbs(&snapshot, &self.bundle);
+    // Get current game state
+    let mut snapshot = { let g = self.state.lock(); g.clone() };
+    
+    // Check if we need to trigger initial phase
+    let mut all_patches = Vec::new();
+    if let Some(current_phase) = snapshot.get("meta")
+        .and_then(|m| m.get("currentPhase"))
+        .and_then(|p| p.as_str()) {
+        // Look for phase definition in manifest
+        if let Some(phases) = self.bundle.manifest.phases.as_ref() {
+            if let Some(phases_array) = phases.as_array() {
+                for phase_def in phases_array {
+                    if phase_def["id"].as_str() == Some(current_phase) {
+                        // Execute phase actions (then)
+                        if let Some(then_actions) = phase_def.get("then").and_then(|t| t.as_array()) {
+                            for then_action in then_actions {
+                                if let Some(action_id) = then_action.get("action").and_then(|a| a.as_str()) {
+                                    // Execute the triggered action
+                                    let trigger_action = json!({
+                                        "action": action_id,
+                                        "actor": "system"
+                                    });
+                                    let patches = engine::apply_action(&self.bundle, &mut snapshot, "system", &trigger_action);
+                                    // Accumulate patches to send to clients
+                                    if let Some(patch_array) = patches.as_array() {
+                                        all_patches.extend_from_slice(patch_array);
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Update state with any changes from phase triggers
+    *self.state.lock() = snapshot.clone();
+    
+    // Get action map after phase triggers
+    let action_map = Lobby::compute_action_map(&snapshot, &self.bundle);
     
     // Build meta object preserving existing meta data
     let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
@@ -701,7 +887,7 @@ pub fn start_game(&self) {
     
     // Update with current data
     if let Some(meta_obj) = meta.as_object_mut() {
-        meta_obj.insert("possibleVerbs".to_string(), json!(possible));
+        meta_obj.insert("actionMap".to_string(), json!(action_map));
         meta_obj.insert("players".to_string(), json!(self.player_list()));
         meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
         meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
@@ -720,6 +906,16 @@ pub fn start_game(&self) {
         "meta": meta
     });
     let _ = self.tx.send(Message::Text(game_started_msg.to_string()));
+    
+    // Send patches from phase triggers if any
+    if !all_patches.is_empty() {
+        println!("[DEBUG] Sending {} patches from phase triggers", all_patches.len());
+        let patch_msg = serde_json::json!({
+            "type": "patch",
+            "patches": all_patches
+        });
+        let _ = self.tx.send(Message::Text(patch_msg.to_string()));
+    }
     
     self.broadcast_lobby_list();
 }
@@ -831,24 +1027,24 @@ pub fn start_game(&self) {
                         if !self.is_started() && self.players() >= 2 {
                             self.start_game();
                         }
-                    } else if json.get("verb").is_some() && self.is_started() {
+                    } else if json.get("action").is_some() && self.is_started() {
                         // Get current actor assignment
                         let current_actor = self
                             .actor_for_player(&player_id)
                             .unwrap_or_else(|| "spectator".to_string());
                         
-                        println!("[Socket] Processing verb from {} (actor: {}): {:?}", player_id, current_actor, json);
+                        println!("[Socket] Processing action from {} (actor: {}): {:?}", player_id, current_actor, json);
                         let current_turn = self.state.lock()["turn"].as_str().unwrap_or("").to_string();
                         println!("[Socket] Current turn: {}, Actor attempting move: {}", current_turn, current_actor);
                         
                         
-                        // Store verb info for game log generation
-                        let verb_id = json["verb"].as_str().unwrap_or("");
+                        // Store action info for game log generation
+                        let action_id = json["action"].as_str().unwrap_or("");
                         let args = json.get("args").cloned();
                         
                         let diff =
-                            engine::apply_verb(&self.bundle, &mut self.state.lock(), &current_actor, &json);
-                        println!("[Socket] Verb result diff: {:?}", diff);
+                            engine::apply_action(&self.bundle, &mut self.state.lock(), &current_actor, &json);
+                        println!("[Socket] Action result diff: {:?}", diff);
                         
                         let tick = {
                             let mut t = self.tick.lock();
@@ -894,40 +1090,40 @@ pub fn start_game(&self) {
                         
                         println!("[DEBUG] Game ended check: {}", game_ended);
                         
-                        // Only compute possible verbs if game hasn't ended
+                        // Only compute possible actions if game hasn't ended
                         if game_ended {
-                            println!("[DEBUG] Game has ended! Setting empty possibleVerbs for all players");
-                            // Game just ended, set empty possibleVerbs for all players
+                            println!("[DEBUG] Game has ended! Setting empty possibleActions for all players");
+                            // Game just ended, set empty possibleActions for all players
                             if let Some(players) = self.state.lock()["players"].as_array() {
                                 for player in players {
                                     if let Some(id) = player["id"].as_str() {
-                                        println!("[DEBUG] Setting empty possibleVerbs for player: {}", id);
+                                        println!("[DEBUG] Setting empty possibleActions for player: {}", id);
                                         patch_ops.push(serde_json::json!({
                                             "op": "replace",
-                                            "path": format!("/meta/possibleVerbs/{}", id),
+                                            "path": format!("/meta/possibleActions/{}", id),
                                             "value": []
                                         }));
                                     }
                                 }
                             }
                         } else {
-                            // Game still active, compute possible verbs normally
+                            // Game still active, compute action map normally
                             let current_state = { let g = self.state.lock(); g.clone() };
-                            let possible = Lobby::possible_verbs(&current_state, &self.bundle);
-                            for (pid, verbs) in possible {
+                            let action_map = Lobby::compute_action_map(&current_state, &self.bundle);
+                            for (pid, actions) in action_map {
                                 patch_ops.push(serde_json::json!({
                                     "op": "replace",
-                                    "path": format!("/meta/possibleVerbs/{}", pid),
-                                    "value": verbs
+                                    "path": format!("/meta/actionMap/{}", pid),
+                                    "value": actions
                                 }));
                             }
                         }
                         
-                        // Generate game log entry if verb was successful and has a log template
+                        // Generate game log entry if action was successful and has a log template
                         if !diff.as_array().map(|a| a.is_empty()).unwrap_or(true) {
-                            if let Some(verb_spec) = self.bundle.verbs.as_array()
-                                .and_then(|verbs| verbs.iter().find(|v| v["id"].as_str() == Some(verb_id))) {
-                                if let Some(log_template) = verb_spec["ui"]["logTemplate"].as_str() {
+                            if let Some(action_spec) = self.bundle.actions.as_array()
+                                .and_then(|actions| actions.iter().find(|a| a["id"].as_str() == Some(action_id))) {
+                                if let Some(log_template) = action_spec["ui"]["logTemplate"].as_str() {
                                     // Build the log entry
                                     let mut log_text = log_template.to_string();
                                     

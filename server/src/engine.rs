@@ -1,5 +1,7 @@
 use crate::bundle::Bundle;
 use serde_json::{json, Value, Map};
+use rand::seq::SliceRandom;
+use rand::rng;
 
 /* --------------------------------------------------------------------------
    Load initial state from bundle
@@ -48,20 +50,47 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
                     }
                 }
 
-                let value = match zone_type {
+                let mut value = match zone_type {
                     "grid" => init_grid(zone, &content_spec),
-                    "list" => init_list(&content_spec),
+                    "list" | "deck" => init_list(&content_spec),
                     _ => Value::Null,
                 };
+                
+                // Apply deck shuffling if specified
+                if zone_type == "deck" {
+                    if let Some(deck_props) = zone.get("deckProps") {
+                        if deck_props.get("shuffle").and_then(|s| s.as_bool()).unwrap_or(false) {
+                            if let Some(items) = value.get_mut("items").and_then(|i| i.as_array_mut()) {
+                                let mut rng = rng();
+                                items.shuffle(&mut rng);
+                                println!("  Shuffled deck for zone: {}", pid);
+                            }
+                        }
+                    }
+                }
+                
                 zones.insert(pid, value);
             }
         }
     }
 
+    // Get initial phase from manifest setup section
+    let initial_phase = bundle.manifest.setup
+        .as_ref()
+        .and_then(|s| s.get("initialPhase"))
+        .and_then(|p| p.as_str())
+        .unwrap_or("play"); // Default to "play" if not specified
+    
     json!({
         "zones": Value::Object(zones),
         "players": players,
-        "turn": "p1"
+        "turn": "p1",
+        "meta": {
+            "currentPhase": initial_phase,
+            "gameStatus": {
+                "state": "active"
+            }
+        }
     })
 }
 
@@ -121,25 +150,47 @@ fn init_list(contents: &Value) -> Value {
 }
 
 /* --------------------------------------------------------------------------
-   Apply verb
+   Apply action
    ----------------------------------------------------------------------- */
-pub fn apply_verb(
+pub fn apply_action(
     bundle: &Bundle,
     state: &mut Value,
     caller: &str,
     action: &Value,
 ) -> Value {
-    let verb_id = action["verb"].as_str().unwrap_or("");
-    let verb_spec = bundle
-        .verbs
-        .as_array()
-        .and_then(|v| v.iter().find(|x| x["id"].as_str() == Some(verb_id)));
-    let Some(spec) = verb_spec else { return json!([]) };
+    let action_id = action["action"].as_str().unwrap_or("");
+    println!("[DEBUG apply_action] Looking for action: {}", action_id);
     
-    // Check if this is an auto verb (no turn validation)
+    // First try to find the action in the bundle
+    let action_spec = bundle
+        .actions
+        .as_array()
+        .and_then(|a| a.iter().find(|x| x["id"].as_str() == Some(action_id)));
+    
+    // If not found and it's a builtin action, create a minimal spec
+    let builtin_spec;
+    let spec = if let Some(s) = action_spec {
+        println!("[DEBUG apply_action] Found action {} in bundle", action_id);
+        s
+    } else if action_id.contains('.') {
+        // This looks like a builtin action (e.g., "phase.set", "entity.move")
+        println!("[DEBUG apply_action] Creating builtin spec for {}", action_id);
+        builtin_spec = json!({
+            "id": action_id,
+            "uses": action_id,
+            "auto": true,
+            "with": action.get("with").cloned().unwrap_or(json!({}))
+        });
+        &builtin_spec
+    } else {
+        println!("[DEBUG apply_action] Action {} not found!", action_id);
+        return json!([]);
+    };
+    
+    // Check if this is an auto action (no turn validation)
     let is_auto = spec["auto"].as_bool().unwrap_or(false);
     
-    // Don't allow any non-auto verbs if game has ended
+    // Don't allow any non-auto actions if game has ended
     if !is_auto {
         if let Some(meta) = state.get("meta") {
             if let Some(game_status) = meta.get("gameStatus") {
@@ -178,13 +229,17 @@ pub fn apply_verb(
 
     let mut patches = vec![];
     
-    // Apply the verb - check new terminology first, fall back to builtin for compatibility
+    // Apply the action - check new terminology first, fall back to builtin for compatibility
     let implementation = spec["uses"].as_str()
         .or_else(|| spec["implementation"].as_str())
         .or_else(|| spec["builtin"].as_str());
     
-    let verb_patches = match implementation {
-        Some("grid.move") | Some("moveEntity") => {
+    println!("[DEBUG apply_action] Action {} has implementation: {:?}", action_id, implementation);
+    println!("[DEBUG apply_action] About to match implementation for {}", action_id);
+    
+    let action_patches = match implementation {
+        Some("entity.move") | Some("grid.move") | Some("moveEntity") => {
+            println!("[DEBUG apply_action] Matched entity move action - calling apply_move_entity");
             apply_move_entity(bundle, state, spec, action, caller)
         }
         Some("turn.advance") | Some("nextTurn") => {
@@ -211,6 +266,18 @@ pub fn apply_verb(
         Some("game.end") => {
             apply_game_end(state, spec, action, caller)
         }
+        Some("phase.set") | Some("setPhase") => {
+            apply_set_phase(state, spec, caller)
+        }
+        Some("updateScore") => {
+            apply_update_score(state, spec, caller)
+        }
+        Some("checkScore") => {
+            apply_check_score(state, spec, action, caller)
+        }
+        Some("countCards") => {
+            apply_count_cards(state, spec, caller)
+        }
         _ => {
             // Check for old-style conditions or hooks
             if spec.get("hook").is_some() {
@@ -223,7 +290,7 @@ pub fn apply_verb(
         }
     };
     
-    if let Some(arr) = verb_patches.as_array() {
+    if let Some(arr) = action_patches.as_array() {
         patches.extend_from_slice(arr);
     }
     
@@ -234,25 +301,25 @@ pub fn apply_verb(
     
     // Process triggers - support both 'triggers' and 'then'
     let triggers = spec.get("then").or_else(|| spec.get("triggers"));
-    println!("[DEBUG] Processing triggers/then for verb {}: {:?}", spec["id"].as_str().unwrap_or("unknown"), triggers);
+    println!("[DEBUG] Processing triggers/then for action {}: {:?}", spec["id"].as_str().unwrap_or("unknown"), triggers);
     if let Some(triggers) = triggers.and_then(|t| t.as_array()) {
         println!("[DEBUG] Found {} triggers to process", triggers.len());
         for trigger in triggers {
-            let verb_id = if let Some(id) = trigger.as_str() {
+            let trigger_action_id = if let Some(id) = trigger.as_str() {
                 // Old format: just a string
                 id
-            } else if let Some(action) = trigger["action"].as_str() {
-                // New format: { action: "verb_id" }
-                action
+            } else if let Some(act) = trigger["action"].as_str() {
+                // New format: { action: "action_id" }
+                act
             } else {
                 continue;
             };
             
-            println!("[DEBUG] Processing trigger: {}", verb_id);
+            println!("[DEBUG] Processing trigger: {}", trigger_action_id);
             // Create a trigger action
-            let trigger_action = json!({ "verb": verb_id });
-            let trigger_patches = apply_verb(bundle, state, caller, &trigger_action);
-            println!("[DEBUG] Trigger {} produced patches: {:?}", verb_id, trigger_patches);
+            let trigger_action = json!({ "action": trigger_action_id });
+            let trigger_patches = apply_action(bundle, state, caller, &trigger_action);
+            println!("[DEBUG] Trigger {} produced patches: {:?}", trigger_action_id, trigger_patches);
             if let Some(arr) = trigger_patches.as_array() {
                 patches.extend_from_slice(arr);
                 // Apply trigger patches to state as well
@@ -301,20 +368,50 @@ fn apply_move_entity(
     // Extract entity from source
     let mut entity = String::new();
     let mut remove_source = false;
+    
+    println!("[DEBUG apply_move_entity] Moving from {} to {}", source_id, target_id);
+    
     if let Some(z) = state["zones"].get_mut(&source_id) {
+        println!("[DEBUG apply_move_entity] Source zone structure: {:?}", z);
+        
         if z.get("infinite").is_some() {
             entity = z["infinite"].as_str().unwrap().to_string();
             // Replace {player} or {actor} with actual actor ID
             entity = entity.replace("{player}", actor).replace("{actor}", actor);
         } else if let Some(items) = z.get_mut("items").and_then(|v| v.as_array_mut()) {
-            if let Some(val) = items.first() {
-                entity = val.as_str().unwrap_or("").to_string();
-                items.remove(0);
-                remove_source = true;
+            println!("[DEBUG apply_move_entity] Source has {} items", items.len());
+            
+            // Check if a specific card index was provided
+            let mut card_index = action.get("args")
+                .and_then(|args| args.get("card"))
+                .and_then(|c| c.as_u64())
+                .map(|idx| idx as usize);
+                
+            // For deck zones without a specific index, take from the top (last item)
+            if card_index.is_none() && (source_id == "drawPile" || source_id == "discardPile") && !items.is_empty() {
+                card_index = Some(items.len() - 1);
+                println!("[DEBUG apply_move_entity] Deck zone - taking top card at index {}", card_index.unwrap());
             }
+            
+            let final_index = card_index.unwrap_or(0);
+            println!("[DEBUG apply_move_entity] Final card index: {}", final_index);
+            
+            if final_index < items.len() {
+                if let Some(val) = items.get(final_index) {
+                    entity = val.as_str().unwrap_or("").to_string();
+                    items.remove(final_index);
+                    remove_source = true;
+                }
+            }
+        } else {
+            println!("[DEBUG apply_move_entity] Source zone has no items array!");
         }
+    } else {
+        println!("[DEBUG apply_move_entity] Source zone {} not found!", source_id);
     }
+    
     if entity.is_empty() {
+        println!("[DEBUG apply_move_entity] No entity found to move!");
         return json!([]);
     }
     
@@ -393,9 +490,27 @@ fn apply_move_entity(
     }
 
     if remove_source {
+        // Use the card index from args if available
+        let mut card_index = action.get("args")
+            .and_then(|args| args.get("card"))
+            .and_then(|c| c.as_u64())
+            .map(|idx| idx as usize);
+            
+        // For deck zones without a specific index, we removed from the top (last item)
+        if card_index.is_none() && (source_id == "drawPile" || source_id == "discardPile") {
+            // Get the current length after removal (it's already been removed above)
+            if let Some(z) = state["zones"].get(&source_id) {
+                if let Some(items) = z.get("items").and_then(|i| i.as_array()) {
+                    card_index = Some(items.len()); // This was the last index before removal
+                }
+            }
+        }
+        
+        let final_index = card_index.unwrap_or(0);
+            
         ops.insert(0, json!({
             "op": "remove",
-            "path": format!("/zones/{}/items/0", source_id)
+            "path": format!("/zones/{}/items/{}", source_id, final_index)
         }));
     }
     
@@ -455,6 +570,225 @@ fn apply_next_turn(state: &mut Value, caller: &str) -> Value {
     json!([])
 }
 
+fn apply_set_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
+    // Support both 'with' (new) and 'params' (old) syntax
+    let params = spec.get("with").or_else(|| spec.get("params")).unwrap_or(&spec["params"]);
+    let new_phase = params["phase"].as_str().unwrap_or("play");
+    
+    // Update phase in meta
+    if let Some(meta) = state.get_mut("meta").and_then(|m| m.as_object_mut()) {
+        meta.insert("currentPhase".to_string(), json!(new_phase));
+    }
+    
+    json!([{ "op": "replace", "path": "/meta/currentPhase", "value": new_phase }])
+}
+
+fn apply_update_score(state: &mut Value, spec: &Value, caller: &str) -> Value {
+    let params = &spec["params"];
+    let player = params["player"].as_str()
+        .unwrap_or("{actor}")
+        .replace("{actor}", caller);
+    
+    let amount = params["amount"].as_i64().unwrap_or(0);
+    let operation = params["operation"].as_str().unwrap_or("add");
+    
+    // Initialize scores if not present
+    if state["scores"].is_null() {
+        state["scores"] = json!({});
+    }
+    
+    let current_score = state["scores"][&player].as_i64().unwrap_or(0);
+    let new_score = match operation {
+        "add" => current_score + amount,
+        "subtract" => current_score - amount,
+        "set" => amount,
+        _ => current_score
+    };
+    
+    state["scores"][&player] = json!(new_score);
+    
+    json!([{
+        "op": "replace",
+        "path": format!("/scores/{}", player),
+        "value": new_score
+    }])
+}
+
+fn apply_check_score(state: &mut Value, spec: &Value, _action: &Value, caller: &str) -> Value {
+    let params = &spec["params"];
+    let player = params["player"].as_str()
+        .unwrap_or("{actor}")
+        .replace("{actor}", caller);
+    
+    let threshold = params["threshold"].as_i64().unwrap_or(100);
+    let comparison = params["comparison"].as_str().unwrap_or("gte");
+    
+    let score = state["scores"][&player].as_i64().unwrap_or(0);
+    
+    let condition_met = match comparison {
+        "gte" => score >= threshold,
+        "gt" => score > threshold,
+        "lte" => score <= threshold,
+        "lt" => score < threshold,
+        "eq" => score == threshold,
+        _ => false
+    };
+    
+    if condition_met {
+        if let Some(result) = params.get("result") {
+            if result["gameWin"].as_str() == Some("player") {
+                return json!([{
+                    "op": "add",
+                    "path": "/meta/gameStatus",
+                    "value": {
+                        "state": "ended",
+                        "winner": player
+                    }
+                }]);
+            } else if result["gameLose"].as_str() == Some("player") {
+                // Find winner (other players)
+                if let Some(players) = state["players"].as_array() {
+                    for p in players {
+                        if let Some(pid) = p["id"].as_str() {
+                            if pid != player {
+                                return json!([{
+                                    "op": "add",
+                                    "path": "/meta/gameStatus",
+                                    "value": {
+                                        "state": "ended",
+                                        "winner": pid
+                                    }
+                                }]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    json!([])
+}
+
+/* --------------------------------------------------------------------------
+   Constraint validation for card games
+   ----------------------------------------------------------------------- */
+fn validate_card_constraint(
+    state: &Value,
+    constraint: &Value,
+    source_card: &str,
+    target_zone: &str,
+    _target_card: Option<&str>,
+) -> bool {
+    // Get card properties from entities
+    let source_props = get_card_properties(state, source_card);
+    
+    if let Some(constraint_type) = constraint.as_str() {
+        match constraint_type {
+            "matchingCard" => {
+                // For Crazy Eights - match rank or suit, 8s are wild
+                if let Some(discard_pile) = state["zones"][target_zone].get("items") {
+                    if let Some(items) = discard_pile.as_array() {
+                        if let Some(top_card) = items.last() {
+                            let top_props = get_card_properties(state, top_card.as_str().unwrap_or(""));
+                            
+                            // Check if source is an 8 (wild)
+                            if source_props.get("rank").and_then(|r| r.as_str()) == Some("8") {
+                                return true;
+                            }
+                            
+                            // Check rank or suit match
+                            let rank_match = source_props.get("rank") == top_props.get("rank");
+                            let suit_match = source_props.get("suit") == top_props.get("suit");
+                            
+                            return rank_match || suit_match;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    } else if let Some(constraint_obj) = constraint.as_object() {
+        // Handle complex constraints
+        if let Some(match_by) = constraint_obj.get("matchBy").and_then(|m| m.as_array()) {
+            // For games that specify what to match
+            for match_type in match_by {
+                if let Some(match_str) = match_type.as_str() {
+                    match match_str {
+                        "rank" => {
+                            // Check rank matching logic
+                        }
+                        "suit" => {
+                            // Check suit matching logic
+                        }
+                        "color" => {
+                            // Check color matching (red/black)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    
+    true // Default to allowing the move
+}
+
+fn get_card_properties(state: &Value, card_id: &str) -> serde_json::Map<String, Value> {
+    // Look up card in entities
+    if let Some(entities) = state.get("meta").and_then(|m| m.get("entities")) {
+        if let Some(entities_array) = entities.as_array() {
+            for entity in entities_array {
+                if entity["id"].as_str() == Some(card_id) {
+                    if let Some(props) = entity.get("props").and_then(|p| p.as_object()) {
+                        return props.clone();
+                    }
+                }
+            }
+        }
+    }
+    serde_json::Map::new()
+}
+
+fn apply_count_cards(state: &mut Value, spec: &Value, caller: &str) -> Value {
+    let params = &spec["params"];
+    let zone_template = params["zone"].as_str().unwrap_or("");
+    let zone = zone_template.replace("{actor}", caller);
+    
+    let count = if let Some(zone_data) = state["zones"].get(&zone) {
+        if let Some(items) = zone_data.get("items").and_then(|i| i.as_array()) {
+            items.len() as i64
+        } else if zone_data.is_array() {
+            // Count non-null cells in grid
+            let mut count = 0;
+            if let Some(rows) = zone_data.as_array() {
+                for row in rows {
+                    if let Some(cells) = row.as_array() {
+                        count += cells.iter().filter(|c| !c.is_null()).count();
+                    }
+                }
+            }
+            count as i64
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    
+    // Store count if variable name provided
+    if let Some(var_name) = params.get("storeAs").and_then(|v| v.as_str()) {
+        let path = format!("/temp/{}", var_name);
+        return json!([{
+            "op": "add",
+            "path": path,
+            "value": count
+        }]);
+    }
+    
+    json!([])
+}
+
 /* --------------------------------------------------------------------------
    Check tic-tac-toe game end
    ----------------------------------------------------------------------- */
@@ -497,7 +831,7 @@ fn apply_patch_to_state(state: &mut Value, patch: &Value) {
 }
 
 fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Value, caller: &str) -> Value {
-    println!("[DEBUG] apply_conditions called for verb: {:?}, caller: {}", spec["id"], caller);
+    println!("[DEBUG] apply_conditions called for action: {:?}, caller: {}", spec["id"], caller);
     
     // Support both 'checks' and 'conditions' for compatibility
     let conditions = spec.get("checks")
@@ -528,7 +862,10 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
     
     for check_player in &players_to_check {
         for condition in conditions {
-            let condition_type = match condition["type"].as_str() {
+            // Support both 'type' and 'builtin' fields
+            let condition_type = condition["type"].as_str()
+                .or_else(|| condition["builtin"].as_str());
+            let condition_type = match condition_type {
                 Some(t) => t,
                 None => continue,
             };
@@ -537,6 +874,7 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
                 "grid.consecutiveMarks" | "consecutiveMarksInRow" => check_consecutive_marks(state, condition, check_player),
                 "grid.allFilled" | "allCellsFilled" => check_all_cells_filled(state, condition),
                 "deck.empty" | "deckEmpty" => check_deck_empty(state, condition),
+                "zoneEmpty" => check_zone_empty(state, condition, check_player),
                 "pieces.none" | "noPiecesRemaining" => check_no_pieces_remaining(state, condition, check_player),
                 "moves.none" | "noValidMoves" => check_no_valid_moves(state, condition, check_player),
                 "any" => {
@@ -605,47 +943,76 @@ fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Val
             };
             
             if condition_met {
-                // Apply the result
-                let result = condition["result"].as_str().unwrap_or("");
-                match result {
-                    "gameWin" => {
-                        patches.push(json!({
-                            "op": "add",
-                            "path": "/meta/gameStatus",
-                            "value": {
-                                "state": "ended",
-                                "winner": check_player,
-                                "tie": false
-                            }
-                        }));
-                        return json!(patches); // Exit after finding a winner
+                // Apply the result - support both string and array formats
+                if let Some(result_array) = condition.get("result").and_then(|r| r.as_array()) {
+                    // Handle array format like [{ "gameWin": "actor" }]
+                    for result_item in result_array {
+                        if let Some(game_win) = result_item.get("gameWin").and_then(|v| v.as_str()) {
+                            let winner = if game_win == "actor" { check_player } else { game_win };
+                            patches.push(json!({
+                                "op": "add",
+                                "path": "/meta/gameStatus",
+                                "value": {
+                                    "state": "ended",
+                                    "winner": winner,
+                                    "tie": false
+                                }
+                            }));
+                            return json!(patches);
+                        } else if result_item.get("gameTie").is_some() {
+                            patches.push(json!({
+                                "op": "add",
+                                "path": "/meta/gameStatus",
+                                "value": {
+                                    "state": "ended",
+                                    "tie": true
+                                }
+                            }));
+                            return json!(patches);
+                        }
                     }
-                    "gameTie" => {
-                        patches.push(json!({
-                            "op": "add",
-                            "path": "/meta/gameStatus",
-                            "value": {
-                                "state": "ended",
-                                "tie": true
-                            }
-                        }));
-                        return json!(patches);
+                } else if let Some(result) = condition["result"].as_str() {
+                    // Handle old string format
+                    match result {
+                        "gameWin" => {
+                            patches.push(json!({
+                                "op": "add",
+                                "path": "/meta/gameStatus",
+                                "value": {
+                                    "state": "ended",
+                                    "winner": check_player,
+                                    "tie": false
+                                }
+                            }));
+                            return json!(patches); // Exit after finding a winner
+                        }
+                        "gameTie" => {
+                            patches.push(json!({
+                                "op": "add",
+                                "path": "/meta/gameStatus",
+                                "value": {
+                                    "state": "ended",
+                                    "tie": true
+                                }
+                            }));
+                            return json!(patches);
+                        }
+                        "gameLose" => {
+                            // The current player loses, so the other player wins
+                            let winner = if check_player == "p1" { "p2" } else { "p1" };
+                            patches.push(json!({
+                                "op": "add",
+                                "path": "/meta/gameStatus",
+                                "value": {
+                                    "state": "ended",
+                                    "winner": winner,
+                                    "tie": false
+                                }
+                            }));
+                            return json!(patches);
+                        }
+                        _ => {}
                     }
-                    "gameLose" => {
-                        // The current player loses, so the other player wins
-                        let winner = if check_player == "p1" { "p2" } else { "p1" };
-                        patches.push(json!({
-                            "op": "add",
-                            "path": "/meta/gameStatus",
-                            "value": {
-                                "state": "ended",
-                                "winner": winner,
-                                "tie": false
-                            }
-                        }));
-                        return json!(patches);
-                    }
-                    _ => {}
                 }
             }
         }
@@ -767,6 +1134,31 @@ fn check_deck_empty(state: &Value, condition: &Value) -> bool {
     if let Some(zone) = state["zones"].get(zone_id) {
         if let Some(items) = zone.get("items").and_then(|i| i.as_array()) {
             return items.is_empty();
+        }
+    }
+    false
+}
+
+fn check_zone_empty(state: &Value, condition: &Value, actor: &str) -> bool {
+    let zone_template = condition["params"]["zone"].as_str().unwrap_or("");
+    let zone_id = zone_template.replace("{actor}", actor);
+    
+    if let Some(zone) = state["zones"].get(&zone_id) {
+        if let Some(items) = zone.get("items").and_then(|i| i.as_array()) {
+            return items.is_empty();
+        }
+        // Check grid zones
+        if let Some(rows) = zone.as_array() {
+            for row in rows {
+                if let Some(cells) = row.as_array() {
+                    for cell in cells {
+                        if !cell.is_null() {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
         }
     }
     false
@@ -1510,7 +1902,7 @@ fn apply_move_selected_entity(
 
 fn apply_zone_reset(
     bundle: &Bundle,
-    state: &mut Value,
+    _state: &mut Value,
     spec: &Value,
     _action: &Value,
     actor: &str,

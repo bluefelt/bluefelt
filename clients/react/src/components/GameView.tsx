@@ -123,7 +123,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
     you: lobbyState.you,
     turn: lobbyState.state?.turn,
     isYourTurn,
-    possibleVerbs: lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''],
+    possibleActions: lobbyState.meta?.possibleActions?.[lobbyState.you || ''],
     players: lobbyState.meta?.players
   });
 
@@ -143,17 +143,14 @@ export default function GameView({ lobbyId }: GameViewProps) {
   const handleCellClick = (row: number, col: number) => {
     if (!isYourTurn) return;
     
-    // Get the appropriate verb - first try to find one that matches this cell
-    const verbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
-    const matchingVerb = verbs.find(v => 
-      v.validOptions?.some(opt => 
-        opt.zone === 'board' && opt.row === row && opt.col === col
-      )
-    );
+    // Check if there's an action at this location
+    const playerActions = lobbyState.meta?.actionMap?.[lobbyState.you || ''] || {};
+    const location = `/zones/board/${row}/${col}`;
+    const action = playerActions[location];
     
-    if (matchingVerb) {
+    if (action) {
       const message = JSON.stringify({
-        verb: matchingVerb.verb,
+        action: action.action,
         args: { row, col }
       });
       sendMessage(message);
@@ -161,23 +158,37 @@ export default function GameView({ lobbyId }: GameViewProps) {
   };
 
   // Handle card actions
-  const handleCardAction = (zoneId: string, cardId: string) => {
+  const handleCardAction = (zoneId: string, cardIndex: number) => {
     if (!isYourTurn) return;
     
-    // Get the appropriate verb for this card
-    const verbs = lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || [];
-    const matchingVerb = verbs.find(v => 
-      v.validOptions?.some(opt => 
-        opt.zone === zoneId && opt.entity === cardId
-      )
-    );
+    const playerActions = lobbyState.meta?.actionMap?.[lobbyState.you || ''] || {};
+    let location: string;
+    let action: any;
     
-    if (matchingVerb) {
-      const message = JSON.stringify({
-        verb: matchingVerb.verb,
-        args: { card: cardId }
-      });
-      sendMessage(message);
+    if (cardIndex === -1) {
+      // Zone-level action (e.g., drawing from deck)
+      location = `/zones/${zoneId}`;
+      action = playerActions[location];
+      
+      if (action) {
+        const message = JSON.stringify({
+          action: action.action,
+          args: {} // No specific card for zone-level actions
+        });
+        sendMessage(message);
+      }
+    } else {
+      // Card-specific action
+      location = `/zones/${zoneId}/${cardIndex}`;
+      action = playerActions[location];
+      
+      if (action) {
+        const message = JSON.stringify({
+          action: action.action,
+          args: { card: cardIndex }
+        });
+        sendMessage(message);
+      }
     }
   };
 
@@ -223,7 +234,27 @@ export default function GameView({ lobbyId }: GameViewProps) {
         players={players}
         currentPlayer={currentPlayerName}
         entityDefinitions={lobbyState.meta?.entities}
-        turnPrompt={lobbyState.meta?.possibleVerbs?.[lobbyState.you || '']?.[0]?.direction}
+        turnPrompt={(() => {
+          const actionMap = lobbyState.meta?.actionMap?.[lobbyState.you || ''];
+          if (!actionMap) return undefined;
+          
+          // Get unique directions from all available actions
+          const directions = new Set<string>();
+          Object.values(actionMap).forEach((action: any) => {
+            if (action?.direction) {
+              directions.add(action.direction);
+            }
+          });
+          
+          // If all actions have the same direction, use that
+          // Otherwise, use the first one (could be enhanced to combine them)
+          if (directions.size === 1) {
+            return Array.from(directions)[0];
+          } else if (directions.size > 0) {
+            return Array.from(directions)[0];
+          }
+          return undefined;
+        })()}
       />
 
 
@@ -248,7 +279,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
                 isMyTurn={!!isYourTurn}
                 zoneMetadata={(lobbyInfo.manifest as any)?.zones || (lobbyState.meta as any)?.zones}
                 playerNames={lobbyState.meta?.players}
-                possibleVerbs={lobbyState.meta?.possibleVerbs?.[lobbyState.you || ''] || []}
+                actionMap={lobbyState.meta?.actionMap?.[lobbyState.you || ''] || {}}
                 selection={(lobbyState.state as any)?.meta?.selection}
                 you={lobbyState.you}
               />

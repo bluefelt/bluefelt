@@ -59,7 +59,7 @@ export type EntityDefinition = {
 };
 
 export type MetaState = {
-  possibleVerbs?: Record<string, GroupedVerb[]>;
+  actionMap?: Record<string, Record<string, ActionInfo>>;
   players?: string[];
   entities?: EntityDefinition[];
   gameStatus?: {
@@ -69,16 +69,9 @@ export type MetaState = {
   };
 };
 
-export type GroupedVerb = {
-  verb: string;
+export type ActionInfo = {
+  action: string;
   direction: string;
-  validOptions: VerbOption[];
-};
-
-export type VerbOption = {
-  zone: string;
-  row: number;
-  col: number;
 };
 
 export type PatchOperation = {
@@ -100,4 +93,4 @@ export type ClientAction =
   | { action: 'join' }
   | { action: 'leave' }
   | { action: 'start_game' }
-  | { verb: string; args: { row: number; col: number } };
+  | { action: string; args: { row: number; col: number } };

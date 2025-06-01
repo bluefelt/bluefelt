@@ -6,11 +6,11 @@ interface GameZonesProps {
   zones: any;
   entityDefinitions?: any[];
   onCellClick?: (row: number, col: number) => void;
-  onCardAction?: (zoneId: string, cardId: string) => void;
+  onCardAction?: (zoneId: string, cardIndex: number) => void;
   isMyTurn?: boolean;
   zoneMetadata?: any[];
   playerNames?: string[];
-  possibleVerbs?: any[];
+  actionMap?: Record<string, any>;
   selection?: any;
   you?: string;
 }
@@ -23,7 +23,7 @@ export default function GameZones({
   isMyTurn = false,
   zoneMetadata,
   playerNames,
-  possibleVerbs = [],
+  actionMap = {},
   selection,
   you
 }: GameZonesProps) {
@@ -36,12 +36,32 @@ export default function GameZones({
   const cardZones: any = {};
   
   // Look at zone metadata to determine zone types
+  console.log('[GameZones] Processing zones:', {
+    zoneKeys: Object.keys(zones),
+    zoneMetadataLength: zoneMetadata?.length,
+    zoneMetadata: zoneMetadata,
+    actionMap: actionMap,
+    you: you
+  });
+  
   Object.entries(zones).forEach(([zoneId, zoneData]) => {
     const zoneMeta = zoneMetadata?.find(z => z.id === zoneId);
+    console.log(`[GameZones] Processing zone ${zoneId}:`, {
+      zoneData,
+      zoneMeta,
+      shape: zoneMeta?.shape
+    });
     
-    if (zoneMeta?.shape === 'stack' || zoneMeta?.shape === 'list') {
+    if (zoneMeta?.shape === 'stack' || zoneMeta?.shape === 'list' || zoneMeta?.shape === 'deck') {
       // This is explicitly a card zone
-      cardZones[zoneId] = zoneData;
+      // Extract items array if it exists (server sends {items: [...]})
+      if (zoneData && typeof zoneData === 'object' && 'items' in zoneData) {
+        cardZones[zoneId] = (zoneData as any).items;
+      } else if (Array.isArray(zoneData)) {
+        cardZones[zoneId] = zoneData;
+      } else {
+        cardZones[zoneId] = [];
+      }
     } else if (Array.isArray(zoneData) && zoneData.length > 0 && Array.isArray(zoneData[0])) {
       // Check if it's a single-row grid that should be treated as a card zone
       // Card zones typically have names like hand_, deck, table, discard
@@ -61,17 +81,21 @@ export default function GameZones({
 
   // Get possible actions for cards
   const getCardActions = (zoneId: string) => {
-    const actions: Array<{ cardId: string; verb: string }> = [];
+    const actions: Array<{ cardIndex: number; verb: string }> = [];
     
-    possibleVerbs.forEach(verb => {
-      verb.validOptions?.forEach((option: any) => {
-        if (option.zone === zoneId && option.entity) {
+    // Check action map for this zone's cards
+    Object.entries(actionMap).forEach(([location, action]) => {
+      // Parse location like "/zones/hand_p1/2"
+      const parts = location.split('/');
+      if (parts[2] === zoneId && parts[3]) {
+        const cardIndex = parseInt(parts[3]);
+        if (!isNaN(cardIndex)) {
           actions.push({
-            cardId: option.entity,
-            verb: verb.verb
+            cardIndex,
+            verb: (action as any).action || (action as any).verb
           });
         }
-      });
+      }
     });
     
     return actions;
@@ -100,7 +124,7 @@ export default function GameZones({
           isMyTurn={isMyTurn}
           zoneMetadata={zoneMetadata}
           playerNames={playerNames}
-          possibleVerbs={possibleVerbs}
+          actionMap={actionMap}
           selection={selection}
         />
       )}
@@ -112,6 +136,10 @@ export default function GameZones({
         
         // Convert card data to array if needed
         const cardArray = Array.isArray(cards) ? cards : [];
+        
+        // Check if there's a zone-level action (e.g., drawing from deck)
+        const zoneLocation = `/zones/${zoneId}`;
+        const hasZoneAction = actionMap[zoneLocation] !== undefined;
         
         return (
           <CardZone
@@ -129,12 +157,19 @@ export default function GameZones({
             isOwner={isZoneOwner(zoneId)}
             showCount={zoneMeta?.ui?.showCount || zoneId === 'deck'}
             showTop={zoneMeta?.ui?.showTop}
-            onCardClick={(cardId) => {
+            onCardClick={(cardId, cardIndex) => {
               if (onCardAction) {
-                onCardAction(zoneId, cardId);
+                onCardAction(zoneId, cardIndex);
+              }
+            }}
+            onZoneClick={() => {
+              if (onCardAction && hasZoneAction) {
+                // For zone-level actions, pass -1 as the index
+                onCardAction(zoneId, -1);
               }
             }}
             possibleActions={getCardActions(zoneId)}
+            hasZoneAction={hasZoneAction}
             playerNames={playerNames}
             you={you}
             playerColor={player?.color}

@@ -1,10 +1,10 @@
 import React from 'react';
-import type { GroupedVerb, VerbOption } from '../ws/useLobbyWebSocket';
+import type { GroupedAction, ActionOption } from '../ws/useLobbyWebSocket';
 import type { EntityDefinition } from '../types/messages';
 import { buildGlyphMapping, getEntityGlyph } from '../utils/entityUtils';
 
 export type ZoneAction = {
-  verb: string;
+  action: string;
   zone: string;
   row: number;
   col: number;
@@ -13,7 +13,7 @@ export type ZoneAction = {
 type InteractiveZoneProps = {
   zoneName: string;
   zoneData: (string | null)[][];
-  groupedVerbs: GroupedVerb[];
+  groupedActions: GroupedAction[];
   onAction: (action: ZoneAction) => void;
   isMyTurn: boolean;
   entities?: EntityDefinition[];
@@ -86,7 +86,7 @@ const Cell = React.memo(function Cell({ value, row, col, isClickable, onClick, g
 export default function InteractiveZone({ 
   zoneName, 
   zoneData, 
-  groupedVerbs, 
+  groupedActions, 
   onAction,
   isMyTurn,
   entities 
@@ -96,15 +96,15 @@ export default function InteractiveZone({
   // Build glyph mapping from entities
   const glyphMapping = React.useMemo(() => buildGlyphMapping(entities), [entities]);
 
-  // Find all valid options for this zone across all verbs
-  const validOptionsMap = new Map<string, { verb: string; option: VerbOption }>();
+  // Find all valid options for this zone across all actions
+  const validOptionsMap = new Map<string, { action: string; option: ActionOption }>();
   
-  groupedVerbs.forEach(groupedVerb => {
-    groupedVerb.validOptions
+  groupedActions.forEach(groupedAction => {
+    groupedAction.validOptions
       .filter(option => option.zone === zoneName)
       .forEach(option => {
         const key = `${option.row},${option.col}`;
-        validOptionsMap.set(key, { verb: groupedVerb.verb, option });
+        validOptionsMap.set(key, { action: groupedAction.action, option });
       });
   });
 
@@ -123,14 +123,14 @@ export default function InteractiveZone({
     });
     
     if (validOption) {
-      const action = {
-        verb: validOption.verb,
+      const zoneAction = {
+        action: validOption.action,
         zone: zoneName,
         row,
         col
       };
-      console.log('[InteractiveZone] Sending action:', action);
-      onAction(action);
+      console.log('[InteractiveZone] Sending action:', zoneAction);
+      onAction(zoneAction);
     } else {
       console.log('[InteractiveZone] No valid option found for cell');
     }

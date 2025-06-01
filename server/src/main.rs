@@ -16,6 +16,7 @@ mod bundle;
 mod engine;
 mod lobby;
 mod utils;
+mod shorthand;
 
 use bundle::BundleMap;
 use crate::lobby::{LobbyMap, new_lobby, current_lobbies_json};

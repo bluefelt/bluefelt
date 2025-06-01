@@ -7,7 +7,7 @@ interface BoardProps {
   isMyTurn?: boolean;
   zoneMetadata?: any[]; // Array of zone definitions from manifest
   playerNames?: string[]; // Array of player names
-  possibleVerbs?: any[]; // Array of possible verbs for current player
+  actionMap?: Record<string, any>; // Map from location to action info
   selection?: any; // Current selection state
 }
 
@@ -20,7 +20,7 @@ interface ZoneProps {
   zoneMetadata?: any[];
   isSingleZone?: boolean;
   playerNames?: string[];
-  possibleVerbs?: any[];
+  actionMap?: Record<string, any>;
   selection?: any;
 }
 
@@ -57,7 +57,7 @@ const useMarkColor = () => {
   };
 };
 
-function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, playerNames, possibleVerbs, selection }: ZoneProps) {
+function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, playerNames, actionMap, selection }: ZoneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(60); // Start with a reasonable default
   const lastContainerWidth = useRef<number>(0);
@@ -261,18 +261,15 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                   selection.row === actualRow && 
                   selection.col === actualCol;
                 
-                // Check if this cell is a valid move based on possibleVerbs
+                // Check if this cell is a valid move based on actionMap
                 let isClickable = false;
                 if (isMyTurn) {
-                  if (possibleVerbs !== undefined) {
-                    // If possibleVerbs is provided (even if empty), use it
-                    isClickable = possibleVerbs.some(verb => 
-                      verb.validOptions?.some((opt: any) => 
-                        opt.zone === zoneId && opt.row === actualRow && opt.col === actualCol
-                      )
-                    );
+                  if (actionMap !== undefined) {
+                    // Check if there's an action at this location
+                    const location = `/zones/${zoneId}/${actualRow}/${actualCol}`;
+                    isClickable = location in actionMap;
                   } else if (isEmpty && (zoneId === 'board' || zoneId === 'da-board')) {
-                    // Only fall back to old logic if possibleVerbs is not provided at all
+                    // Only fall back to old logic if actionMap is not provided at all
                     isClickable = true;
                   }
                 }
@@ -387,7 +384,7 @@ export default function Board({
   isMyTurn = false,
   zoneMetadata,
   playerNames,
-  possibleVerbs,
+  actionMap,
   selection
 }: BoardProps) {
   if (!zones) {
@@ -423,7 +420,7 @@ export default function Board({
           zoneMetadata={zoneMetadata}
           isSingleZone={gridZones.length === 1}
           playerNames={playerNames}
-          possibleVerbs={possibleVerbs}
+          actionMap={actionMap}
           selection={selection}
         />
       ))}

@@ -17,7 +17,7 @@ export default function InteractiveCell({
   const handleClick = () => {
     if (!disabled && onAction) {
       onAction({
-        verb: 'place', // This should come from game state
+        action: 'place', // This should come from game state
         zone,
         row: position[0],
         col: position[1]

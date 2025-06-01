@@ -20,10 +20,12 @@ interface CardZoneProps {
   showCount?: boolean;
   showTop?: boolean;
   onCardClick?: (cardId: string, cardIndex: number) => void;
+  onZoneClick?: () => void;
   possibleActions?: Array<{
-    cardId: string;
-    verb: string;
+    cardIndex: number;
+    action: string;
   }>;
+  hasZoneAction?: boolean;
   playerNames?: string[];
   you?: string;
   playerColor?: string;
@@ -38,7 +40,9 @@ export default function CardZone({
   showCount = false,
   showTop = false,
   onCardClick,
+  onZoneClick,
   possibleActions = [],
+  hasZoneAction = false,
   playerNames = [],
   you,
   playerColor
@@ -184,22 +188,42 @@ export default function CardZone({
 
   // For stack layout with hidden cards, show placeholder
   if (layout === 'stack' && visibility === 'none' && !showTop) {
+    const clickableStyle: React.CSSProperties = hasZoneAction ? {
+      cursor: 'pointer',
+      border: '2px solid #6B8BFF',
+      boxShadow: '0 0 10px rgba(107, 139, 255, 0.5)'
+    } : {};
+    
     return (
-      <div style={containerStyle}>
+      <div 
+        style={{...containerStyle, ...clickableStyle}}
+        onClick={hasZoneAction ? onZoneClick : undefined}
+      >
         <div style={labelStyle}>{parseZoneName(zoneName)}</div>
         {showCount && <div style={countStyle}>{cards.length} cards</div>}
         {cards.length > 0 && (
           <Card 
             isFaceUp={false}
             size="medium"
+            isSelectable={hasZoneAction}
           />
         )}
       </div>
     );
   }
 
+  // For other layouts including stack with showTop (discard pile)
+  const clickableStyle: React.CSSProperties = hasZoneAction && layout === 'stack' ? {
+    cursor: 'pointer',
+    border: '2px solid #6B8BFF',
+    boxShadow: '0 0 10px rgba(107, 139, 255, 0.5)'
+  } : {};
+  
   return (
-    <div style={containerStyle}>
+    <div 
+      style={{...containerStyle, ...clickableStyle}}
+      onClick={hasZoneAction && layout === 'stack' ? onZoneClick : undefined}
+    >
       <div style={labelStyle}>{parseZoneName(zoneName)}</div>
       {showCount && <div style={countStyle}>{cards.length} cards</div>}
       
@@ -211,7 +235,7 @@ export default function CardZone({
       }}>
         {cards.map((card, index) => {
           const isFaceUp = getCardVisibility(index);
-          const isSelectable = possibleActions.some(action => action.cardId === card.id);
+          const isSelectable = possibleActions.some(action => action.cardIndex === index);
           
           return (
             <div
