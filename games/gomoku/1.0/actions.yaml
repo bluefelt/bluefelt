@@ -1,24 +1,24 @@
 - id: placeStone
-  builtin: moveEntity
-  params:
+  uses: entity.move
+  with:
     source: supply_{actor}
     target:
       zone: board
-  triggers:
-    - nextTurn
-    - checkWin
+  then:
+    - action: nextTurn
+    - action: checkWin
   ui:
     direction: "Place a stone"
     logTemplate: "{player} placed a stone at ({row}, {col})"
 
 - id: nextTurn
-  builtin: nextTurn
+  uses: turn.advance
   auto: true
 
 - id: checkWin
   conditions:
     - type: consecutiveMarksInRow
-      params:
+      with:
         zone: board
         count: 5
         entity: stone_{actor}

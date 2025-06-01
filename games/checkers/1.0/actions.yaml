@@ -1,14 +1,14 @@
 - id: selectPiece
-  builtin: selectEntity
-  params:
+  uses: entity.select
+  with:
     zone: board
   ui:
     direction: "Select a piece to move"
     logTemplate: "{player} selected a piece"
 
 - id: movePiece
-  builtin: moveSelectedEntity
-  params:
+  uses: entity.moveSelected
+  with:
     target:
       zone: board
     effects:
@@ -17,20 +17,20 @@
           type: reachesRow
           row: opposite
         to: king_{actor}
-  triggers:
-    - checkGameEnd
+  then:
+    - action: checkGameEnd
   ui:
     direction: "Move to highlighted square"
     logTemplate: "{player} moved a piece to ({row}, {col})"
 
 - id: nextTurn
-  builtin: nextTurn
+  uses: turn.advance
   auto: true
 
 - id: checkGameEnd
   conditions:
     - type: noPiecesRemaining
-      params:
+      with:
         zone: board
       result: gameLose
   auto: true

@@ -1,0 +1,241 @@
+# Place worker at a location
+- id: placeWorker
+  uses: entity.move
+  phase: placement
+  with:
+    source: workerSupply_{actor}
+    target:
+      zone: any
+      constraints:
+        allowedZones: [huntingGrounds, forest, clayPit, quarry, river, loveMaking, toolMaking, hutBuilding1, hutBuilding2, hutBuilding3]
+        hasSpace: true
+  ui:
+    direction: "Place a worker"
+  conditions:
+    - type: turn.isActive
+      with:
+        player: "{actor}"
+    - type: zone.notEmpty
+      with:
+        zone: workerSupply_{actor}
+  then:
+    - action: checkAllWorkersPlaced
+
+# Check if all workers have been placed
+- id: checkAllWorkersPlaced
+  auto: true
+  phase: placement
+  conditions:
+    - type: zone.empty
+      with:
+        zone: workerSupply_{actor}
+  then:
+    - action: turn.advance
+    - action: checkAllPlayersPlaced
+
+# Check if all players have placed their workers
+- id: checkAllPlayersPlaced
+  auto: true
+  phase: placement
+  # Would need custom condition to check all worker supplies empty
+  then:
+    - action: phase.set
+      with:
+        phase: resolution
+
+# Resolve locations in order
+- id: resolveLocations
+  auto: true
+  phase: resolution
+  # This would resolve each location sequentially
+  then:
+    - action: resolveHunting
+    - action: resolveForest
+    - action: resolveClay
+    - action: resolveStone
+    - action: resolveGold
+    - action: resolveLoveMaking
+    - action: resolveTools
+    - action: resolveHuts
+
+# Resolve hunting grounds
+- id: resolveHunting
+  auto: true
+  phase: resolution
+  # Count workers, roll dice, add food
+  then:
+    - action: rollDiceForLocation
+      with:
+        location: huntingGrounds
+        resource: food
+        baseValue: 2
+
+# Resolve forest
+- id: resolveForest
+  auto: true
+  phase: resolution
+  then:
+    - action: rollDiceForLocation
+      with:
+        location: forest
+        resource: wood
+        baseValue: 3
+
+# Resolve clay pit
+- id: resolveClay
+  auto: true
+  phase: resolution
+  then:
+    - action: rollDiceForLocation
+      with:
+        location: clayPit
+        resource: brick
+        baseValue: 4
+
+# Resolve quarry
+- id: resolveStone
+  auto: true
+  phase: resolution
+  then:
+    - action: rollDiceForLocation
+      with:
+        location: quarry
+        resource: stone
+        baseValue: 5
+
+# Resolve river
+- id: resolveGold
+  auto: true
+  phase: resolution
+  then:
+    - action: rollDiceForLocation
+      with:
+        location: river
+        resource: gold
+        baseValue: 6
+
+# Roll dice for resource gathering
+- id: rollDiceForLocation
+  auto: true
+  phase: resolution
+  # Would roll 1 die per worker, divide by baseValue
+  then:
+    - action: returnWorkers
+
+# Resolve love making hut
+- id: resolveLoveMaking
+  auto: true
+  phase: resolution
+  conditions:
+    - type: zone.count
+      with:
+        zone: loveMaking
+        equals: 2
+  # Would add a new worker if 2 workers present
+  then:
+    - action: returnWorkers
+
+# Resolve tool making
+- id: resolveTools
+  auto: true
+  phase: resolution
+  # Would increase tool value
+  then:
+    - action: returnWorkers
+
+# Resolve hut building
+- id: resolveHuts
+  auto: true
+  phase: resolution
+  # Would allow purchasing huts
+  then:
+    - action: phase.set
+      with:
+        phase: feeding
+
+# Buy a hut
+- id: buyHut
+  uses: entity.move
+  phase: resolution
+  with:
+    source: hutSupply
+    target: playerArea_{actor}
+  ui:
+    direction: "Buy this hut"
+  conditions:
+    - type: turn.isActive
+      with:
+        player: "{actor}"
+    # Would need custom resource check
+  then:
+    - action: score.update
+      with:
+        player: "{actor}"
+        amount: "{hut.points}"
+        operation: add
+
+# Return workers to supply
+- id: returnWorkers
+  auto: true
+  # Would move all workers back to their supplies
+
+# Feed workers phase
+- id: feedWorkers
+  auto: true
+  phase: feeding
+  # Would deduct 2 food per worker
+  then:
+    - action: checkStarvation
+
+# Check for starvation penalty
+- id: checkStarvation
+  auto: true
+  phase: feeding
+  # Would apply -10 points if can't feed
+  then:
+    - action: phase.set
+      with:
+        phase: newRound
+
+# Prepare next round
+- id: prepareNextRound
+  auto: true
+  phase: newRound
+  then:
+    - action: checkGameEnd
+    - action: phase.set
+      with:
+        phase: placement
+    - action: turn.reset
+
+# Check game end conditions
+- id: checkGameEnd
+  auto: true
+  conditions:
+    - type: zone.count
+      with:
+        zone: hutSupply
+        max: 4
+  result:
+    - action: finalScoring
+
+# Final scoring
+- id: finalScoring
+  auto: true
+  # Would calculate final scores
+  then:
+    - action: game.end
+      with:
+        winner: highestScore
+
+# Pass turn (skip placing more workers)
+- id: pass
+  phase: placement
+  ui:
+    direction: "Pass (done placing workers)"
+  conditions:
+    - type: turn.isActive
+      with:
+        player: "{actor}"
+  then:
+    - action: turn.advance

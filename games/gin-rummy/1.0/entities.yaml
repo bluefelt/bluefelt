@@ -1,0 +1,35 @@
+# Gin Rummy uses a standard 52-card deck
+- type: standardDeck
+  id: deck
+  options:
+    cardType: playing_card
+
+# Score counters for each player
+- id: score_p1
+  name: "{p1}'s Score"
+  type: counter
+  props:
+    value: 0
+    min: 0
+    max: 500
+  ui:
+    display: number
+
+- id: score_p2
+  name: "{p2}'s Score"
+  type: counter
+  props:
+    value: 0
+    min: 0
+    max: 500
+  ui:
+    display: number
+
+# Knock indicator tokens
+- id: knock_token
+  name: "Knock Token"
+  type: token
+  quantity: 1
+  ui:
+    display: icon
+    icon: "hand"

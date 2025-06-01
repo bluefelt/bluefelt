@@ -1,6 +1,6 @@
 - id: placeDisc
-  builtin: moveEntity
-  params:
+  uses: entity.move
+  with:
     source: discs_{actor}
     target:
       zone: board
@@ -10,18 +10,18 @@
   ui:
     direction: "Place a disc to flip opponent pieces"
     logTemplate: "{player} placed a disc at row {row}, column {col}"
-  triggers:
-    - nextTurn
-    - checkGameEnd
+  then:
+    - action: nextTurn
+    - action: checkGameEnd
 
 - id: nextTurn
-  builtin: nextTurn
+  uses: turn.advance
   auto: true
 
 - id: checkGameEnd
   auto: true
   conditions:
     - type: allCellsFilled
-      params:
+      with:
         zone: board
       result: gameTie

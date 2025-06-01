@@ -17,7 +17,7 @@
   auto: true
   conditions:
     - type: consecutiveMarksInRow
-      params:
+      with:
         zone: board
         count: 3
         entity: mark_{actor}
@@ -27,7 +27,7 @@
   auto: true
   conditions:
     - type: allCellsFilled
-      params:
+      with:
         zone: board
       result: gameTie
 

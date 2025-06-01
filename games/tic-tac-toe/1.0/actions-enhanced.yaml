@@ -1,0 +1,79 @@
+# Enhanced Tic-Tac-Toe with Scoring (Example)
+# This shows how existing games can benefit from new SDK features
+
+# Original action unchanged
+- id: place
+  uses: entity.move
+  with:
+    source: marks_{actor}
+    target:
+      zone: board
+      constraints:
+        vacant: true
+  ui:
+    direction: "Choose a cell to place a mark"
+  then:
+    - action: checkGameEnd
+
+# Original check unchanged
+- id: checkGameEnd
+  auto: true
+  conditions:
+    - uses: marks.consecutive
+      with:
+        zone: board
+        count: 3
+        entity: mark_{actor}
+      result:
+        - gameWin: actor
+    - uses: zone.allFilled
+      with:
+        zone: board
+      result:
+        - gameTie: true
+
+# NEW: Score tracking for tournament play
+- id: scoreWin
+  uses: score.update
+  auto: true
+  phase: scoring  # New phase after game ends
+  with:
+    player: "{winner}"
+    amount: 3
+    operation: add
+
+- id: scoreTie
+  uses: score.update
+  auto: true
+  phase: scoring
+  with:
+    player: "{actor}"  # Both players
+    amount: 1
+    operation: add
+
+# NEW: Check for tournament winner
+- id: checkTournamentEnd
+  uses: score.check
+  auto: true
+  phase: scoring
+  with:
+    player: "{anyPlayer}"
+    threshold: 10  # First to 10 points
+    comparison: gte
+    result:
+      tournamentWin: player
+
+# NEW: Reset board for next round
+- id: nextRound
+  uses: zone.reset
+  phase: scoring
+  with:
+    zone: board
+  then:
+    - action: setPhase
+
+- id: setPhase
+  uses: phase.set
+  auto: true
+  with:
+    phase: play  # Back to playing

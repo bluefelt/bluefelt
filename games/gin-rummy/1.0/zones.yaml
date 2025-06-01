@@ -1,0 +1,106 @@
+# Draw pile - face down deck
+- id: drawPile
+  name: "Draw Pile"
+  shape: deck
+  contents: standardDeck
+  deckProps:
+    shuffle: true
+    faceDown: true
+  visibility: count
+  ui:
+    position: board
+    layout: stack
+
+# Discard pile - face up
+- id: discardPile
+  name: "Discard Pile"
+  shape: deck
+  visibility: all
+  ui:
+    position: board
+    layout: stack
+
+# Player hands - only visible to owner
+- id: hand_p1
+  name: "{p1}'s Hand"
+  shape: list
+  visibility: owner
+  ui:
+    position: hand
+    layout: fan
+    maxCards: 11
+
+- id: hand_p2
+  name: "{p2}'s Hand"
+  shape: list
+  visibility: owner
+  ui:
+    position: hand
+    layout: fan
+    maxCards: 11
+
+# Meld display areas - for showing sets and runs when knocking
+- id: melds_p1
+  name: "{p1}'s Melds"
+  shape: list
+  visibility: all
+  ui:
+    position: board
+    layout: groups
+    player: p1
+
+- id: melds_p2
+  name: "{p2}'s Melds"
+  shape: list
+  visibility: all
+  ui:
+    position: board
+    layout: groups
+    player: p2
+
+# Deadwood display areas
+- id: deadwood_p1
+  name: "{p1}'s Deadwood"
+  shape: list
+  visibility: all
+  ui:
+    position: board
+    layout: spread
+    player: p1
+
+- id: deadwood_p2
+  name: "{p2}'s Deadwood"
+  shape: list
+  visibility: all
+  ui:
+    position: board
+    layout: spread
+    player: p2
+
+# Score display zones
+- id: scoreArea_p1
+  name: "{p1}'s Score"
+  shape: single
+  contents: [score_p1]
+  visibility: all
+  ui:
+    position: playerInfo
+    player: p1
+
+- id: scoreArea_p2
+  name: "{p2}'s Score"
+  shape: single
+  contents: [score_p2]
+  visibility: all
+  ui:
+    position: playerInfo
+    player: p2
+
+# Knock indicator zone
+- id: knockZone
+  name: "Knock Area"
+  shape: single
+  visibility: all
+  ui:
+    position: board
+    layout: center

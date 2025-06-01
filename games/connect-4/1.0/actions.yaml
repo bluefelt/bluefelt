@@ -1,19 +1,19 @@
 - id: dropChip
-  builtin: moveEntity
+  uses: entity.move
   ui:
     direction: "Choose a column to drop your chip into"
     logTemplate: "{player} dropped a chip in column {col}"
-  params:
+  with:
     source: chips_{actor}
     target:
       zone: board
       gravity: true
-  triggers:
-    - nextTurn
-    - checkWin
+  then:
+    - action: nextTurn
+    - action: checkWin
 
 - id: nextTurn
-  builtin: nextTurn
+  uses: turn.advance
   auto: true
 
 - id: checkWin
@@ -22,12 +22,12 @@
     - type: any
       conditions:
         - type: consecutiveMarksInRow
-          params:
+          with:
             zone: board
             count: 4
             entity: chip_{actor}
           result: gameWin
         - type: allCellsFilled
-          params:
+          with:
             zone: board
           result: gameTie

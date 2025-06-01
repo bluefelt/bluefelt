@@ -1,0 +1,22 @@
+gameId: crazy-eights
+version: 1.0
+specVersion: 1
+metadata:
+  name: "Crazy Eights"
+  description: "A classic card game where players match cards by rank or suit. Eights are wild!"
+  author: "Traditional"
+  players:
+    min: 2
+    max: 4
+    
+phases:
+  - id: setup
+    name: "Setup"
+    auto: true
+    then:
+      - action: dealInitialCards
+  - id: play
+    name: "Play"
+    
+setup:
+  initialPhase: setup

@@ -1,0 +1,71 @@
+# Draw pile - face down deck
+- id: drawPile
+  name: "Draw Pile"
+  shape: deck
+  deckProps:
+    shuffle: true
+    faceDown: true
+    reshuffleDiscardWhenEmpty: true
+    discardTo: discardPile
+  visibility: count
+  ui:
+    position: board
+    layout: stack
+  contents: standardDeck  # Shorthand for all 52 cards
+
+# Discard pile - face up, shows top card
+- id: discardPile
+  name: "Discard Pile"
+  shape: deck
+  deckProps:
+    faceDown: false
+    revealTop: 1
+  visibility: all
+  ui:
+    position: board
+    layout: stack
+
+# Player hands - use list shape for flexible hand size
+- id: hand_p1
+  name: "{p1}'s Hand"
+  shape: list
+  listProps:
+    ordered: false
+    maxSize: infinite
+  visibility: owner
+  ui:
+    position: hand
+    layout: fan
+
+- id: hand_p2
+  name: "{p2}'s Hand"
+  shape: list
+  listProps:
+    ordered: false
+    maxSize: infinite
+  visibility: owner
+  ui:
+    position: hand
+    layout: fan
+
+- id: hand_p3
+  name: "{p3}'s Hand"
+  shape: list
+  listProps:
+    ordered: false
+    maxSize: infinite
+  visibility: owner
+  ui:
+    position: hand
+    layout: fan
+
+- id: hand_p4
+  name: "{p4}'s Hand"
+  shape: list
+  listProps:
+    ordered: false
+    maxSize: infinite
+  visibility: owner
+  ui:
+    position: hand
+    layout: fan

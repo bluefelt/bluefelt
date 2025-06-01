@@ -1,0 +1,244 @@
+# Worker placement locations
+- id: huntingGrounds
+  name: "Hunting Grounds"
+  shape: list
+  maxOccupants: 99  # Unlimited workers
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlots
+    label: "Food (2 + dice per worker)"
+
+- id: forest
+  name: "Forest"
+  shape: list
+  maxOccupants: 7
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlots
+    label: "Wood (3 + dice per worker)"
+
+- id: clayPit
+  name: "Clay Pit"
+  shape: list
+  maxOccupants: 7
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlots
+    label: "Brick (4 + dice per worker)"
+
+- id: quarry
+  name: "Quarry"
+  shape: list
+  maxOccupants: 7
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlots
+    label: "Stone (5 + dice per worker)"
+
+- id: river
+  name: "River"
+  shape: list
+  maxOccupants: 7
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlots
+    label: "Gold (6 + dice per worker)"
+
+- id: loveMaking
+  name: "Love Making Hut"
+  shape: list
+  maxOccupants: 2
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlots
+    label: "Make new worker (requires 2)"
+
+- id: toolMaking
+  name: "Tool Maker"
+  shape: single
+  maxOccupants: 1
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlot
+    label: "Get +1 tool"
+
+- id: hutBuilding1
+  name: "Hut Building 1"
+  shape: single
+  maxOccupants: 1
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlot
+
+- id: hutBuilding2
+  name: "Hut Building 2"
+  shape: single
+  maxOccupants: 1
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlot
+
+- id: hutBuilding3
+  name: "Hut Building 3"
+  shape: single
+  maxOccupants: 1
+  visibility: all
+  ui:
+    position: board
+    layout: workerSlot
+
+# Player areas
+- id: workerSupply_p1
+  name: "{p1}'s Workers"
+  shape: list
+  contents: [worker_p1, worker_p1, worker_p1, worker_p1, worker_p1]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: row
+    player: p1
+
+- id: workerSupply_p2
+  name: "{p2}'s Workers"
+  shape: list
+  contents: [worker_p2, worker_p2, worker_p2, worker_p2, worker_p2]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: row
+    player: p2
+
+- id: workerSupply_p3
+  name: "{p3}'s Workers"
+  shape: list
+  contents: [worker_p3, worker_p3, worker_p3, worker_p3, worker_p3]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: row
+    player: p3
+
+- id: workerSupply_p4
+  name: "{p4}'s Workers"
+  shape: list
+  contents: [worker_p4, worker_p4, worker_p4, worker_p4, worker_p4]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: row
+    player: p4
+
+# Resource display areas
+- id: resources_p1
+  name: "{p1}'s Resources"
+  shape: grid
+  dimensions: [5, 1]
+  contents: 
+    - [food_p1, wood_p1, null, null, null]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: resourceTrack
+    player: p1
+
+- id: resources_p2
+  name: "{p2}'s Resources"
+  shape: grid
+  dimensions: [5, 1]
+  contents:
+    - [food_p2, wood_p2, null, null, null]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: resourceTrack
+    player: p2
+
+- id: resources_p3
+  name: "{p3}'s Resources"
+  shape: grid
+  dimensions: [5, 1]
+  contents:
+    - [food_p3, wood_p3, null, null, null]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: resourceTrack
+    player: p3
+
+- id: resources_p4
+  name: "{p4}'s Resources"
+  shape: grid
+  dimensions: [5, 1]
+  contents:
+    - [food_p4, wood_p4, null, null, null]
+  visibility: all
+  ui:
+    position: playerArea
+    layout: resourceTrack
+    player: p4
+
+# Hut tile supplies
+- id: hutSupply
+  name: "Available Huts"
+  shape: list
+  contents: [hut_3_resources, hut_3_resources, hut_3_resources, hut_4_resources, hut_4_resources, hut_4_resources, hut_5_resources, hut_5_resources, hut_5_resources]
+  visibility: all
+  ui:
+    position: board
+    layout: tileDisplay
+
+# Dice area
+- id: diceArea
+  name: "Dice"
+  shape: list
+  contents: [dice, dice, dice, dice, dice, dice]
+  visibility: all
+  ui:
+    position: board
+    layout: diceArea
+
+# Score areas
+- id: scoreArea_p1
+  name: "{p1}'s Score"
+  shape: single
+  contents: [score_p1]
+  visibility: all
+  ui:
+    position: playerInfo
+    player: p1
+
+- id: scoreArea_p2
+  name: "{p2}'s Score"
+  shape: single
+  contents: [score_p2]
+  visibility: all
+  ui:
+    position: playerInfo
+    player: p2
+
+- id: scoreArea_p3
+  name: "{p3}'s Score"
+  shape: single
+  contents: [score_p3]
+  visibility: all
+  ui:
+    position: playerInfo
+    player: p3
+
+- id: scoreArea_p4
+  name: "{p4}'s Score"
+  shape: single
+  contents: [score_p4]
+  visibility: all
+  ui:
+    position: playerInfo
+    player: p4
