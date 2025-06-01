@@ -1,8 +1,8 @@
-# SDK Built-in Conditions
+# SDK Conditions
 
-The Bluefelt SDK provides built-in conditions that can be used in game definitions to handle common game patterns without writing custom code.
+The Bluefelt SDK provides conditions that can be used in game definitions to handle common game patterns without writing custom code.
 
-## Available Built-in Conditions
+## Available Conditions
 
 ### consecutiveMarksInRow
 
@@ -15,8 +15,8 @@ Checks if a player has a specified number of consecutive marks in a row (horizon
 
 **Example:**
 ```yaml
-- builtin: consecutiveMarksInRow
-  params:
+- uses: board.checkConsecutive
+  with:
     zone: board
     count: 3
     entity: mark_{actor}
@@ -33,23 +33,23 @@ Checks if all cells in a zone are filled (no null values).
 
 **Example:**
 ```yaml
-- builtin: allCellsFilled
-  params:
+- uses: board.checkFilled
+  with:
     zone: board
   result:
     - gameTie: true
 ```
 
-## Using Built-in Conditions
+## Using Conditions
 
-Built-in conditions are used in verb definitions with the `conditions` field. Each condition can have a `result` that specifies what should happen when the condition is met.
+Conditions are used in action definitions with the `conditions` field. Each condition can have a `result` that specifies what should happen when the condition is met.
 
 ### Complete Example (tic-tac-toe)
 
 ```yaml
 - id: place
-  builtin: moveEntity
-  params:
+  uses: entity.move
+  with:
     source: marks_{actor}
     target:
       zone: board
@@ -57,21 +57,21 @@ Built-in conditions are used in verb definitions with the `conditions` field. Ea
         vacant: true
   ui:
     direction: "Choose a cell to place a mark"
-  triggers:
+  then:
     - checkGameEnd
 
 - id: checkGameEnd
   auto: true
   conditions:
-    - builtin: consecutiveMarksInRow
-      params:
+    - uses: board.checkConsecutive
+      with:
         zone: board
         count: 3
         entity: mark_{actor}
       result:
         - gameWin: actor
-    - builtin: allCellsFilled
-      params:
+    - uses: board.checkFilled
+      with:
         zone: board
       result:
         - gameTie: true
@@ -91,13 +91,13 @@ Sets the game to ended state with a tie.
 
 ## Benefits
 
-Using built-in conditions:
+Using conditions:
 1. **No custom code needed** - Game logic is declarative
 2. **Reusable** - Same conditions work for tic-tac-toe, tic-tac-toe-5, Connect Four, etc.
 3. **Consistent** - All games using these conditions behave the same way
-4. **Optimized** - Built-in conditions are implemented efficiently in the engine
+4. **Optimized** - Conditions are implemented efficiently in the engine
 
-## Future Built-in Conditions
+## Future Conditions
 
 Potential additions:
 - `capturedPieces`: Check if a player has captured a certain number of pieces

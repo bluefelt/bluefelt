@@ -7,7 +7,7 @@
    - [Manifest Schema](#manifest-schema)
    - [Zones Schema](#zones-schema)
    - [Entities Schema](#entities-schema)
-   - [Verbs Schema](#verbs-schema)
+   - [Actions Schema](#actions-schema)
    - [Events Schema](#events-schema)
    - [Victory Schema](#victory-schema)
    - [Computed Schema](#computed-schema)
@@ -36,7 +36,7 @@ games/
         ├── manifest.yaml       # Game metadata and setup
         ├── zones.yaml          # Board areas and containers
         ├── entities.yaml       # Game pieces and components
-        ├── verbs.yaml          # Player actions
+        ├── actions.yaml        # Player actions
         ├── events.yaml         # Triggered effects
         ├── victory.yaml        # Win conditions
         ├── computed.yaml       # Dynamic calculations
@@ -53,12 +53,16 @@ The manifest.yaml file defines game metadata, setup, and turn structure.
 
 ```yaml
 # Required fields
-name: string                    # Display name of the game
-version: string                 # Semantic version (e.g., "1.0.0")
-players:
-  min: integer                  # Minimum players (1-8)
-  max: integer                  # Maximum players (1-8)
-description: string             # Brief game description
+gameId: string                  # Unique game identifier (e.g., "tic-tac-toe")
+version: string                 # Game version (e.g., "1.0")
+specVersion: integer            # Bluefelt spec version (currently 1)
+metadata:                       # Required metadata object
+  name: string                  # Display name of the game
+  description: string           # Brief game description
+  author: string                # Game designer/creator
+  players:
+    min: integer                # Minimum players (1-8)
+    max: integer                # Maximum players (1-8)
 
 # Optional metadata
 author: string                  # Original designer(s)
@@ -124,7 +128,7 @@ turnStructure:
       auto: boolean             # Does it happen automatically?
       simultaneous: boolean     # All players act at once?
       order: string             # "turn_order" | "reverse" | "custom"
-      actions: [verb_id]        # Available verbs in this phase
+      actions: [action_id]      # Available actions in this phase
       maxActions: integer | formula  # How many actions allowed
       timer: integer            # Phase timer in seconds
       skipIf: condition         # Skip phase if condition met
@@ -149,8 +153,9 @@ Zones represent all containers and areas in the game.
 
 ```yaml
 - id: string                    # Unique identifier (required)
-  shape: string                 # Zone type (required)
-  # Valid shapes:
+  type: string                  # Zone type (required) 
+  # Note: 'shape' is also supported for backwards compatibility
+  # Valid types:
   # "list"     - Ordered/unordered collection
   # "deck"     - Shuffleable stack of cards
   # "grid"     - 2D grid of cells
@@ -211,8 +216,8 @@ Zones represent all containers and areas in the game.
     
   # Grid-specific properties
   gridProps:
-    width: integer              # Grid columns
-    height: integer             # Grid rows
+    cols: integer               # Grid columns (width also supported)
+    rows: integer               # Grid rows (height also supported)
     hexagonal: boolean          # Hex grid?
     wrapping: boolean           # Edges connect?
     diagonals: boolean          # Diagonal movement?
@@ -370,14 +375,15 @@ Entities are all game components: cards, tokens, pieces, etc.
       optional: boolean         # Can choose not to use?
 ```
 
-### Verbs Schema
+### Actions Schema
 
-Verbs define all possible player actions.
+Actions define all possible player actions.
 
 ```yaml
 - id: string                    # Unique identifier (required)
-  builtin: string               # Engine function to use
-  # Common builtins:
+  uses: string                  # Engine function to use 
+  # Note: 'implementation' and 'builtin' also supported for backwards compatibility
+  # Common functions:
   # "moveEntity"    - Move between zones
   # "playCard"      - Play from hand
   # "draw"          - Draw cards/tokens
@@ -411,7 +417,8 @@ Verbs define all possible player actions.
   # "uniquePerTurn"   - Once per turn
   
   # Parameters
-  params:                       # Action configuration
+  with:                         # Action configuration
+  # Note: 'params' also supported for backwards compatibility
     from: zone_id               # Source zone
     to: zone_id                 # Destination zone
     count: integer | "all"      # How many
@@ -665,6 +672,87 @@ Dynamic calculations based on game state.
   # "sum(resources.*.value)"  - Total resource value
   # "distance(a, b) <= range" - Within range
   # "hasPath(from, to, network_{player})" - Connected
+```
+
+## Client-Server Interaction
+
+### Action Map System
+
+Starting with Bluefelt v0.2, the server provides an action map instead of a possibleVerbs array. This change simplifies client implementation and ensures consistency across different client platforms.
+
+#### What Changed
+
+**Before (possibleActions array):**
+```json
+{
+  "possibleActions": {
+    "p1": [
+      {
+        "action": "place",
+        "direction": "Choose a cell",
+        "validOptions": [
+          {"zone": "board", "row": 0, "col": 0},
+          {"zone": "board", "row": 0, "col": 1}
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Now (actionMap):**
+```json
+{
+  "actionMap": {
+    "p1": {
+      "/zones/board/0/0": {"action": "place", "direction": "Choose a cell"},
+      "/zones/board/0/1": {"action": "place", "direction": "Choose a cell"}
+    }
+  }
+}
+```
+
+#### Benefits for Client Developers
+
+1. **Direct Mapping**: Clients can directly check if a location has an action without iterating through arrays
+2. **Simplified Logic**: Click handlers just look up `actionMap[location]` instead of filtering possibleVerbs
+3. **Consistent Paths**: All locations use the same path format: `/zones/{zoneId}/{index}` or `/zones/{zoneId}/{row}/{col}`
+4. **Platform Agnostic**: The same action map works for web, mobile, VR, or any other client platform
+
+#### Location Path Format
+
+- **Grid zones**: `/zones/{zoneId}/{row}/{col}` (e.g., `/zones/board/0/1`)
+- **List/deck zones**: `/zones/{zoneId}/{index}` (e.g., `/zones/hand_p1/2`)
+- **Whole zones**: `/zones/{zoneId}` (e.g., `/zones/deck` for draw actions)
+
+### Modernized Field Names
+
+Bluefelt v0.2 introduces cleaner field names while maintaining backwards compatibility:
+
+#### Zone Definitions
+- Use `type` instead of `shape` for zone types
+- Use `cols`/`rows` instead of `width`/`height` for grid properties
+
+#### Action Definitions  
+- Use `uses` instead of `builtin` or `implementation` for the engine function
+- Use `with` instead of `params` for action parameters
+
+Examples:
+```yaml
+# Modern zone definition
+- id: board
+  type: grid  # Previously: shape: grid
+  gridProps:
+    cols: 8   # Previously: width: 8
+    rows: 8   # Previously: height: 8
+
+# Modern action definition
+- id: place_mark
+  uses: grid.move  # Previously: builtin: moveEntity
+  with:            # Previously: params:
+    source: marks_{actor}
+    target:
+      zone: board
 ```
 
 ## Advanced Features

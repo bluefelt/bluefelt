@@ -69,10 +69,10 @@ zones:
   immunes:    { shape: flag,  visibility: all, perPlayer: true }
   eliminated: { shape: flag,  visibility: all, perPlayer: true }
   ```
-### verbs
-Verbs are actions that a player can take in the game.
+### actions
+Actions are commands that a player can take in the game.
 ```yaml
-verbs:
+actions:
   draw:
     pre: [{ zoneNotEmpty: { zone: deck } }]
     effect: [{ move: { from: deck, to: hands, count: 1, playerSlot: actor } }]
@@ -105,7 +105,7 @@ verbs:
         target: "Target player"
       picker: "playerList"
 ```
-For each verb, an array of `pre` conditions are defined. These define requirements for a particular verb to be possible. During a player's turn, the client will show affordances for any verb that is possible for the current game state.
+For each action, an array of `pre` conditions are defined. These define requirements for a particular action to be possible. During a player's turn, the client will show affordances for any action that is possible for the current game state.
 
 A thin React hook can fetch ui.prompt + replace {{cardName}} placeholders from bundle metadata. If the ui: block is missing, you fall back on generic text (“Pick a card”, “Pick a player”).
 
@@ -114,10 +114,10 @@ A thin React hook can fetch ui.prompt + replace {{cardName}} placeholders from b
 phases:
   - id: turn
     activePlayer: sequential
-    verbs: [draw, play, chooseTarget]
+    actions: [draw, play, chooseTarget]
 
   - id: resolve
-    verbs: []
+    actions: []
 ```
 ### setup
 ```yaml
@@ -218,7 +218,7 @@ Client hydrates its internal state with `initialState`.
 
 Client takes some action.
 ```json
-{ "verb":"draw", "args":{} }    
+{ "action":"draw", "args":{} }    
 ```
 Server validates that action is legal, applies effect, then broadcasts event envelope to everyone:
 ```json
@@ -226,7 +226,7 @@ Server validates that action is legal, applies effect, then broadcasts event env
   "type": "event",
   "tick": 2,
   "actor": "p1",
-  "verb": "draw",
+  "action": "draw",
   "args": {},
   "diff": [
     { "op":"remove","path":"/zones/deck/0" },
@@ -241,12 +241,12 @@ All clients patch local state with the JSON-Patch diff.
 Client takes another action.
 ```json
 // player plays Guard
-{ "verb":"play",
+{ "action":"play",
      "args": { "cardId":"§hashA" }
 }
 
 // guard_guess hook
-{ "verb":"chooseTarget",
+{ "action":"chooseTarget",
   "args": { "target":"p2", "guess":"priest" }
 }
 ```
@@ -257,7 +257,7 @@ Server merges both envelopes into the same tick
   "type":"event",
   "tick":3,
   "actor":"p1",
-  "verb":"play",
+  "action":"play",
   "args":{ "cardId":"§hashA" },
   "diff":[
     { "op":"remove", "path":"/zones/hands/p1/0" },
@@ -269,7 +269,7 @@ Server merges both envelopes into the same tick
   "type":"event",
   "tick":3,
   "actor":"p1",
-  "verb":"chooseTarget",
+  "action":"chooseTarget",
   "args":{ "target":"p2", "guess":"priest" },
   "diff":[]
 }
@@ -282,7 +282,7 @@ Sever rotates turn
   "type":"event",
   "t":4,
   "actor":"system",
-  "verb":"endPhase",
+  "action":"endPhase",
   "args":{},
   "diff":[
     { "op":"replace", "path":"/turn/player", "value":"p2" },

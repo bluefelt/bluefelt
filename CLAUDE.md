@@ -49,11 +49,11 @@ yarn nx run-many -t lint test build    # Run all targets
 
 ### Game Engine
 Games are defined using YAML files in `games/<game-name>/<version>/`:
-- `manifest.yaml` - Game metadata (id, name, players)
+- `manifest.yaml` - Game metadata - **IMPORTANT: Required fields are gameId, version, specVersion, and metadata (with name, description, author, players)**
 - `entities.yaml` - Game rules including:
   - Entities (pieces, cards, tokens)
   - Zones (areas where entities exist)
-  - Verbs (player actions)
+  - Actions (player actions)
   - Phases (game flow)
   - Setup (initial state)
   - Hooks (WebAssembly functions)
@@ -71,15 +71,19 @@ Games are defined using YAML files in `games/<game-name>/<version>/`:
 - **Game Logic**: WebAssembly modules for complex rules
 
 ### Interactive Zones
-- Server groups possible verbs by type and includes UI directions from game definitions
-- Possible verbs structure: `{"verb": "place", "direction": "Choose a cell to place a mark", "validOptions": [{"zone": "board", "row": 0, "col": 0}, ...]}`
-- Client renders zones as interactive components where players can click to execute verbs
-- UI directions are defined in the game's `verbs.yaml` under `ui.direction`
-- Supports multiple zones and verbs per game without hardcoding assumptions
+- Server provides an action map that directly maps locations to available actions
+- Action map structure: `{"/zones/board/0/0": {"action": "place", "direction": "Choose a cell"}, ...}`
+- Location paths follow a consistent format:
+  - Grid zones: `/zones/{zoneId}/{row}/{col}`
+  - List/deck zones: `/zones/{zoneId}/{index}`
+  - Whole zones: `/zones/{zoneId}`
+- Client renders zones as interactive components where players can click to execute actions
+- UI directions are defined in the game's `actions.yaml` under `ui.direction`
+- Supports multiple zones and actions per game without hardcoding assumptions
 
 ### Custom Hooks and Game End Detection
-- Verbs can trigger other verbs using the `triggers` field in `verbs.yaml`
-- Custom hooks can be defined with `hook: hookName` and `auto: true` for automatic verbs
+- Actions can trigger other actions using the `triggers` field in `actions.yaml`
+- Custom hooks can be defined with `hook: hookName` and `auto: true` for automatic actions
 - Game end detection for tic-tac-toe checks for wins (3 in a row) and ties (board full)
 - Game status stored in `/meta/gameStatus` with fields: `state`, `winner`, `tie`
 - When game ends, turn advancement is prevented and UI shows game result

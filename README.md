@@ -5,7 +5,7 @@
 
 - **Radically Cross-Platform**: Play on any platform you want: clients for iOS, Android, the web, Steam and VR and can all play together in the same game. 
 
-- **Expressive Game Authoring**: Bluefelt games are written in concise `.yaml` files which describe the entities, verbs, and rules. An entire game can be expressed in only a few hundred lines of code. View our [game developer guide](development.md) for more information.
+- **Expressive Game Authoring**: Bluefelt games are written in concise `.yaml` files which describe the entities, actions, and rules. An entire game can be expressed in only a few hundred lines of code. View our [game developer guide](development.md) for more information.
 
 - **Open-Source and Non-Commercial**: The Bluefelt platform is released under the Apache 2.0 license and governed by its community and maintainers. Our vision is to create a platform that is easy to join, free to use, and eternally independent from large corporations.
 
