@@ -56,7 +56,6 @@ export function useReconnectingWebSocket(
     // Don't create a new connection if one already exists
     if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || 
                          wsRef.current.readyState === WebSocket.OPEN)) {
-      console.log('[useReconnectingWebSocket] Connection already exists, skipping');
       return;
     }
     
@@ -103,7 +102,6 @@ export function useReconnectingWebSocket(
       ws.onmessage = (event) => {
         const now = Date.now();
         const msgId = Math.random().toString(36).substr(2, 9);
-        console.log(`[WS] Received message ${msgId}:`, event.data.substring(0, 100));
         setMessages((msgs) => [
           { direction: 'received', content: event.data, timestamp: now },
           ...msgs,
@@ -126,12 +124,10 @@ export function useReconnectingWebSocket(
       ]);
       return true;
     }
-    console.log('[useReconnectingWebSocket] Cannot send - WebSocket not open:', wsRef.current?.readyState);
     return false;
   }, []);
 
   const disconnect = useCallback(() => {
-    console.log('[useReconnectingWebSocket] Disconnecting and clearing reconnect timeout');
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = undefined;
@@ -170,7 +166,6 @@ export function useReconnectingWebSocket(
     
     // Only reconnect if URL actually changed
     if (urlRef.current !== url) {
-      console.log('[useReconnectingWebSocket] URL changed, reconnecting:', { old: urlRef.current, new: url });
       urlRef.current = url;
       disconnect();
       connect();

@@ -65,7 +65,6 @@ export default function LobbiesList({ onLobbySelected }: Props) {
     
     // Debug log for completed games
     if (lobby.gameStatus) {
-      console.log(`Lobby ${lobby.id} gameStatus:`, lobby.gameStatus);
     }
     
     return enhanced;

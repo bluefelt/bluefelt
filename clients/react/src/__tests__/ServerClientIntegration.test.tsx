@@ -21,7 +21,7 @@ describe('Server-Client Integration', () => {
       ];
 
       // Verify the client logic expects this format
-      let mockState = {
+      const mockState = {
         meta: { currentPlayer: 'p1', turn: 0 },
         state: { meta: { currentPlayer: 'p1', turn: 0 } }
       };
@@ -58,7 +58,7 @@ describe('Server-Client Integration', () => {
         // Missing: /state/meta/currentPlayer and /state/meta/turn patches
       ];
 
-      let mockState = {
+      const mockState = {
         meta: { currentPlayer: 'p1', turn: 0 },
         state: { meta: { currentPlayer: 'p1', turn: 0 } }
       };
@@ -164,7 +164,7 @@ describe('Server-Client Integration', () => {
   describe('Action Map Synchronization', () => {
     it('should handle action map updates with turn changes', () => {
       // Initial state - p1's turn
-      let gameState = {
+      const gameState = {
         you: 'p1',
         meta: {
           currentPlayer: 'p1',
@@ -227,7 +227,7 @@ describe('Server-Client Integration', () => {
     it('should handle the exact sequence from the logs', () => {
       // This replicates the exact sequence from the browser logs
       
-      let gameState = {
+      const gameState = {
         you: 'p1',
         meta: { currentPlayer: 'p1', turn: 0 },
         state: { meta: { currentPlayer: 'p1', turn: 0 } }
@@ -266,7 +266,7 @@ describe('Server-Client Integration', () => {
     });
 
     it('should work correctly with the fixed server patches', () => {
-      let gameState = {
+      const gameState = {
         you: 'p1',
         meta: { currentPlayer: 'p1', turn: 0 },
         state: { meta: { currentPlayer: 'p1', turn: 0 } }

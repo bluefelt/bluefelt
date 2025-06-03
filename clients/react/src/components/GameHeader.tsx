@@ -70,11 +70,6 @@ export default function GameHeader({ gameId, gameName, status, players, currentP
           const entityDisplay = getEntityDisplay(playerEntity, playerNum);
           
           // Debug logging
-          console.log(`Player ${playerNum} (${p.username}):`, {
-            playerEntity,
-            entityDisplay,
-            entityDefinitions
-          });
           
           return (
             <div key={p.username} className="flex items-center space-x-2 relative">

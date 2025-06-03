@@ -1,3 +1,4 @@
+import React from 'react';
 import Board from './zones/Board';
 import CardZone from './CardZone';
 import { usePlayer } from '../context/PlayerContext';
@@ -17,7 +18,7 @@ interface GameZonesProps {
   zoneGroups?: ZoneGroup[];
 }
 
-export default function GameZones({
+function GameZones({
   zones,
   entityDefinitions,
   onCellClick,
@@ -34,30 +35,15 @@ export default function GameZones({
   
   if (!zones) return null;
 
-  // Debug zone groups
-  console.log('[GameZones] Zone groups:', zoneGroups);
-  console.log('[GameZones] All zones:', Object.keys(zones));
 
   // Separate zones by type
   const gridZones: any = {};
   const cardZones: any = {};
   
   // Look at zone metadata to determine zone types
-  console.log('[GameZones] Processing zones:', {
-    zoneKeys: Object.keys(zones),
-    zoneMetadataLength: zoneMetadata?.length,
-    zoneMetadata: zoneMetadata,
-    actionMap: actionMap,
-    you: you
-  });
   
   Object.entries(zones).forEach(([zoneId, zoneData]) => {
     const zoneMeta = zoneMetadata?.find(z => z.id === zoneId);
-    console.log(`[GameZones] Processing zone ${zoneId}:`, {
-      zoneData,
-      zoneMeta,
-      shape: zoneMeta?.shape
-    });
     
     if (zoneMeta?.shape === 'stack' || zoneMeta?.shape === 'list' || zoneMeta?.shape === 'deck' || zoneMeta?.shape === 'single' ||
         zoneMeta?.type === 'stack' || zoneMeta?.type === 'list' || zoneMeta?.type === 'deck' || zoneMeta?.type === 'single') {
@@ -179,11 +165,6 @@ export default function GameZones({
   const zonesInGroups = new Set<string>();
   const groupsList = zoneGroups || [];
   
-  console.log('[GameZones] Zone groups:', {
-    zoneGroups,
-    gridZones: Object.keys(gridZones),
-    cardZones: Object.keys(cardZones)
-  });
   
   // Reorder groups to put current player's zones at the bottom
   const reorderedGroups = [...groupsList];
@@ -296,3 +277,5 @@ export default function GameZones({
     </div>
   );
 }
+
+export default React.memo(GameZones);

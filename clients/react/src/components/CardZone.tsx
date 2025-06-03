@@ -61,15 +61,6 @@ export default function CardZone({
     
     return false;
   };
-  
-  console.log('CardZone render:', {
-    zoneName,
-    cardsCount: cards.length,
-    cards: cards.map(c => c.id),
-    visibility,
-    isOwner,
-    layout
-  });
 
   // Calculate card positions based on layout
   const getCardStyle = (index: number, total: number): React.CSSProperties => {

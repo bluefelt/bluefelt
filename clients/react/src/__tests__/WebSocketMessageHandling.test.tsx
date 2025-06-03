@@ -51,7 +51,7 @@ describe('WebSocket Message Handling', () => {
     });
 
     it('should handle diff messages with turn advancement', () => {
-      let gameState = {
+      const gameState = {
         ui: {
           actionMap: { p1: {} },
           players: ['ben', 'karen']

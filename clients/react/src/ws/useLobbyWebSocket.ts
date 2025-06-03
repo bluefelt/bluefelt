@@ -80,15 +80,12 @@ export function useLobbyWebSocket(
     },
     
     diff: (data: DiffMessage) => {
-      console.log('[useLobbyWebSocket] Received diff with tick:', data.tick);
-      console.log('[useLobbyWebSocket] Patch count:', data.patch?.length);
       if (Array.isArray(data.patch)) {
-        console.log('[useLobbyWebSocket] ALL patches in this diff:', data.patch);
         // Log all patches for debugging game end scenarios
         const hasGameStatus = data.patch.some((p: any) => p.path === '/ui/gameStatus' || p.path === '/game/gameStatus');
         const hasZonePatches = data.patch.some((p: any) => p.path?.startsWith('/game/zones/'));
         if (hasGameStatus || hasZonePatches) {
-          console.log('[useLobbyWebSocket] Special patches detected:', data.patch);
+          // Special patches detected
         }
         
         setLobbyState((prev) => {
@@ -131,43 +128,41 @@ export function useLobbyWebSocket(
             
             // Debug log for game status patches
             if (processedPatch.path === '/ui/gameStatus' || processedPatch.path === '/game/gameStatus') {
-              console.log('[useLobbyWebSocket] Received gameStatus patch:', processedPatch);
+              // Game status patch detected
             }
             
             // Debug log for zone patches
             if (processedPatch.path?.startsWith('/game/zones/')) {
-              console.log('[useLobbyWebSocket] Received zone patch:', processedPatch);
+              // Zone patch detected
             }
             
             // Debug log for ui patches in development only
-            if (process.env.NODE_ENV === 'development' && processedPatch.path?.includes('/ui/')) {
-              console.log('[useLobbyWebSocket] Received ui patch:', processedPatch);
+            if (import.meta.env.DEV && processedPatch.path?.includes('/ui/')) {
+              // UI patch detected
             }
             
             processedPatches.push(processedPatch);
           }
           
           try {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[useLobbyWebSocket] Applying patches to state:', { 
-                fullStructure: full,
-                patchCount: processedPatches.length 
-              });
+            if (import.meta.env.DEV) {
+              // Development mode
             }
             
             // Apply patches one by one to handle partial failures
             let workingState = { ...full };
-            let successfulPatches = 0;
+            // Track patches for debugging
+            // let successfulPatches = 0;
             
             for (let i = 0; i < processedPatches.length; i++) {
               const patch = processedPatches[i];
               try {
                 const patchResult = applyPatch(workingState, [patch], true, false);
                 workingState = patchResult.newDocument;
-                successfulPatches++;
+                // successfulPatches++;
                 // Only log successful patches in development for debugging
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`[useLobbyWebSocket] Successfully applied patch ${i + 1}:`, patch);
+                if (import.meta.env.DEV) {
+                  // Patch applied successfully
                 }
               } catch (patchError: any) {
                 // Special handling for operations on non-existent paths
@@ -177,10 +172,10 @@ export function useLobbyWebSocket(
                   const isLegacyPath = legacyPaths.some(legacy => patch.path?.includes(legacy));
                   
                   if (patch.op === 'remove' || isLegacyPath) {
-                    if (process.env.NODE_ENV === 'development') {
-                      console.log(`[useLobbyWebSocket] Ignoring ${patch.op} operation on ${isLegacyPath ? 'legacy' : 'non-existent'} path: ${patch.path}`);
+                    if (import.meta.env.DEV) {
+                      // Legacy path ignored
                     }
-                    successfulPatches++; // Count as successful since it's effectively a no-op
+                    // Count as successful since it's effectively a no-op
                   } else {
                     console.error(`[useLobbyWebSocket] Failed to apply patch ${i + 1}:`, patch, 'Error:', patchError);
                   }
@@ -191,30 +186,25 @@ export function useLobbyWebSocket(
               }
             }
             
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`[useLobbyWebSocket] Applied ${successfulPatches}/${processedPatches.length} patches`);
+            if (import.meta.env.DEV) {
+              // Patch processing complete
             }
             
             const result = { ...workingState, you: prev.you, started: prev.started };
             
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[useLobbyWebSocket] After patches applied:', {
-                currentPlayer: result.game?.currentPlayer,
-                turn: result.game?.turn,
-                boardState: result.game?.zones?.board?.cells?.[0]
-              });
+            if (import.meta.env.DEV) {
+              // State updated
             }
             
             // Debug log for game status changes and board state
             if (result.game?.gameStatus?.state === 'ended') {
-              console.log('[useLobbyWebSocket] Game ended detected in state:', result.game.gameStatus);
-              console.log('[useLobbyWebSocket] Final board state:', result.game?.zones?.board);
+              // Game has ended
             }
             
             // Debug log for any zone changes
             const hasProcessedZonePatches = processedPatches.some((p: any) => p.path?.startsWith('/game/zones/'));
             if (hasProcessedZonePatches) {
-              console.log('[useLobbyWebSocket] Updated board state after patches:', result.game?.zones?.board);
+              // Zone changes detected
             }
             
             return result;
