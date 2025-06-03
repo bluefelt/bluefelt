@@ -1815,6 +1815,21 @@ pub fn start_game(self: Arc<Self>) {
                                         if let Some(column) = args_obj["column"].as_i64() {
                                             log_text = log_text.replace("{column}", &(column + 1).to_string()); // 1-indexed for display
                                         }
+                                        
+                                        // Extract row and col from location path (for tic-tac-toe style actions)
+                                        if let Some(location) = args_obj["location"].as_str() {
+                                            // Parse paths like "/zones/board/cells/1/2" to extract row=1, col=2
+                                            if let Some(captures) = regex::Regex::new(r"/zones/[^/]+/cells/(\d+)/(\d+)")
+                                                .unwrap()
+                                                .captures(location) {
+                                                if let (Some(row_match), Some(col_match)) = (captures.get(1), captures.get(2)) {
+                                                    if let (Ok(row), Ok(col)) = (row_match.as_str().parse::<i64>(), col_match.as_str().parse::<i64>()) {
+                                                        log_text = log_text.replace("{row}", &(row + 1).to_string()); // 1-indexed for display
+                                                        log_text = log_text.replace("{col}", &(col + 1).to_string()); // 1-indexed for display
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                     
                                     // Create timestamp

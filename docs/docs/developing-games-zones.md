@@ -862,6 +862,214 @@ Zones with dynamic availability:
     milestoneEffects: true
 ```
 
+## Special Zone Mechanics
+
+Zones can support special behaviors through custom verbs and properties. These mechanics add depth to gameplay without requiring game-specific code.
+
+### Gravity Mechanics
+
+For games where entities fall to the lowest available position (like Connect 4):
+
+```yaml
+# Zone definition remains standard
+- id: "board"
+  type: "grid"
+  rows: 6
+  cols: 7
+  contents: "empty"
+  ui:
+    cellSize: 64
+    gridLines: true
+```
+
+The gravity behavior is implemented through the `placeWithGravity` verb in actions:
+
+```yaml
+# In actions.yaml
+- id: "drop_disc"
+  uses: "placeWithGravity"
+  ui:
+    direction: "Choose a column"
+    logTemplate: "{player} dropped a disc in column {column}"
+  conditions:
+    - type: "is_current_player_turn"
+```
+
+**How it works:**
+- Players interact with columns instead of specific cells
+- The server calculates the lowest empty row in the selected column
+- Entities "fall" to the bottom-most available position
+- Full columns are automatically invalid targets
+
+**Client interaction pattern:**
+- Action map generates column-based paths: `/zones/board/columns/3`
+- Visual affordances show column drop zones above the board
+- The generic client detects and renders these automatically
+
+### Line Detection
+
+The `grid.lineOfMarks` verb provides configurable line detection for win conditions:
+
+```yaml
+# Detect 3-in-a-row (tic-tac-toe)
+- verb: "grid.lineOfMarks"
+  args:
+    zone: "/zones/board"
+    entity: "mark_{player}"
+    lineLength: 3
+    directions: ["horizontal", "vertical", "diagonal"]
+
+# Detect 4-in-a-row (Connect 4)
+- verb: "grid.lineOfMarks"
+  args:
+    zone: "/zones/board"
+    entity: "disc_{player}"
+    lineLength: 4
+    directions: ["horizontal", "vertical", "diagonal"]
+
+# Detect 5-in-a-row horizontal/vertical only (Gomoku variant)
+- verb: "grid.lineOfMarks"
+  args:
+    zone: "/zones/board"
+    entity: "stone_{player}"
+    lineLength: 5
+    directions: ["horizontal", "vertical"]
+```
+
+**Parameters:**
+- `zone`: Path to the grid zone to check
+- `entity`: Entity pattern to match (use `{player}` for current player)
+- `lineLength`: Number of consecutive entities needed (default: 3)
+- `directions`: Array of directions to check
+
+**Automatic actions:**
+- Sets game status to ended when line is found
+- Updates winner field with the player who formed the line
+- Detects tie conditions when board is full with no winner
+
+### Stacking Mechanics
+
+For games where entities can stack in zones:
+
+```yaml
+- id: "territory"
+  type: "grid"
+  rows: 8
+  cols: 8
+  behavior:
+    maxEntitiesPerCell: 5  # Allow stacking up to 5
+    stackingOrder: "top"   # New entities go on top
+  ui:
+    renderMode: "stacked"
+    stackOffset: 3         # Pixels between stacked items
+```
+
+### Wrap-Around Boards
+
+For games with toroidal or cylindrical topologies:
+
+```yaml
+- id: "cylindrical_board"
+  type: "grid"
+  rows: 10
+  cols: 10
+  behavior:
+    wrapHorizontal: true   # Left edge connects to right
+    wrapVertical: false    # Top/bottom don't connect
+```
+
+### Dynamic Zone Properties
+
+Zones that change during gameplay:
+
+```yaml
+- id: "expanding_board"
+  type: "grid"
+  rows: 3              # Initial size
+  cols: 3
+  behavior:
+    expandable: true
+    maxRows: 10
+    maxCols: 10
+    expansionTrigger: "phase_change"
+```
+
+### Terrain and Movement Costs
+
+For strategy games with varied terrain:
+
+```yaml
+- id: "strategy_map"
+  type: "grid"
+  rows: 20
+  cols: 20
+  contents:
+    pattern: "terrain_map"
+  behavior:
+    terrainTypes: ["plains", "forest", "mountain", "water"]
+    movementCosts:
+      plains: 1
+      forest: 2
+      mountain: 3
+      water: null    # Impassable
+```
+
+### Visibility and Fog of War
+
+For games with hidden information:
+
+```yaml
+- id: "exploration_map"
+  type: "grid"
+  rows: 30
+  cols: 30
+  behavior:
+    fogOfWar: true
+    visibilityRange: 3
+    revealedCells: "persistent"  # Once revealed, stay visible
+  ui:
+    fogColor: "#333333"
+    fogOpacity: 0.8
+```
+
+### Zone Relationships
+
+Zones that interact with each other:
+
+```yaml
+# Deck that refills from discard
+- id: "draw_deck"
+  type: "deck"
+  deckProps:
+    shuffleWhenEmpty: true
+    refillFrom: "discard_pile"
+
+# Discard that feeds deck
+- id: "discard_pile"
+  type: "deck"
+  deckProps:
+    feedsTo: "draw_deck"
+    clearOnRefill: true
+```
+
+### Custom Zone Behaviors Through Actions
+
+While zones define structure, actions can implement complex behaviors:
+
+```yaml
+# Zone remains simple
+- id: "auction_house"
+  type: "list"
+  maxSize: 5
+
+# Action implements the behavior
+- id: "bid_on_item"
+  uses: "customAuction"
+  triggers:
+    - "sort_by_bid_value"
+    - "award_to_highest_bidder"
+```
+
 ## Best Practices
 
 ### Zone Design Guidelines

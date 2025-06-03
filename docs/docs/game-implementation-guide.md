@@ -88,8 +88,23 @@ Map game rules to actions:
 ### 2.4 Reusability Check
 Look for patterns from existing games:
 - Check `games/` directory for similar mechanics
-- Identify reusable verbs (place, move, capture, draw)
+- Identify reusable verbs (place, move, capture, draw, placeWithGravity)
 - Note successful UI patterns from other games
+- Consider if new verbs are needed for novel mechanics
+
+### 2.5 Game Log Planning
+Plan how player actions will appear in the game log:
+- **Action descriptions**: What message shows when a player acts
+- **Parameter format**: What coordinates/arguments need to appear
+- **User-friendly display**: 1-indexed coordinates, column names, etc.
+- **Template format**: How to structure log message templates
+
+### 2.6 Visual Affordances Planning
+Consider how players will interact with the game:
+- **Click targets**: Cells, columns, cards, pieces
+- **Visual feedback**: Highlighting valid moves, selections
+- **Interaction patterns**: Direct cell clicks vs. column drops
+- **Generic components**: How existing UI components can be reused
 
 ## Step 3: UI/UX Design Considerations
 
@@ -167,36 +182,218 @@ Start with YAML files:
 5. **actions.yaml**: Implement game mechanics
 6. **hooks.wasm**: (Optional) Complex logic
 
-### 5.4 Client-side Updates
+### 5.4 Server-side Verb Development
+If new verbs are needed:
+
+#### 5.4.1 When to Create New Verbs
+- **Novel mechanics**: Gravity, stacking, complex movement
+- **Performance reasons**: Optimize expensive operations
+- **Complex validation**: Multi-step rule checking
+
+#### 5.4.2 Verb Implementation Process
+1. **Add to `src/engine/verbs.rs`**:
+   ```rust
+   fn apply_new_verb(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+       // 1. Extract and validate arguments
+       let required_arg = args["required"].as_str().ok_or("Missing required arg")?;
+       
+       // 2. Perform game logic
+       // 3. Update state
+       // 4. Return patches for client updates
+   }
+   ```
+
+2. **Register in verb dispatcher**:
+   ```rust
+   match verb {
+       "newVerb" => apply_new_verb(state, args),
+       // ... other verbs
+   }
+   ```
+
+3. **Add comprehensive tests**:
+   - Valid argument handling
+   - Edge cases and error conditions
+   - State mutations
+   - Return patch validation
+
+#### 5.4.3 Verb Design Principles
+- **Atomic operations**: Each verb does one clear thing
+- **Idempotent**: Same input produces same output
+- **Error handling**: Clear error messages for invalid operations
+- **Performance**: Minimize expensive operations
+- **State consistency**: Always leave game in valid state
+
+### 5.5 Action Map Generation
+Plan how actions will be presented to the client:
+
+#### 5.5.1 Action Map Patterns
+- **Cell-based**: `/zones/board/cells/{row}/{col}` (tic-tac-toe)
+- **Column-based**: `/zones/board/columns/{col}` (Connect 4)
+- **Zone-based**: `/zones/hand` (card games)
+- **Index-based**: `/zones/deck/{index}` (ordered collections)
+
+#### 5.5.2 Custom Action Map Logic
+If needed, update `lobby.rs` action map generation:
+- Add new path patterns for novel interaction types
+- Ensure consistent naming conventions
+- Handle edge cases (full columns, invalid positions)
+
+### 5.6 Game Log Templates
+Configure informative game log messages:
+
+#### 5.6.1 Template Syntax
+- **Player replacement**: `{player}` → actual player name
+- **Coordinate replacement**: `{row}`, `{col}` → 1-indexed coordinates
+- **Custom arguments**: `{column}` → custom argument values
+
+#### 5.6.2 Argument Formats
+Different action types use different argument structures:
+- **Location-based** (tic-tac-toe): `{"location": "/zones/board/cells/1/2"}`
+- **Coordinate-based**: `{"row": 1, "col": 2}`
+- **Column-based** (Connect 4): `{"column": 3}`
+
+#### 5.6.3 Server Processing
+The server automatically handles:
+- `{player}` replacement with actual player names
+- `{row}`, `{col}` extraction from direct arguments or location paths
+- `{column}` replacement from column arguments
+- 1-indexed display conversion (internal 0-indexed → display 1-indexed)
+
+### 5.7 Client-side Updates
 If needed, update React components:
 - Check if existing components handle the game
 - Add new zone renderers if required
 - Ensure mobile responsiveness
+- Maintain generic component architecture
 
 ## Step 6: Testing
 
 ### 6.1 Server Tests
-Create `server/tests/<game_name>_test.rs`:
-- **Setup tests**: Verify initial state
-- **Action tests**: Each action works correctly
-- **Win condition tests**: All ways to win/draw
-- **Edge case tests**: Invalid moves, special rules
-- **Integration tests**: Full game simulation
+Create comprehensive tests in `server/tests/<game_name>_test.rs`:
+
+#### 6.1.1 Basic Setup Tests
+```rust
+#[test]
+fn test_game_setup() {
+    let bundles = BundleMap::load_dir("../bundles").expect("Failed to load bundles");
+    let bundle = bundles.get_latest("game-name").expect("Failed to get bundle");
+    let state = load_initial_state(&bundle);
+    
+    // Verify initial state
+    assert_eq!(state["turn"], 0);
+    assert_eq!(state["currentPlayer"], "p1");
+    
+    // Verify board dimensions and initial emptiness
+    // Verify action configuration
+}
+```
+
+#### 6.1.2 Verb-Specific Tests
+For each new verb (e.g., `placeWithGravity`):
+```rust
+#[test]
+fn test_new_verb_mechanics() {
+    // Test core functionality
+    // Test edge cases (full zones, invalid positions)
+    // Test error conditions
+    // Test state consistency
+}
+```
+
+#### 6.1.3 Game Flow Tests
+- **Action execution**: Each action works correctly
+- **Turn advancement**: Proper turn switching
+- **Win condition detection**: All ways to win/draw
+- **Edge case handling**: Invalid moves, special rules
+
+#### 6.1.4 Game Log Tests
+Verify log message generation:
+```rust
+#[test]
+fn test_game_log_messages() {
+    // Test template processing
+    // Test parameter replacement
+    // Test coordinate formatting
+}
+```
 
 ### 6.2 Client Tests
 Add tests in `clients/react/src/__tests__/`:
-- **Rendering tests**: Components display correctly
-- **Interaction tests**: Clicks/taps work
-- **State sync tests**: Updates apply properly
-- **Mobile tests**: Touch interactions work
 
-### 6.3 Test Scenarios
-Cover these scenarios:
-- **2+ player games**: All player counts
-- **Early/mid/late game**: Different game states
-- **Win conditions**: Every way to end
-- **Invalid actions**: Proper error handling
-- **Concurrent actions**: Race conditions
+#### 6.2.1 Action Handling Tests
+```typescript
+describe('Game Action Handling', () => {
+  it('should handle specific action patterns', () => {
+    // Test action message construction
+    // Test turn-based restrictions
+    // Test error handling
+  });
+});
+```
+
+#### 6.2.2 Component Integration Tests
+- **Rendering tests**: Components display correctly
+- **Interaction tests**: Clicks/taps work as expected
+- **State sync tests**: Updates apply properly
+- **Visual affordance tests**: UI feedback works
+
+### 6.3 Integration Testing Strategy
+Test complete game scenarios:
+
+#### 6.3.1 Full Game Simulations
+- **Complete games**: Play from start to finish
+- **Multiple win paths**: Test different victory conditions
+- **Edge case games**: Ties, unusual situations
+
+#### 6.3.2 Multi-Player Testing
+- **All player counts**: Minimum to maximum players
+- **Turn order**: Proper sequence handling
+- **Concurrent actions**: Race condition prevention
+
+### 6.4 Bundle Validation
+Always verify game bundles:
+```bash
+# Build updated bundles
+./cli/target/debug/bluefelt-cli build-all
+
+# Run comprehensive tests
+cargo test <game_name>
+```
+
+### 6.5 Post-Implementation Testing (Critical!)
+After implementing any new game, test ALL existing games:
+
+#### 6.5.1 Regression Testing Checklist
+```bash
+# Run all server tests
+cargo test tic_tac_toe
+cargo test connect_four
+cargo test <any_other_games>
+
+# Run all engine tests
+cargo test engine_integration
+cargo test websocket
+
+# Run all client tests
+cd clients/react
+pnpm test TicTacToeGameFlow
+pnpm test ConnectFourColumnActions
+```
+
+#### 6.5.2 Manual Smoke Testing
+For each existing game:
+- [ ] Game loads correctly
+- [ ] Basic actions work
+- [ ] Game log shows proper messages
+- [ ] Win conditions trigger
+- [ ] No console errors
+
+### 6.6 Performance Testing
+- **Large boards**: Test with maximum zone sizes
+- **Many entities**: Test with full entity counts
+- **Rapid actions**: Test quick successive moves
+- **Memory usage**: Monitor for leaks during long games
 
 ## Step 7: Validation
 
@@ -252,21 +449,63 @@ Based on feedback:
 
 ## Best Practices
 
-### Do's
+### Architecture Principles
+
+#### Generic Client Design ✅
+- Keep the React client completely generic
+- Avoid game-specific components (like `ConnectFourBoard`)
+- Use existing components (`BoardZone`, `CardZone`) for all games
+- Add generic features (column actions) rather than game-specific ones
+
+#### Server-Side Logic ✅
+- Implement complex mechanics on the server (gravity, validation)
+- Keep client simple and reactive
+- Use verbs for reusable game operations
+- Handle edge cases in server validation
+
+#### Declarative Configuration ✅
+- Express game rules in YAML when possible
+- Use WebAssembly hooks only for complex logic
+- Make games configurable rather than hardcoded
+- Follow existing patterns from other games
+
+### Testing Principles
+
+#### Comprehensive Coverage ✅
+- Test every action, edge case, and win condition
+- Include both unit tests and integration tests
+- Test game log message generation
+- Verify visual affordances work correctly
+
+#### Regression Prevention ✅
+- Always test ALL existing games after changes
+- Run complete test suites before deployment
+- Manual smoke testing for critical user flows
+- Performance testing for resource-intensive games
+
+### Do's ✅
 - ✅ Use existing patterns from other games
 - ✅ Keep games declarative (YAML-driven)
-- ✅ Write comprehensive tests
+- ✅ Write comprehensive tests for every new feature
 - ✅ Consider mobile from the start
-- ✅ Document edge cases
-- ✅ Make reusable components
+- ✅ Document edge cases and special rules
+- ✅ Make reusable server verbs
+- ✅ Test all existing games after implementing new ones
+- ✅ Plan game log messages for good UX
+- ✅ Consider visual affordances early
+- ✅ Maintain backward compatibility
 
-### Don'ts
+### Don'ts ❌
 - ❌ Hardcode game-specific logic in shared components
-- ❌ Skip testing edge cases
-- ❌ Ignore mobile experience
-- ❌ Break existing games
+- ❌ Skip testing edge cases and error conditions
+- ❌ Ignore mobile experience and touch targets
+- ❌ Break existing games with new implementations
 - ❌ Use complex logic when simple will do
-- ❌ Forget about accessibility
+- ❌ Forget about accessibility and screen readers
+- ❌ Create game-specific React components
+- ❌ Implement game logic on the client side
+- ❌ Skip regression testing after changes
+- ❌ Use unclear or uninformative game log messages
 
 ## Examples
 
@@ -281,6 +520,13 @@ Based on feedback:
 - Multiple zones (board, captured)
 - Complex actions (move, capture, promote)
 - Multiple win conditions
+
+### Gravity-based Game (like Connect 4)
+- Standard entities (discs/pieces)
+- Single zone (board) with special mechanics
+- Column-based actions (gravity drops)
+- Custom server verbs (placeWithGravity)
+- Visual affordances (column drop zones)
 
 ### Complex Game (like Card Games)
 - Many entities (full deck)
@@ -312,13 +558,117 @@ Based on feedback:
 - Optimize large boards
 - Reduce entity count
 
+**Game log messages not showing coordinates**
+- Check argument format (location vs. row/col)
+- Verify template syntax in actions.yaml
+- Ensure bundles are rebuilt after changes
+
+**Visual affordances not working**
+- Check action map generation patterns
+- Verify client component handles new action types
+- Test with browser dev tools for click detection
+
+## Lessons Learned from Recent Implementations
+
+### Connect 4 Implementation Insights
+
+#### Server-Side vs Client-Side Logic
+**Decision: Implement gravity on server**
+- ✅ Ensures consistent game state
+- ✅ Prevents cheating/invalid moves
+- ✅ Keeps client generic and simple
+- ❌ More complex than pure client-side
+
+#### Generic Components vs Game-Specific
+**Decision: Enhance BoardZone with column detection**
+- ✅ Maintains generic client architecture
+- ✅ Reusable for future gravity-based games
+- ✅ Automatic visual affordances
+- ❌ Required thinking about abstraction
+
+#### Game Log Parameter Handling
+**Learning: Different games use different action argument formats**
+- Location-based: `{"location": "/zones/board/cells/1/2"}`
+- Column-based: `{"column": 3}`
+- Coordinate-based: `{"row": 1, "col": 2}`
+
+Server now handles all formats automatically with regex parsing.
+
+#### Testing Strategy Evolution
+**Key insight: Regression testing is critical**
+- Any new feature can break existing games
+- Comprehensive test suites prevent issues
+- Manual smoke testing catches UI problems
+- Game log testing ensures good UX
+
+### Platform Evolution Patterns
+
+#### When to Add New Verbs
+Add server verbs for:
+- ✅ Novel mechanics (gravity, complex movement)
+- ✅ Performance optimization
+- ✅ Complex validation rules
+- ❌ Simple operations that existing verbs handle
+
+#### When to Enhance Client Components
+Enhance existing components for:
+- ✅ New interaction patterns (column clicks)
+- ✅ Visual affordances (drop zones)
+- ✅ Better accessibility
+- ❌ Game-specific features
+
+## Post-Implementation Checklist
+
+After implementing any new game:
+
+### Technical Validation
+- [ ] All new tests pass
+- [ ] All existing game tests pass
+- [ ] Bundle builds successfully
+- [ ] Server starts without errors
+- [ ] Client builds without errors
+
+### Functional Validation
+- [ ] Game plays correctly end-to-end
+- [ ] Game log shows informative messages
+- [ ] Visual affordances work intuitively
+- [ ] Win conditions trigger properly
+- [ ] Mobile experience is smooth
+
+### Regression Testing
+- [ ] Test all existing games manually
+- [ ] Verify no console errors
+- [ ] Check game log functionality
+- [ ] Validate WebSocket connectivity
+- [ ] Performance remains acceptable
+
+### Documentation Updates
+- [ ] Update this implementation guide
+- [ ] Add new patterns to best practices
+- [ ] Document any new verbs or components
+- [ ] Update SDK reference if needed
+
 ## Next Steps
 
 After implementing a game:
-1. Update this guide with lessons learned
-2. Add reusable patterns to SDK
-3. Share components with other games
-4. Consider game variations
-5. Plan tournament features
+1. **Update documentation** with lessons learned
+2. **Extract reusable patterns** for future games
+3. **Share new components** with the community
+4. **Consider game variations** and expansions
+5. **Plan performance optimizations** if needed
+6. **Test on all platforms** and browsers
 
-Remember: Each game makes the platform better for the next one!
+### Continuous Improvement
+- Review implementation process effectiveness
+- Identify pain points in development flow
+- Enhance tooling and automation
+- Gather feedback from other developers
+- Update templates and scaffolding
+
+Remember: Each game implementation should:
+- ✅ **Improve the platform** for future games
+- ✅ **Maintain quality standards** across all features
+- ✅ **Preserve backward compatibility** with existing games
+- ✅ **Document learnings** for the next developer
+
+The platform grows stronger with every well-implemented game! 🎮
