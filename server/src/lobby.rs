@@ -1,7 +1,7 @@
 //! lobby.rs – minimal in-memory lobby with broadcast fan-out
 //! Supports: welcome snapshot → JSON action → diff broadcast
 
-use crate::{bundle::Bundle, engine, message_format::{MessageFormat, UpdateFormat, format_welcome_message, patch_to_full_state}};
+use crate::{bundle::Bundle, engine, message_format::{MessageFormat, UpdateFormat, format_welcome_message, patch_to_full_state}, conditions::evaluate_condition};
 use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
@@ -478,6 +478,11 @@ impl Lobby {
                                 let action_impl = a["uses"].as_str()
                                     .or_else(|| a["builtin"].as_str());
                                 println!("[DEBUG action_map] Action {} has implementation: {:?}", a["id"].as_str().unwrap_or("unknown"), action_impl);
+                                
+                                // Debug: Show what we're checking
+                                if action_impl == Some("selectEntity") {
+                                    println!("[DEBUG action_map] FOUND selectEntity match for action {}", a["id"].as_str().unwrap_or("unknown"));
+                                }
                                 if action_impl == Some("place") {
                                     // Handle place action for tic-tac-toe and similar games
                                     println!("[DEBUG] Found place action: {:?}", a["id"]);
@@ -692,13 +697,16 @@ impl Lobby {
                                         }
                                     }
                                     }
-                                } else if action_impl == Some("grid.select") || action_impl == Some("selectEntity") {
+                                } else if action_impl == Some("grid.select") || (action_impl == Some("selectEntity") && a.get("with").and_then(|w| w.get("zone")).is_some()) {
                                     // Handle piece selection for checkers
+                                    println!("[DEBUG action_map] Checkers selectEntity handler called for action {}", a.get("id").and_then(|id| id.as_str()).unwrap_or("unknown"));
                                     if let Some(action_id) = a["id"].as_str() {
                                         // Support both 'with' (new) and 'params' (old)
                                         let params = a.get("with").or_else(|| a.get("params"));
+                                        println!("[DEBUG action_map] Checkers handler found params: {:?}", params);
                                         if let Some(params) = params {
                                             if let Some(zone_name) = params["zone"].as_str() {
+                                                println!("[DEBUG action_map] Checkers handler found zone: {}", zone_name);
                                             let zone_state = &state["zones"][zone_name];
                                             if zone_state.is_array() {
                                                 let mut valid_options = Vec::new();
@@ -928,7 +936,7 @@ impl Lobby {
                                                     let direction = a["ui"]["direction"].as_str().unwrap_or("Draw a card");
                                                     // For non-grid zones, use the zone itself as the location
                                                     let location = format!("/zones/{}", source);
-                                                    action_map.insert(location, json!({
+                                                    action_map.insert(location.to_string(), json!({
                                                         "action": action_id,
                                                         "direction": direction
                                                     }));
@@ -996,7 +1004,7 @@ impl Lobby {
                                                                     let direction = a["ui"]["direction"].as_str().unwrap_or("Select");
                                                                     let location = format!("/zones/{}", source_zone);
                                                                     println!("[DEBUG action_map] Adding zone action at {} -> {}", location, action_id);
-                                                                    action_map.insert(location, json!({
+                                                                    action_map.insert(location.to_string(), json!({
                                                                         "action": action_id,
                                                                         "direction": direction
                                                                     }));
@@ -1052,7 +1060,7 @@ impl Lobby {
                                                                 // Add action for each card in hand
                                                                 for (index, _card) in items.iter().enumerate() {
                                                                     let location = format!("/zones/{}/{}", source_zone, index);
-                                                                    action_map.insert(location, json!({
+                                                                    action_map.insert(location.to_string(), json!({
                                                                         "action": action_id,
                                                                         "direction": direction
                                                                     }));
@@ -1061,6 +1069,152 @@ impl Lobby {
                                                         }
                                                     }
                                                 }
+                                            } else {
+                                                println!("[DEBUG action_map] Checkers handler: no zone parameter found");
+                                            }
+                                        } else {
+                                            println!("[DEBUG action_map] No zones found in state");
+                                        }
+                                    }
+                                } else if action_impl == Some("selectEntity") {
+                                    // Handle piece selection for Three Men's Morris and similar games
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        println!("[DEBUG action_map] Processing selectEntity action: {}", action_id);
+                                        
+                                        // Find all grid zones and check for this player's pieces
+                                        println!("[DEBUG action_map] Looking for zones in state...");
+                                        println!("[DEBUG action_map] State keys: {:?}", state.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                                        
+                                        // Try both possible locations for zones
+                                        let zones = state.get("zones")
+                                            .or_else(|| state.get("game").and_then(|g| g.get("zones")))
+                                            .and_then(|z| z.as_object());
+                                            
+                                        if let Some(zones) = zones {
+                                            println!("[DEBUG action_map] Found zones: {:?}", zones.keys().collect::<Vec<_>>());
+                                            for (zone_id, zone_data) in zones {
+                                                if let Some(zone_obj) = zone_data.as_object() {
+                                                    if zone_obj.get("type").and_then(|t| t.as_str()) == Some("grid") {
+                                                        if let Some(cells) = zone_obj.get("cells").and_then(|c| c.as_array()) {
+                                                            println!("[DEBUG action_map] Checking grid zone {} for player {} pieces", zone_id, id);
+                                                            println!("[DEBUG action_map] Grid zone has {} rows", cells.len());
+                                                            for (r, row) in cells.iter().enumerate() {
+                                                                if let Some(row_array) = row.as_array() {
+                                                                    for (c, cell) in row_array.iter().enumerate() {
+                                                                        if let Some(cell_obj) = cell.as_object() {
+                                                                            if let Some(entity) = cell_obj.get("entity").and_then(|e| e.as_str()) {
+                                                                                println!("[DEBUG action_map] Found entity {} at ({}, {})", entity, r, c);
+                                                                                // Check if this entity belongs to the current player
+                                                                                if entity.contains(&format!("_{}", id)) {
+                                                                                    let location = format!("/zones/{}/cells/{}/{}", zone_id, r, c);
+                                                                                    println!("[DEBUG action_map] Found {} piece at {}", id, location);
+                                                                                    
+                                                                                    // Get UI direction from action
+                                                                                    let direction = a.get("ui")
+                                                                                        .and_then(|ui| ui.get("direction"))
+                                                                                        .and_then(|d| d.as_str())
+                                                                                        .unwrap_or("Select this piece");
+                                                                                    
+                                                                                    action_map.insert(location, json!({
+                                                                                        "action": action_id,
+                                                                                        "direction": direction
+                                                                                    }));
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            println!("[DEBUG action_map] No zones found in state");
+                                        }
+                                    }
+                                } else if action_impl == Some("moveSelected") {
+                                    // Handle moving selected pieces for Three Men's Morris
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        println!("[DEBUG action_map] Processing moveSelected action: {}", action_id);
+                                        
+                                        // Check if this player has a selection
+                                        let selection = state.get("selection")
+                                            .or_else(|| state.get("game").and_then(|g| g.get("selection")));
+                                            
+                                        if let Some(selection) = selection {
+                                            if selection.get(&id).is_some() {
+                                                println!("[DEBUG action_map] Player {} has a selection", id);
+                                                
+                                                // Find all empty cells that can be move targets
+                                                let zones = state.get("zones")
+                                                    .or_else(|| state.get("game").and_then(|g| g.get("zones")))
+                                                    .and_then(|z| z.as_object());
+                                                    
+                                                if let Some(zones) = zones {
+                                                    for (zone_id, zone_data) in zones {
+                                                        if let Some(zone_obj) = zone_data.as_object() {
+                                                            if zone_obj.get("type").and_then(|t| t.as_str()) == Some("grid") {
+                                                                if let Some(cells) = zone_obj.get("cells").and_then(|c| c.as_array()) {
+                                                                    for (r, row) in cells.iter().enumerate() {
+                                                                        if let Some(row_array) = row.as_array() {
+                                                                            for (c, cell) in row_array.iter().enumerate() {
+                                                                                if cell.is_null() {
+                                                                                    let location = format!("/zones/{}/cells/{}/{}", zone_id, r, c);
+                                                                                    
+                                                                                    // Get UI direction from action
+                                                                                    let direction = a.get("ui")
+                                                                                        .and_then(|ui| ui.get("direction"))
+                                                                                        .and_then(|d| d.as_str())
+                                                                                        .unwrap_or("Move to this location");
+                                                                                    
+                                                                                    action_map.insert(location, json!({
+                                                                                        "action": action_id,
+                                                                                        "direction": direction
+                                                                                    }));
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                println!("[DEBUG action_map] Player {} has no selection", id);
+                                            }
+                                        } else {
+                                            println!("[DEBUG action_map] No selection state found");
+                                        }
+                                    }
+                                } else if action_impl == Some("clearSelection") {
+                                    // Handle clearing selection for Three Men's Morris
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        println!("[DEBUG action_map] Processing clearSelection action: {}", action_id);
+                                        
+                                        // Check if this player has a selection to clear
+                                        let selection = state.get("selection")
+                                            .or_else(|| state.get("game").and_then(|g| g.get("selection")));
+                                            
+                                        if let Some(selection) = selection {
+                                            if selection.get(&id).is_some() {
+                                                println!("[DEBUG action_map] Player {} can clear selection", id);
+                                                
+                                                // Add a special action that can be triggered from anywhere
+                                                // We'll use a special location for this
+                                                let location = "/zones/board/clear_selection";
+                                                
+                                                // Get UI direction from action
+                                                let direction = a.get("ui")
+                                                    .and_then(|ui| ui.get("direction"))
+                                                    .and_then(|d| d.as_str())
+                                                    .unwrap_or("Cancel selection");
+                                                
+                                                action_map.insert(location.to_string(), json!({
+                                                    "action": action_id,
+                                                    "direction": direction
+                                                }));
                                             }
                                         }
                                     }
@@ -1526,49 +1680,22 @@ pub fn start_game(self: Arc<Self>) {
                                 if action["id"].as_str() == Some(action_id) {
                                     // Validate action conditions before executing
                                     if let Some(when_conditions) = action.get("when").and_then(|w| w.as_array()) {
+                                        let state = self.state.lock();
                                         for condition in when_conditions {
-                                            if let Some(condition_type) = condition.get("condition").and_then(|c| c.as_str()) {
-                                                if condition_type == "zone.isEmpty" {
-                                                    if let Some(with_obj) = condition.get("with").and_then(|w| w.as_object()) {
-                                                        if let Some(zone_template) = with_obj.get("zone").and_then(|z| z.as_str()) {
-                                                            // Replace {target} with the actual location from args
-                                                            if let Some(args_obj) = args.as_ref().and_then(|a| a.as_object()) {
-                                                                if let Some(location) = args_obj.get("location").and_then(|l| l.as_str()) {
-                                                                    let zone_path = zone_template.replace("{target}", location);
-                                                                    
-                                                                    // Check if the zone/cell is actually empty
-                                                                    let state = self.state.lock();
-                                                                    let is_empty = if zone_path.contains("/cells/") {
-                                                                        // For grid cells, check if the cell is null
-                                                                        get_value_at_path(&state, &zone_path).map(|v| v.is_null()).unwrap_or(false)
-                                                                    } else {
-                                                                        // For other zones, you might have different empty logic
-                                                                        false
-                                                                    };
-                                                                    
-                                                                    if !is_empty {
-                                                                        println!("[Socket] Action validation failed: zone {} is not empty", zone_path);
-                                                                        action_valid = false;
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                } else if condition_type == "player.isActor" {
-                                                    // Check if the current player is the one making the move
-                                                    let state = self.state.lock();
-                                                    let current_player = state.get("currentPlayer")
-                                                        .and_then(|cp| cp.as_str())
-                                                        .unwrap_or("");
-                                                    
-                                                    if current_player != current_actor {
-                                                        println!("[Socket] Action validation failed: player {} is not the current turn player ({})", current_actor, current_player);
-                                                        action_valid = false;
-                                                        break;
-                                                    }
+                                            match evaluate_condition(condition, &state, args.as_ref().unwrap_or(&json!({})), &current_actor) {
+                                                Ok(true) => {
+                                                    // Condition passed, continue
+                                                },
+                                                Ok(false) => {
+                                                    println!("[Socket] Action validation failed: condition {:?} not met", condition);
+                                                    action_valid = false;
+                                                    break;
+                                                },
+                                                Err(e) => {
+                                                    println!("[Socket] Error evaluating condition: {}", e);
+                                                    action_valid = false;
+                                                    break;
                                                 }
-                                                // Add other condition types here as needed
                                             }
                                         }
                                     }
@@ -1675,13 +1802,41 @@ pub fn start_game(self: Arc<Self>) {
                                                             "args": args
                                                         });
                                                         
-                                                        // Apply the then action
-                                                        let then_diff = engine::apply_action(
-                                                            &self.bundle, 
-                                                            &mut self.state.lock(), 
-                                                            &current_actor, 
-                                                            &then_engine_action
-                                                        );
+                                                        // Check 'when' conditions for then actions before applying
+                                                        let mut should_apply = true;
+                                                        if let Some(when_conditions) = then_action_def.get("when").and_then(|w| w.as_array()) {
+                                                            println!("[Socket] Checking {} conditions for 'then' action: {}", when_conditions.len(), then_action_id);
+                                                            for condition in when_conditions {
+                                                                match crate::conditions::evaluate_condition(condition, &self.state.lock(), &json!({}), &current_actor) {
+                                                                    Ok(result) => {
+                                                                        println!("[Socket] Condition {:?} result: {}", condition, result);
+                                                                        if !result {
+                                                                            should_apply = false;
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    Err(e) => {
+                                                                        println!("[Socket] Condition evaluation error: {}", e);
+                                                                        should_apply = false;
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        let then_diff = if should_apply {
+                                                            println!("[Socket] All conditions met, applying 'then' action: {}", then_action_id);
+                                                            // Apply the then action
+                                                            engine::apply_action(
+                                                                &self.bundle, 
+                                                                &mut self.state.lock(), 
+                                                                &current_actor, 
+                                                                &then_engine_action
+                                                            )
+                                                        } else {
+                                                            println!("[Socket] Conditions not met, skipping 'then' action: {}", then_action_id);
+                                                            Ok(vec![])
+                                                        };
                                                         
                                                         println!("[Socket] 'then' action result: {:?}", then_diff);
                                                         

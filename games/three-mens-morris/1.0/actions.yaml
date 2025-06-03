@@ -1,0 +1,117 @@
+# Place a piece - only available when player has placed fewer than 3 pieces
+- id: placeToken
+  uses: place
+  ui:
+    direction: "Place a piece on an empty intersection"
+    logTemplate: "{player} placed a piece at ({row}, {col})"
+  when:
+    - condition: zone.isEmpty
+      with:
+        zone: "{target}"
+    - condition: player.isActor
+    - condition: zone.count
+      with:
+        zone: "/zones/board"
+        entity: "piece_{player}"
+        operator: "<"
+        value: 3
+    - condition: phase.is
+      with:
+        phaseSet: "game"
+        phase: "placement"
+  then:
+    - action: checkForWin
+    - action: checkPhaseTransition
+    - action: advanceTurn
+
+# Check if both players have placed all pieces
+- id: checkPhaseTransition
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: "game"
+    phase: "movement"
+  when:
+    - condition: zone.count
+      with:
+        zone: "/zones/board"
+        entity: "piece_p1"
+        operator: "=="
+        value: 3
+    - condition: zone.count
+      with:
+        zone: "/zones/board"
+        entity: "piece_p2"
+        operator: "=="
+        value: 3
+
+# Select a piece to move (movement phase)
+- id: selectPiece
+  uses: selectEntity
+  ui:
+    direction: "Select one of your pieces to move"
+    logTemplate: "{player} selected a piece at ({row}, {col})"
+  when:
+    - condition: player.isActor
+    - condition: phase.is
+      with:
+        phaseSet: "game"
+        phase: "movement"
+    - condition: entity.owner
+      with:
+        entity: "{entityAtLocation}"
+        owner: "{player}"
+  with:
+    location: "{target}"
+    player: "{player}"
+
+# Move selected piece to any empty location
+- id: moveSelectedPiece  
+  uses: moveSelected
+  ui:
+    direction: "Move your selected piece to any empty location"
+    logTemplate: "{player} moved a piece"
+  when:
+    - condition: zone.isEmpty
+      with:
+        zone: "{target}"
+    - condition: player.isActor
+    - condition: phase.is
+      with:
+        phaseSet: "game"
+        phase: "movement"
+    - condition: entity.selected
+  then:
+    - action: checkForWin
+    - action: advanceTurn
+
+# Clear selection (cancel move)
+- id: clearSelection
+  uses: clearSelection
+  ui:
+    direction: "Cancel piece selection"
+    logTemplate: "{player} cancelled piece selection"
+  when:
+    - condition: player.isActor
+    - condition: phase.is
+      with:
+        phaseSet: "game"
+        phase: "movement"
+    - condition: entity.selected
+  with:
+    player: "{player}"
+
+# Check for win condition (3 in a row)
+- id: checkForWin
+  uses: grid.lineOfMarks
+  auto: true
+  with:
+    zone: "zones/board"
+    entity: "piece_{player}"
+    lineLength: 3
+    directions: ["horizontal", "vertical", "diagonal"]
+
+# Advance to next turn
+- id: advanceTurn
+  uses: nextTurn
+  auto: true

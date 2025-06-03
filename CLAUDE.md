@@ -146,6 +146,7 @@ The engine supports built-in verbs for common game operations:
 - `nextTurn` - Advance turn and update game state
 - `setPhase` - Change game phase
 - `grid.lineOfMarks` - Check for winning lines on grid zones (configurable)
+- `placeWithGravity` - Place entities with gravity (Connect-4 style)
 
 The `grid.lineOfMarks` verb provides flexible line detection for multiple game types:
 - **Parameters**: `zone` (grid path), `entity` (pattern like "mark_{player}"), `lineLength` (default 3), `directions` (array: ["horizontal", "vertical", "diagonal"])
@@ -158,6 +159,32 @@ Shorthand syntax includes:
 - `standardDeck` for 52-card deck generation
 - `cards.deal` for distributing cards to players
 - `cards.reveal` for revealing cards
+
+### Advanced Condition System
+The engine now supports sophisticated conditional logic in action `when` clauses:
+- `zone.isEmpty` - Check if a location is empty
+- `player.isActor` - Validate it's the player's turn
+- `zone.count` - Count entities with filtering and comparison operators
+- `entity.owner` - Check entity ownership
+- `phase.is` - Check current phase
+- `resource.value` - Compare resource values
+
+Example:
+```yaml
+when:
+  - condition: zone.count
+    with:
+      zone: "/zones/board"
+      entity: "piece_{player}"
+      operator: ">="
+      value: 3
+```
+
+### Proposed Enhancements
+See documentation for proposals on:
+- **Selection Pattern**: Two-phase selection (select piece → move it) with cancel support
+- **Enhanced UI Protocol**: Support for non-spatial UI elements like cancel buttons
+- **State Management**: Better handling of non-committal actions
 
 ## Testing Infrastructure
 

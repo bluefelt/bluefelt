@@ -17,6 +17,7 @@ mod validation;
 mod message_format;
 mod http_handlers;
 mod ws_handlers;
+mod conditions;
 
 use bundle::BundleMap;
 use lobby::LobbyMap;

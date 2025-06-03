@@ -49,10 +49,7 @@ export interface GameState {
     tie?: boolean;
   };
   zones?: Record<string, any>;
-  phases?: {
-    currentPhase?: string;
-    [key: string]: any;
-  };
+  phases?: Record<string, { current: string; count: number; actionsProcessed: number }>;
   selection?: {
     zone: string;
     row: number;

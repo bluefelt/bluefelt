@@ -111,38 +111,85 @@ ui:
   logTemplate: "{player} placed their marker at ({row}, {col})"
 ```
 
-### Conditions
+### Conditions (when)
 
-Control when actions are available:
+Control when actions are available using the `when` field:
 
 ```yaml
-conditions:
-  - type: "is_current_player_turn"
-  - type: "zone_is_not_full"
-    zone: "/zones/board"
-  - type: "entity_exists"
-    entity: "marker_{player}"
-  - type: "custom_condition"
-    hook: "canAffordAction"
+when:
+  - condition: "zone.isEmpty"
+    with:
+      zone: "{target}"
+  - condition: "player.isActor"
+```
+
+#### Current Condition Types
+
+**Basic Conditions:**
+- `zone.isEmpty` - Check if a zone/location is empty
+- `player.isActor` - Check if player is the current actor
+
+**Proposed Enhanced Conditions (To Be Implemented):**
+- `zone.count` - Count entities in a zone
+- `resource.value` - Check resource amounts
+- `phase.is` - Check current phase
+- `zone.compare` - Compare two zones
+- `zone.contains` - Check if zone contains specific entity
+- `player.hasPlaced` - Track player-specific counters
+- `game.turn` - Check turn number conditions
+
+Example of proposed comprehensive syntax:
+```yaml
+when:
+  # Check entity count
+  - condition: "zone.count"
+    with:
+      zone: "/zones/board"
+      entity: "piece_{player}"
+      operator: ">="  # ==, !=, >, <, >=, <=
+      value: 3
+      
+  # Check resource
+  - condition: "resource.value"
+    with:
+      resource: "gold_{player}"
+      operator: ">="
+      value: 10
+      
+  # Check phase
+  - condition: "phase.is"
+    with:
+      phaseSet: "game"
+      phase: "combat"
 ```
 
 ### Effects and Triggers
 
 Chain actions together:
 
-```yaml
-# Direct effects
-effects:
-  - verb: "place"
-    args:
-      location: "{location}"
-      entity: "marker_{player}"
-  - verb: "updateScore"
-    args:
-      player: "{player}"
-      amount: 1
+#### then vs triggers
+- **`then`**: Actions that execute after this action completes
+- **`triggers`**: (Legacy) Similar to `then` but less commonly used
 
-# Triggered actions
+```yaml
+# Preferred: Using "then" for action chaining
+then:
+  - action: "checkForWin"
+  - action: "checkPhaseTransition"
+  - action: "advanceTurn"
+
+# Alternative syntax with parameters
+then:
+  - action: "updateScore"
+    with:
+      player: "{player}"
+      amount: 10
+  - action: "setPhase"
+    with:
+      phaseSet: "game"
+      phase: "combat"
+
+# Legacy: Using "triggers" (still supported)
 triggers:
   - "check_win_condition"
   - "refill_market"
@@ -477,20 +524,46 @@ For complex game logic, you can create custom verbs:
 
 ### Automatic Action
 
+Automatic actions run without player input and are crucial for:
+- Phase transitions based on game state
+- Win condition checking
+- Resource management
+- Cleanup operations
+
 ```yaml
-- id: "refill_market"
+- id: "checkPhaseTransition"
+  auto: true  # Runs automatically when triggered
+  when:
+    - condition: "zone.count"
+      with:
+        zone: "/zones/board"
+        entity: "piece_{player}"
+        operator: ">="
+        value: 6
+  then:
+    - action: "setPhase"
+      with:
+        phaseSet: "game"
+        phase: "movement"
+
+# Another example: refill market
+- id: "refillMarket"
   uses: "draw"
-  auto: true  # Runs without player input
-  conditions:
-    - type: "zone_is_empty"
-      zone: "/zones/market"
-  effects:
-    - verb: "draw"
-      args:
-        from: "/zones/deck"
-        to: "/zones/market"
-        count: 5
+  auto: true
+  when:
+    - condition: "zone.isEmpty"
+      with:
+        zone: "/zones/market"
+  with:
+    from: "/zones/deck"
+    to: "/zones/market"
+    count: 5
 ```
+
+**Triggering Automatic Actions:**
+1. From other actions via `then`
+2. From phase enter actions
+3. From other automatic actions
 
 ### Conditional Triggers
 

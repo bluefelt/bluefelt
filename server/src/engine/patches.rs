@@ -93,16 +93,29 @@ fn process_phase_transition(
 ) -> Result<(), String> {
     println!("[DEBUG process_phases] Transitioning to phase: {}", transition_to);
     
+    // Parse the transition target: "game.placement" -> phaseSet="game", phase="placement"
+    let (target_phase_set, target_phase) = if transition_to.contains('.') {
+        let parts: Vec<&str> = transition_to.split('.').collect();
+        if parts.len() == 2 {
+            (parts[0], parts[1])
+        } else {
+            return Err(format!("Invalid phase transition format: {}", transition_to));
+        }
+    } else {
+        // If no dot, assume it's within the current phase set
+        (phase_set_id, transition_to)
+    };
+    
     // Update the phase state
     let phases = state["phases"].as_object_mut()
         .ok_or("Missing phases object")?;
-    phases.insert(phase_set_id.to_string(), json!(transition_to));
+    phases.insert(target_phase_set.to_string(), json!(target_phase));
     
     // Create patch for the transition
     patches.push(json!({
         "op": "replace",
-        "path": format!("/phases/{}", phase_set_id),
-        "value": transition_to
+        "path": format!("/phases/{}", target_phase_set),
+        "value": target_phase
     }));
     
     Ok(())

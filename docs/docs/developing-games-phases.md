@@ -16,6 +16,27 @@ Key principles:
 - Phases define what happens when you enter them and what actions are possible
 - Multiple phase sets can be active simultaneously
 
+## Current Capabilities and Limitations
+
+### What Phases CAN Do:
+- **Restrict available actions** using `possibleActions` array
+- **Execute automatic actions** when entering via `enterActions`
+- **Transition between phases** using `transitionToPhase` action
+- **Display UI prompts** specific to the current phase
+- **Run multiple phase tracks** simultaneously (game/round/turn)
+- **Track phase iteration** for rounds or repeated phases
+
+### What Phases CANNOT Currently Do:
+- **Direct conditional transitions** in phase definitions (but see workaround below)
+- **Dynamic action availability** based on complex state conditions
+- **Phase-specific entity creation** or zone modifications
+- **Automatic phase advancement** without action triggers
+
+### Common Workarounds:
+1. **For conditional transitions**: Use automatic actions that check state and transition
+2. **For complex phase logic**: Consider simplifying or using WebAssembly hooks
+3. **For dynamic phases**: Use UI state instead of game phases for some flows
+
 ## Phase Structure
 
 ### Basic Phase Set
@@ -204,6 +225,158 @@ Games can have multiple phase sets active at once. For example, gin rummy has:
 - `playerTurn` phases (null, draw, discard)
 
 Each operates independently and can be in different states simultaneously.
+
+## Conditional Phase Transitions
+
+While phases cannot directly define conditional transitions, you can achieve them using automatic actions that check game state:
+
+### Pattern: State-Based Phase Transitions
+
+```yaml
+# In actions.yaml
+- id: checkPiecePlacementComplete
+  auto: true  # Runs automatically
+  when:
+    # Check if all pieces have been placed
+    - condition: "zone.count"
+      with:
+        zone: "/zones/board"
+        entity: "piece_{player}"
+        operator: ">="
+        value: 6  # Total pieces for both players
+  then:
+    - action: "setPhase"
+      with:
+        phaseSet: "game"
+        phase: "movement"
+```
+
+### Triggering Conditional Checks
+
+Option 1: After relevant actions
+```yaml
+- id: placeToken
+  uses: "place"
+  then:
+    - action: "checkForWin"
+    - action: "checkPiecePlacementComplete"  # Check after each placement
+    - action: "advanceTurn"
+```
+
+Option 2: As phase enter actions
+```yaml
+# In phases.yaml
+- id: placement
+  enterActions:
+    - checkPiecePlacementComplete  # Check when entering phase
+```
+
+### Proposed Enhanced Condition Syntax
+
+To make this pattern more powerful, we need flexible conditions:
+
+```yaml
+# Count entities in zones
+- condition: "zone.count"
+  with:
+    zone: "/zones/board"
+    entity: "piece_p1"  # Or "piece_{player}" for any player
+    operator: "=="     # ==, !=, >, <, >=, <=
+    value: 3
+
+# Check resource values
+- condition: "resource.value"
+  with:
+    resource: "piecesPlaced_{player}"
+    operator: ">="
+    value: 3
+
+# Compare zone counts
+- condition: "zone.compare"
+  with:
+    zone1: "/zones/hand_p1"
+    zone2: "/zones/hand_p2"
+    operator: ">"  # p1 has more cards than p2
+
+# Check current phase
+- condition: "phase.is"
+  with:
+    phaseSet: "game"
+    phase: "placement"
+
+# Check multiple conditions (AND)
+when:
+  - condition: "zone.count"
+    with:
+      zone: "/zones/board"
+      entity: "piece_p1"
+      operator: ">="
+      value: 3
+  - condition: "zone.count"
+    with:
+      zone: "/zones/board"
+      entity: "piece_p2"
+      operator: ">="
+      value: 3
+```
+
+### Complete Example: Three Men's Morris
+
+```yaml
+# actions.yaml
+- id: placeToken
+  uses: "place"
+  when:
+    - condition: "zone.isEmpty"
+      with:
+        zone: "{target}"
+    - condition: "player.isActor"
+  then:
+    - action: "checkForWin"
+    - action: "checkPhaseTransition"
+    - action: "advanceTurn"
+
+# Automatic phase transition check
+- id: checkPhaseTransition
+  auto: true
+  when:
+    # Both players have placed 3 pieces
+    - condition: "zone.count"
+      with:
+        zone: "/zones/board"
+        entity: "piece_p1"
+        operator: ">="
+        value: 3
+    - condition: "zone.count"
+      with:
+        zone: "/zones/board"
+        entity: "piece_p2"
+        operator: ">="
+        value: 3
+  then:
+    - action: "setPhase"
+      with:
+        phaseSet: "game"
+        phase: "movement"
+
+# Movement action (only available in movement phase)
+- id: movePiece
+  uses: "moveEntity"
+  when:
+    - condition: "phase.is"
+      with:
+        phaseSet: "game"
+        phase: "movement"
+    - condition: "player.isActor"
+  ui:
+    direction: "Select a piece to move"
+    logTemplate: "{player} moved a piece"
+  then:
+    - action: "checkForWin"
+    - action: "advanceTurn"
+```
+
+This pattern allows complex phase management while keeping the system declarative and reusable.
 
 ### The "null" Phase
 

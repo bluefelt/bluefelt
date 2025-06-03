@@ -1,0 +1,17 @@
+gameId: "three-mens-morris"
+version: "1.0"
+specVersion: 1
+metadata:
+  name: "Three Men's Morris"
+  description: "An ancient strategy game where players compete to form three pieces in a row"
+  author: "Traditional"
+  players:
+    min: 2
+    max: 2
+    
+# Optional metadata
+tags: ["abstract", "strategy", "classic", "alignment"]
+estimatedTime: 10
+complexity: "easy"
+age: "6+"
+language: ["none"]

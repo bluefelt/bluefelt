@@ -109,6 +109,69 @@ setup:
 - `metadata.author` - Your name
 - `metadata.players.min/max` - Player count range (1-8)
 
+## Game Initialization
+
+### Understanding Initial State
+
+When a game starts, Bluefelt automatically creates the initial game state based on your configuration files. Here's what gets initialized:
+
+#### Automatic Initialization
+The engine automatically sets up:
+```json
+{
+  "zones": {},          // Created from zones.yaml
+  "players": [          // Created based on player count
+    {"id": "p1"},
+    {"id": "p2"}
+  ],
+  "turn": 0,            // Always starts at 0
+  "tick": 0,            // Internal counter
+  "currentPlayer": "p1", // Always starts with p1
+  "gameStatus": {       // Default playing state
+    "state": "playing",
+    "winner": null,
+    "tie": false
+  },
+  "phases": {}          // Created from phases.yaml if present
+}
+```
+
+#### Zone Initialization
+Zones are created based on their type:
+- **Grid zones**: Initialize with empty cells based on rows/cols
+- **List zones**: Start as empty arrays
+- **Deck zones**: Populated with entities if specified
+- **Resource zones**: Start with initial values
+
+#### Entity Creation
+Entities with `{player}` templates are created for each player:
+```yaml
+# This in entities.yaml:
+- id: "score_{player}"
+  props:
+    value: 0
+
+# Creates:
+# - score_p1 with value: 0
+# - score_p2 with value: 0
+```
+
+### Custom Setup Actions
+
+For complex initialization (shuffling decks, dealing cards, etc.), use setup actions in your manifest.yaml:
+
+```yaml
+# In manifest.yaml
+setup:
+  - shuffle: "deck"
+  - deal:
+      from: "deck"
+      to: "hand_{player}"
+      count: 7
+```
+
+**Note**: The `setup` field in manifest.yaml is currently limited. Most games handle complex setup through initial phase actions.
+
 ### 2. Entities (entities.yaml)
 
 Entities are the game components - pieces, cards, tokens, etc.:
@@ -327,51 +390,117 @@ The server sends available actions as a map of locations to action details:
 
 ## Built-in Verbs
 
-Bluefelt provides several built-in verbs for common game actions:
+Bluefelt provides several built-in verbs for common game actions. Understanding these verbs is crucial for implementing games efficiently.
 
-### Core Verbs
+### Entity Placement and Movement
 
-- **`place`** - Place an entity at a grid location
-  ```yaml
-  uses: "place"
-  # Allows placing entities on grid zones
-  ```
+#### `place`
+Places an entity at a specific grid location.
+```yaml
+uses: "place"
+# The location and entity are determined by the action context
+# Typically used with grid zones for placing pieces
+```
 
-- **`moveEntity`** - Move entities between zones/locations
-  ```yaml
-  uses: "moveEntity" 
-  # Move from one zone to another
-  ```
+#### `placeWithGravity`
+Places an entity that automatically falls to the lowest available position (Connect 4 style).
+```yaml
+uses: "placeWithGravity"
+# Entity falls down in the specified column
+# Returns error if column is full
+```
 
-- **`draw`** - Draw from deck to hand/zone
-  ```yaml
-  uses: "draw"
-  # Draw cards from deck
-  ```
+#### `moveEntity`
+Moves entities between zones or locations within a zone.
+```yaml
+uses: "moveEntity"
+with:
+  from: "/zones/source/0"      # Source location
+  to: "/zones/destination/1"   # Target location
+  entity: "piece_p1"          # Optional: specific entity to move
+```
 
-### Game Logic Verbs
+#### `draw`
+Draws entities (typically cards) from one zone to another.
+```yaml
+uses: "draw"
+with:
+  from: "/zones/deck"         # Source zone (usually a deck)
+  to: "/zones/hand_p1"        # Target zone (usually a hand)
+  count: 5                    # Number to draw (default: 1)
+```
 
-- **`grid.lineOfMarks`** - Check for winning lines on grid zones
-  ```yaml
-  uses: "grid.lineOfMarks"
-  with:
-    zone: "/zones/board"
-    entity: "mark_{player}"  # Matches any player's marks
-    lineLength: 3  # For tic-tac-toe (use 4 for Connect-4, 5 for Gomoku)
-    directions: ["horizontal", "vertical", "diagonal"]
-  # Automatically sets gameStatus when win/tie detected
-  ```
+### Win Condition Checking
 
-### Turn Management
+#### `grid.lineOfMarks`
+Checks for winning line patterns on grid zones. Highly configurable for different games.
+```yaml
+uses: "grid.lineOfMarks"
+with:
+  zone: "/zones/board"         # Grid zone to check
+  entity: "mark_{player}"      # Entity pattern to match (supports {player} template)
+  lineLength: 3                # Length of line to win (3 for tic-tac-toe, 4 for Connect-4, 5 for Gomoku)
+  directions: ["horizontal", "vertical", "diagonal"]  # Which directions to check
+```
 
-- **`nextTurn`** - Advance to next player
-- **`setPhase`** - Change game phase
+**Behavior:**
+- Automatically sets `gameStatus.state` to "ended" when a win is detected
+- Sets `gameStatus.winner` to the winning player
+- Detects ties when the board is full with no winner
+- Works with any grid size and line length
 
-### Preset Actions
+### Turn and Phase Management
 
-- **`presets.grid.move`** - Grid-based movement
-- **`presets.turn.advance`** - Standard turn advancement
-- **`presets.zone.reset`** - Reset zone contents
+#### `nextTurn`
+Advances the game to the next player's turn.
+```yaml
+uses: "nextTurn"
+# No parameters needed
+# Automatically updates:
+# - turn (increments by 1)
+# - currentPlayer (cycles through players)
+# - tick (internal counter)
+```
+
+#### `setPhase`
+Changes the current phase within a phase set.
+```yaml
+uses: "setPhase"
+with:
+  phaseSet: "game"            # Which phase set to update
+  phase: "combat"             # New phase to enter
+```
+
+### Important Verb Details
+
+#### Arguments and Context
+- Most verbs get their primary arguments from the action context (like target location)
+- The `with` field provides additional parameters
+- Entity selection often comes from the UI interaction
+
+#### Error Handling
+Verbs return errors for invalid operations:
+- Placing on occupied spaces
+- Moving non-existent entities  
+- Drawing from empty decks
+- Invalid locations
+
+#### Patch Generation
+All verbs generate JSON patches that:
+- Update the authoritative game state
+- Are broadcast to all connected clients
+- Can be applied incrementally
+
+### Extending with New Verbs
+
+If your game needs mechanics not covered by built-in verbs:
+
+1. **First check if existing verbs can work** with different parameters
+2. **Consider if the mechanic is reusable** across multiple games
+3. **Propose a new generic verb** that could benefit other developers
+4. **Only use WebAssembly hooks** as a last resort for truly unique mechanics
+
+See the Implementation Planning section for the process of proposing new verbs.
 
 ## Shorthand Syntax
 
@@ -840,6 +969,24 @@ Common effects for actions and events:
 - `createEntity` - Spawn new items
 - `announce` - Show message to all
 
+## Learning from Existing Games
+
+Before implementing your game, study existing implementations:
+
+### Games to Reference:
+- **Tic-tac-toe** - Simplest grid placement and win detection
+- **Connect-4** - Gravity mechanics and vertical win patterns
+- **Gin Rummy** - Complex phases and card game patterns
+- **Stone Age** - Worker placement and resource management
+- **Checkers** - Piece movement and capture mechanics
+
+### What to Look For:
+1. **Action patterns** - How similar mechanics are implemented
+2. **Phase usage** - When phases add value vs complexity
+3. **Zone structures** - Effective ways to organize game areas
+4. **Entity design** - Reusable entity patterns
+5. **UI conventions** - Consistent user experience patterns
+
 ## Next Steps
 
 Once you've created your first game:
@@ -853,3 +1000,27 @@ Once you've created your first game:
 The Bluefelt platform provides a powerful foundation for turn-based game development. Start with simple mechanics and gradually add complexity as you become familiar with the system.
 
 > **Need More Details?** See the [Game Implementation Guide](./game-implementation-guide.md) for step-by-step implementation instructions, or consult the individual topic guides for deep dives into specific features.
+
+## Important Discovery: Conditional Logic in Actions
+
+The action system supports conditional logic that enables sophisticated game mechanics:
+
+```yaml
+# Actions can check game state and make decisions
+- id: automaticAction
+  auto: true
+  when:
+    - condition: "zone.count"  # Check pieces on board
+    - condition: "phase.is"    # Check current phase
+  then:
+    - action: "setPhase"       # Change game phase
+    - action: "otherAction"    # Trigger other effects
+```
+
+This pattern allows you to implement:
+- **Phase transitions based on game state** (e.g., "switch to movement phase after all pieces placed")
+- **Dynamic rule changes** based on board conditions
+- **Complex win conditions** beyond simple patterns
+- **Milestone-based progression** without hardcoding
+
+The key is thinking of actions as your game's logic engine, not just player interactions!

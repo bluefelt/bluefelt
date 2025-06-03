@@ -17,6 +17,9 @@ pub fn apply_verb(
         "nextTurn" => apply_next_turn(state, args, bundle),
         "setPhase" => apply_set_phase(state, args),
         "grid.lineOfMarks" => apply_check_for_win(state, args),
+        "selectEntity" => apply_select_entity(state, args),
+        "moveSelected" => apply_move_selected(state, args),
+        "clearSelection" => apply_clear_selection(state, args),
         _ => Err(format!("Unknown verb: {}", verb)),
     }
 }
@@ -222,6 +225,122 @@ fn apply_set_phase(state: &mut Value, args: &Value) -> Result<Vec<Value>, String
         "value": phase
     })])
 }
+
+fn apply_select_entity(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let location = args["location"].as_str().ok_or("Missing 'location'")?;
+    let player = args["player"].as_str().ok_or("Missing 'player'")?;
+    
+    // Validate that there's an entity at this location
+    if !location.starts_with("/zones/") {
+        return Err("Invalid location path".to_string());
+    }
+    
+    // Parse location to get zone path
+    let path_parts: Vec<&str> = location.split('/').filter(|p| !p.is_empty()).collect();
+    if path_parts.len() < 2 {
+        return Err("Invalid location format".to_string());
+    }
+    
+    // Get the entity at the location
+    let entity = get_cell_value(state, location)?;
+    if entity.is_null() {
+        return Err("No entity at specified location".to_string());
+    }
+    
+    // Store selection in player's selection state
+    let state_obj = state.as_object_mut().ok_or("State is not an object")?;
+    
+    // Initialize selection state if it doesn't exist
+    if !state_obj.contains_key("selection") {
+        state_obj.insert("selection".to_string(), json!({}));
+    }
+    
+    let selection = state_obj.get_mut("selection")
+        .and_then(|s| s.as_object_mut())
+        .ok_or("Invalid selection state")?;
+    
+    selection.insert(player.to_string(), json!({
+        "location": location,
+        "entity": entity
+    }));
+    
+    Ok(vec![json!({
+        "op": "replace",
+        "path": format!("/game/selection/{}", player),
+        "value": {
+            "location": location,
+            "entity": entity
+        }
+    })])
+}
+
+fn apply_move_selected(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let target_location = args["target"].as_str().ok_or("Missing 'target'")?;
+    let player = args["player"].as_str().ok_or("Missing 'player'")?;
+    
+    // Get current selection and clone the data we need
+    let (source_location, selected_entity) = {
+        let selection_state = state.get("selection")
+            .and_then(|s| s.get(player))
+            .ok_or("No selection found for player")?;
+        
+        let source_location = selection_state["location"].as_str()
+            .ok_or("Invalid selection location")?
+            .to_string();
+        let selected_entity = selection_state["entity"].clone();
+        
+        (source_location, selected_entity)
+    };
+    
+    // Validate target is empty
+    let target_value = get_cell_value(state, target_location)?;
+    if !target_value.is_null() {
+        return Err("Target location is not empty".to_string());
+    }
+    
+    // Move the entity
+    set_cell_value(state, &source_location, json!(null))?;
+    set_cell_value(state, target_location, selected_entity.clone())?;
+    
+    // Clear selection
+    let state_obj = state.as_object_mut().ok_or("State is not an object")?;
+    if let Some(selection) = state_obj.get_mut("selection").and_then(|s| s.as_object_mut()) {
+        selection.remove(player);
+    }
+    
+    Ok(vec![
+        json!({
+            "op": "replace",
+            "path": format!("/game{}", source_location),
+            "value": null
+        }),
+        json!({
+            "op": "replace", 
+            "path": format!("/game{}", target_location),
+            "value": selected_entity
+        }),
+        json!({
+            "op": "remove",
+            "path": format!("/game/selection/{}", player)
+        })
+    ])
+}
+
+fn apply_clear_selection(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let player = args["player"].as_str().ok_or("Missing 'player'")?;
+    
+    // Clear player's selection
+    let state_obj = state.as_object_mut().ok_or("State is not an object")?;
+    if let Some(selection) = state_obj.get_mut("selection").and_then(|s| s.as_object_mut()) {
+        selection.remove(player);
+    }
+    
+    Ok(vec![json!({
+        "op": "remove",
+        "path": format!("/game/selection/{}", player)
+    })])
+}
+
 
 #[cfg(test)]
 mod tests {

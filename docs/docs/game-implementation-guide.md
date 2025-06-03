@@ -1,10 +1,10 @@
 # Game Implementation Guide
 
-This guide outlines the standard process for implementing new games on the Bluefelt platform. Follow these steps to ensure consistency, quality, and maintainability.
+This is the comprehensive reference for implementing games on the Bluefelt platform. For a quick overview of the workflow, see the [Game Implementation Workflow](./game-implementation-workflow.md).
 
 ## Overview
 
-Each game implementation follows an 8-step process designed to ensure thorough planning, proper implementation, and comprehensive testing before release.
+This guide provides detailed information about each step of the game implementation process. Each game implementation follows an 8-step process designed to ensure thorough planning, proper implementation, and comprehensive testing before release.
 
 ## Step 1: Document Game Rules
 
@@ -134,29 +134,256 @@ Plan the client-side rendering:
 - **Animation needs**: State transitions, piece movement
 - **Update frequency**: Real-time vs turn-based updates
 
-## Step 4: Implementation Planning
+## Step 4: Implementation Planning (Critical Phase)
 
-Create an implementation summary:
+**This is the most important step!** Before writing any code, analyze what the engine can and cannot do. Each game implementation is an opportunity to improve the Bluefelt engine for all developers.
 
-### 4.1 New Additions Needed
-List all new components:
-- **Server-side**: New verbs, validation logic, state structures
-- **Client-side**: New components, rendering logic, interactions
-- **Shared**: New types, constants, utilities
+### 4.1 Analyze Engine Capabilities
 
-### 4.2 Integration Strategy
-Plan how to add features while maintaining:
-- **Backward compatibility**: Don't break existing games
-- **Declarative design**: Configuration over code
-- **Reusability**: Make components generic when possible
-- **Performance**: Avoid expensive operations
+#### Built-in Verbs Available:
+- **place**: Place entity at specific location
+- **placeWithGravity**: Place with automatic falling (Connect 4 style)
+- **moveEntity**: Move entity between locations
+- **draw**: Move entities from deck to hand/zone
+- **nextTurn**: Advance turn and update current player
+- **setPhase**: Change game phase
+- **grid.lineOfMarks**: Check for winning lines (configurable for 3-in-a-row, 4-in-a-row, etc.)
 
-### 4.3 Implementation Phases
-Break down into manageable chunks:
-1. **MVP**: Minimum playable version
-2. **Core features**: Essential game mechanics
-3. **Polish**: Animations, better UX
-4. **Advanced**: Optional rules, variations
+#### What CAN be done declaratively:
+- Turn-based gameplay with automatic turn advancement
+- Grid-based games with placement and movement
+- Win conditions based on line patterns
+- Card/deck mechanics
+- Simple phase transitions
+- Automatic actions triggered by other actions
+- Visibility rules per zone
+
+#### What CANNOT currently be done declaratively:
+- Complex phase management (e.g., "place 3 pieces then switch to movement phase")
+- Conditional action availability based on game state
+- Resource tracking tied to phase transitions
+- Custom movement patterns (e.g., chess pieces, checkers jumping)
+- Capture mechanics with special rules
+- Area control/influence calculations
+
+### 4.2 Identify Missing Capabilities
+
+For each mechanic your game needs that isn't supported:
+
+1. **Document the gap clearly**:
+   - What exactly do you need?
+   - Why can't current verbs handle it?
+   - What games would benefit from this feature?
+
+2. **Propose a reusable solution**:
+   - Design a new verb that's generic enough for multiple games
+   - Consider parameters that make it flexible
+   - Think about edge cases
+
+3. **Examples of good verb design**:
+   - `grid.lineOfMarks` - Works for tic-tac-toe (3), Connect 4 (4), Gomoku (5)
+   - `placeWithGravity` - Works for Connect 4, Plinko-style games
+   - `moveEntity` - Generic enough for cards, tokens, pieces
+
+### 4.3 Implementation Strategy Decision Tree
+
+```
+Does your game mechanic exist as a built-in verb?
+├─ YES → Use it with appropriate parameters
+└─ NO → Can it be generalized for multiple games?
+    ├─ YES → Work with maintainers to add new verb
+    └─ NO → Is it truly unique to this one game?
+        ├─ YES → Consider WebAssembly hook (last resort)
+        └─ NO → Rethink the generalization
+```
+
+### 4.4 Common Patterns and Solutions
+
+#### Phase Management Pattern
+**Problem**: "Game needs different rules in different phases"
+**Solution**: Use automatic actions with conditions to manage phase transitions
+```yaml
+# Action that checks state and transitions phases
+- id: checkPhaseTransition
+  auto: true  # Runs automatically
+  when:
+    - condition: "zone.count"
+      with:
+        zone: "/zones/board"
+        entity: "piece_{player}"
+        operator: ">="
+        value: 6
+  then:
+    - action: "setPhase"
+      with:
+        phaseSet: "game"
+        phase: "movement"
+
+# Trigger this check after relevant actions
+- id: placeToken
+  uses: "place"
+  then:
+    - action: "checkPhaseTransition"
+    - action: "advanceTurn"
+```
+
+This pattern allows complex phase logic while keeping it declarative.
+
+#### Resource Tracking Pattern
+**Problem**: "Need to track how many pieces each player has placed"
+**Current Limitation**: No built-in counter that affects game flow
+**Proposed Solution**: Add resource conditions and verbs
+```yaml
+# Potential new verb
+- uses: "incrementResource"
+  with:
+    resource: "piecesPlaced_{player}"
+    amount: 1
+```
+
+#### Conditional Actions Pattern
+**Problem**: "Action should only be available if player has done X"
+**Current Limitation**: Limited conditional system
+**Proposed Solution**: Extend condition system
+
+### 4.5 Working with Maintainers
+
+When you identify a gap:
+
+1. **Document the use case** in the implementation guide
+2. **Propose the solution** with YAML examples
+3. **Show how multiple games** would benefit
+4. **Test with simplified version** first
+5. **Iterate on the design** based on feedback
+
+### 4.6 Real Examples of Gap Identification
+
+#### Example 1: Three Men's Morris
+**Game Requirement**: Players place 3 pieces each, then move pieces
+
+**Initial Assessment**:
+1. **Phase transitions based on game state** - Can use action conditions!
+2. **Different actions in different phases** - Can use phase conditions!
+3. **Track pieces placed** - Can count entities in zones!
+
+**Working Solution Using Existing Patterns**:
+```yaml
+# Place action (available in placement phase)
+- id: placeToken
+  uses: "place"
+  when:
+    - condition: "zone.isEmpty"
+      with:
+        zone: "{target}"
+    - condition: "player.isActor"
+  then:
+    - action: "checkPhaseTransition"
+    - action: "advanceTurn"
+
+# Automatic phase check
+- id: checkPhaseTransition
+  auto: true
+  when:
+    - condition: "zone.count"
+      with:
+        zone: "/zones/board"
+        entity: "piece_p1"
+        operator: ">="
+        value: 3
+    - condition: "zone.count"
+      with:
+        zone: "/zones/board"
+        entity: "piece_p2"
+        operator: ">="
+        value: 3
+  then:
+    - action: "setPhase"
+      with:
+        phaseSet: "game"
+        phase: "movement"
+
+# Move action (only in movement phase)
+- id: movePiece
+  uses: "moveEntity"
+  when:
+    - condition: "phase.is"
+      with:
+        phaseSet: "game"
+        phase: "movement"
+```
+
+**Enhancement Needed**: More flexible condition syntax for counting
+
+#### Example 2: Chess (Hypothetical)
+**Game Requirement**: Pieces move in specific patterns
+
+**Identified Gap**: No piece-specific movement rules
+
+**Proposed Generic Solution**:
+```yaml
+# Proposed: Movement pattern verb
+- uses: "moveWithPattern"
+  with:
+    piece: "{selected}"
+    patterns:
+      knight: "L-shape"
+      bishop: "diagonal"
+      rook: "straight"
+```
+
+**Benefits**: Reusable for chess variants, checkers, shogi
+
+#### Example 3: Monopoly-style Game
+**Game Requirement**: Move around board, trigger space effects
+
+**Identified Gaps**:
+1. No circular track movement
+2. No location-triggered effects
+3. No property ownership
+
+**Proposed Generic Solutions**:
+```yaml
+# Proposed: Track movement verb
+- uses: "moveOnTrack"
+  with:
+    track: "board"
+    distance: "{diceRoll}"
+    direction: "forward"
+    
+# Proposed: Location triggers
+zones:
+  - id: "boardwalk"
+    onEnter:
+      - action: "payRent"
+        when:
+          - condition: "property.hasOwner"
+```
+
+#### Example 4: Deck Building Game
+**Game Requirement**: Buy cards from market, build personal deck
+
+**Identified Gaps**:
+1. No marketplace mechanics
+2. No card purchasing system
+3. No deck cycling (discard → draw pile)
+
+**Proposed Generic Solutions**:
+```yaml
+# Proposed: Purchase verb
+- uses: "purchase"
+  with:
+    from: "market"
+    to: "discard_{player}"
+    cost:
+      gold: 3
+      
+# Proposed: Deck cycling
+- uses: "shuffleDiscardIntoDeck"
+  when:
+    - condition: "zone.isEmpty"
+      with:
+        zone: "deck_{player}"
+```
 
 ## Step 5: Implementation
 
@@ -647,6 +874,56 @@ After implementing any new game:
 - [ ] Add new patterns to best practices
 - [ ] Document any new verbs or components
 - [ ] Update SDK reference if needed
+
+## Documentation Improvements Reflection
+
+Based on implementation experiences, here's what documentation should emphasize:
+
+### Critical Information Often Missing:
+1. **Initial State Structure** - How the game state is initialized automatically
+2. **Path Formats** - Exact formats for zone paths in actions and patches
+3. **Verb Limitations** - What each verb can and cannot do
+4. **Conditional Capabilities** - Current limitations of the condition system
+5. **Error Messages** - Common errors and their meanings
+
+### Documentation Best Practices:
+- **Show complete examples** not just fragments
+- **Document edge cases** and limitations explicitly  
+- **Include debugging tips** for common issues
+- **Provide decision trees** for choosing approaches
+- **List all available options** for each configuration
+
+### Recommended Documentation Structure:
+1. **Quick Start** - Minimal working example
+2. **Concept Overview** - How the system works
+3. **Complete Reference** - All options and parameters
+4. **Limitations** - What isn't possible yet
+5. **Workarounds** - How to handle gaps
+6. **Examples** - Full, working implementations
+
+### Key Learning: Action Conditions Enable Complex Logic
+
+The action system with conditional logic is more powerful than initially apparent:
+
+```yaml
+# Automatic actions can check any game state
+- id: checkCondition
+  auto: true
+  when:
+    - condition: "zone.count"
+    - condition: "resource.value"
+    - condition: "phase.is"
+  then:
+    - action: "any_action"
+```
+
+This enables:
+- **Conditional phase transitions** based on game state
+- **Dynamic game flow** without hardcoding
+- **Complex win conditions** beyond simple patterns
+- **Resource-triggered events** and milestones
+
+The key insight: Think of actions as your game's logic engine, not just player interactions.
 
 ## Next Steps
 

@@ -41,6 +41,7 @@ export default function BoardCell({
   }, [useCheckerPattern, isDarkSquare]);
 
   const handleClick = () => {
+    console.log('[CLIENT BoardCell] Click at', row, col, 'isClickable:', isClickable);
     if (isClickable) {
       onCellClick(row, col);
     }

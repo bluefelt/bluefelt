@@ -33,7 +33,7 @@ export type LobbyState = {
     };
     players?: Array<{ id: string; mark?: string }>;
     zones?: Record<string, unknown[][]>;
-    phases?: Record<string, any>;
+    phases?: Record<string, { current: string; count: number; actionsProcessed: number }>;
     selection?: any;
   };
   started?: boolean;
@@ -191,6 +191,24 @@ export function useLobbyWebSocket(
             }
             
             const result = { ...workingState, you: prev.you, started: prev.started };
+            
+            // Transform phase data from server format to expected client format
+            if (result.game?.phases && typeof result.game.phases === 'object') {
+              const transformedPhases: Record<string, { current: string; count: number; actionsProcessed: number }> = {};
+              for (const [key, value] of Object.entries(result.game.phases)) {
+                if (typeof value === 'string') {
+                  transformedPhases[key] = {
+                    current: value,
+                    count: 0,
+                    actionsProcessed: 0
+                  };
+                } else if (value && typeof value === 'object' && 'current' in value) {
+                  // Already in expected format
+                  transformedPhases[key] = value as { current: string; count: number; actionsProcessed: number };
+                }
+              }
+              result.game.phases = transformedPhases;
+            }
             
             if (import.meta.env.DEV) {
               // State updated

@@ -1,0 +1,24 @@
+# Three Men's Morris phases with proper placement and movement
+
+- id: game
+  phases:
+    - id: setup
+      initial: true
+      enterActions:
+        - transitionToPhase: game.placement
+    
+    - id: placement
+      possibleActions: [placeToken]
+      ui:
+        display: "Placement Phase"  
+        prompt: "Place a piece on an empty intersection (max 3 pieces per player)"
+    
+    - id: movement
+      possibleActions: [selectPiece, moveSelectedPiece, clearSelection]
+      ui:
+        display: "Movement Phase"
+        prompt: "Select one of your pieces to move, then move it to any empty location"
+    
+    - id: end
+      ui:
+        display: "Game Over - {winner} wins!"

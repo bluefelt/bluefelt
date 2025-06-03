@@ -1,0 +1,8 @@
+# Player pieces - 3 per player
+- id: "piece_{player}"
+  quantity: 3
+  props:
+    value: "{player}"
+    owner: "{player}"
+  ui:
+    tokenType: "{player}"  # Will show as p1/p2 tokens

@@ -14,7 +14,7 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
     let zones = create_zones(&players, &bundle.zones);
     let phase_states = initialize_phase_states(&bundle.phases);
 
-    json!({
+    let mut initial_state = json!({
         "zones": zones,
         "players": players,
         "tick": INITIAL_TICK,
@@ -25,8 +25,20 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
             "winner": null,
             "tie": false
         },
-        "phases": phase_states
-    })
+        "phases": phase_states,
+        "selection": {}
+    });
+    
+    // Initialize selection for each player to avoid patch errors
+    if let Some(selection) = initial_state.get_mut("selection").and_then(|s| s.as_object_mut()) {
+        for player in &players {
+            if let Some(player_id) = player.get("id").and_then(|id| id.as_str()) {
+                selection.insert(player_id.to_string(), json!(null));
+            }
+        }
+    }
+    
+    initial_state
 }
 
 fn create_players(player_count: u32) -> Vec<Value> {

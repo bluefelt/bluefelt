@@ -248,7 +248,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
               <div className="mb-6">
                 <PhaseTracker
                   phases={lobbyState.ui.phases}
-                  currentPhaseId={lobbyState.game?.phases?.currentPhase}
+                  currentPhaseId={lobbyState.game?.phases?.game?.current}
                 />
                 <PhaseDisplay
                   phaseMessages={lobbyState.ui?.phaseMessages}
