@@ -1,5 +1,0 @@
-# Crazy Eights entities using shorthand syntax
-- type: standardDeck
-  id: deck
-  options:
-    cardType: playing_card

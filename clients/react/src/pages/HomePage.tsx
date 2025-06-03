@@ -1,18 +1,22 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 
 export default function HomePage() {
   const { player } = usePlayer();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
+    // Preserve any navigation state (like error messages)
+    const navigationState = location.state;
+    
     if (player) {
-      navigate('/lobbies', { replace: true });
+      navigate('/lobbies', { replace: true, state: navigationState });
     } else {
-      navigate('/login', { replace: true });
+      navigate('/login', { replace: true, state: navigationState });
     }
-  }, [player, navigate]);
+  }, [player, navigate, location.state]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">

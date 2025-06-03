@@ -1,7 +1,7 @@
 //! lobby.rs – minimal in-memory lobby with broadcast fan-out
 //! Supports: welcome snapshot → JSON action → diff broadcast
 
-use crate::{bundle::Bundle, engine};
+use crate::{bundle::Bundle, engine, message_format::{MessageFormat, UpdateFormat, format_welcome_message, patch_to_full_state}};
 use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
@@ -9,8 +9,17 @@ use parking_lot::Mutex;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex as TokioMutex};
+use std::collections::HashMap;
 
 pub type LobbyMap = DashMap<String, Arc<Lobby>>;
+
+/// Client connection preferences
+#[derive(Clone)]
+struct ClientInfo {
+    player_id: String,
+    message_format: MessageFormat,
+    update_format: UpdateFormat,
+}
 
 /* --------------------------------------------------------------------------
    constructor helper
@@ -47,39 +56,23 @@ pub fn current_lobbies_json(lobbies: &LobbyMap) -> serde_json::Value {
                 // Check for game status (ended state) FIRST
                 let mut game_ended = false;
                 
-                // First check inside state.meta
-                if let Some(meta) = state.get("meta") {
-                    println!("[DEBUG current_lobbies_json] Lobby {} has meta", l.key());
-                    if let Some(game_status) = meta.get("gameStatus") {
-                        println!("[DEBUG current_lobbies_json] Lobby {} has gameStatus in meta: {:?}", l.key(), game_status);
-                        lobby_json["gameStatus"] = game_status.clone();
-                        if game_status["state"].as_str() == Some("ended") {
-                            game_ended = true;
-                        }
-                    }
-                } else {
-                    println!("[DEBUG current_lobbies_json] Lobby {} has NO meta", l.key());
-                }
-                
-                // Also check at top level (in case patches were applied there)
-                if lobby_json.get("gameStatus").is_none() {
-                    if let Some(game_status) = state.get("gameStatus") {
-                        println!("[DEBUG current_lobbies_json] Lobby {} has gameStatus at top level: {:?}", l.key(), game_status);
-                        lobby_json["gameStatus"] = game_status.clone();
-                        if game_status["state"].as_str() == Some("ended") {
-                            game_ended = true;
-                        }
+                // Check for game status at top level
+                if let Some(game_status) = state.get("gameStatus") {
+                    println!("[DEBUG current_lobbies_json] Lobby {} has gameStatus: {:?}", l.key(), game_status);
+                    lobby_json["gameStatus"] = game_status.clone();
+                    if game_status["state"].as_str() == Some("ended") {
+                        game_ended = true;
                     }
                 }
                 
                 // Only add currentTurn if game has NOT ended
                 if !game_ended {
-                    if let Some(turn) = state.get("turn").and_then(|t| t.as_str()) {
+                    if let Some(current_player) = state.get("currentPlayer").and_then(|t| t.as_str()) {
                         // Map actor ID to player name
                         let players = lobby.player_list();
-                        if turn == "p1" && players.len() > 0 {
+                        if current_player == "p1" && players.len() > 0 {
                             lobby_json["currentTurn"] = json!(players[0]);
-                        } else if turn == "p2" && players.len() > 1 {
+                        } else if current_player == "p2" && players.len() > 1 {
                             lobby_json["currentTurn"] = json!(players[1]);
                         }
                     }
@@ -116,6 +109,9 @@ pub struct Lobby {
 
     /// Stored diff history
     history: Mutex<Vec<serde_json::Value>>,
+    
+    /// Client format preferences
+    client_formats: Mutex<HashMap<String, ClientInfo>>,
 
     /// Sender for lobby list updates
     lobby_updates: broadcast::Sender<Message>,
@@ -142,6 +138,7 @@ impl Lobby {
             game_started: Mutex::new(false),
             tick: Mutex::new(0),
             history: Mutex::new(Vec::new()),
+            client_formats: Mutex::new(HashMap::new()),
             lobby_updates,
             lobbies,
         }
@@ -212,23 +209,144 @@ impl Lobby {
         false
     }
 
+    /// Expand zone groups with player templates to include actual player IDs
+    fn expand_zone_metadata(zones: &serde_json::Value, players: &[String]) -> serde_json::Value {
+        if let Some(zones_array) = zones.as_array() {
+            let mut expanded_zones = Vec::new();
+            
+            for zone in zones_array {
+                if let Some(zone_obj) = zone.as_object() {
+                    let zone_id = zone_obj.get("id").and_then(|id| id.as_str()).unwrap_or("");
+                    
+                    if zone_id.contains("{player}") {
+                        // Expand for each player
+                        for (idx, _player) in players.iter().enumerate() {
+                            let player_id = format!("p{}", idx + 1);
+                            let mut player_zone = zone_obj.clone();
+                            
+                            // Replace {player} in id
+                            if let Some(id_val) = player_zone.get_mut("id") {
+                                if let Some(id_str) = id_val.as_str() {
+                                    *id_val = json!(id_str.replace("{player}", &player_id));
+                                }
+                            }
+                            
+                            // Replace {player} in name
+                            if let Some(name_val) = player_zone.get_mut("name") {
+                                if let Some(name_str) = name_val.as_str() {
+                                    *name_val = json!(name_str.replace("{player}", &format!("Player {}", idx + 1)));
+                                }
+                            }
+                            
+                            expanded_zones.push(json!(player_zone));
+                        }
+                    } else {
+                        // Keep zone as-is
+                        expanded_zones.push(zone.clone());
+                    }
+                }
+            }
+            
+            json!(expanded_zones)
+        } else {
+            zones.clone()
+        }
+    }
+    
+    fn expand_zone_groups(zone_groups: &serde_json::Value, players: &[String]) -> serde_json::Value {
+        if let Some(groups_array) = zone_groups.as_array() {
+            let mut expanded_groups = Vec::new();
+            
+            for group in groups_array {
+                if let Some(group_obj) = group.as_object() {
+                    // Check if this group has {player} template in title or zones
+                    let title = group_obj.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                    let has_player_template = title.contains("{player}") || 
+                        group_obj.get("zones")
+                            .and_then(|z| z.as_array())
+                            .map(|zones| zones.iter().any(|z| z.as_str().map(|s| s.contains("{player}")).unwrap_or(false)))
+                            .unwrap_or(false);
+                    
+                    if has_player_template {
+                        // Create a separate group for each player
+                        for (idx, player) in players.iter().enumerate() {
+                            let player_id = format!("p{}", idx + 1);
+                            let mut player_group = group_obj.clone();
+                            
+                            // Replace {player} in title
+                            if let Some(title_val) = player_group.get_mut("title") {
+                                if let Some(title_str) = title_val.as_str() {
+                                    *title_val = json!(title_str.replace("{player}", player));
+                                }
+                            }
+                            
+                            // Replace {player} in id to make it unique
+                            if let Some(id_val) = player_group.get_mut("id") {
+                                if let Some(id_str) = id_val.as_str() {
+                                    *id_val = json!(format!("{}_{}", id_str, player_id));
+                                }
+                            }
+                            
+                            // Replace {player} in zones
+                            if let Some(zones_val) = player_group.get_mut("zones") {
+                                if let Some(zones) = zones_val.as_array_mut() {
+                                    for zone in zones.iter_mut() {
+                                        if let Some(zone_str) = zone.as_str() {
+                                            *zone = json!(zone_str.replace("{player}", &player_id));
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            expanded_groups.push(json!(player_group));
+                        }
+                    } else {
+                        // Keep group as-is
+                        expanded_groups.push(group.clone());
+                    }
+                }
+            }
+            
+            json!(expanded_groups)
+        } else {
+            zone_groups.clone()
+        }
+    }
+
     /// Get the prompt for the current phase if it's a playerAction phase
     fn get_current_phase_prompt(state: &serde_json::Value, bundle: &Bundle) -> Option<String> {
         // Get current phase states
-        let phase_states = state.get("meta")
-            .and_then(|m| m.get("phaseStates"))?;
+        let phase_states = state.get("phases")?;
         
-        // Look through all active phases to find playerAction phases with prompts
+        // Look through all active phases to find player action phases with prompts
         if let Some(states_obj) = phase_states.as_object() {
-            for (_track, track_state) in states_obj {
-                if let Some(current_phase_id) = track_state.get("current").and_then(|c| c.as_str()) {
-                    // Find the phase definition
-                    if let Some(phases_array) = bundle.phases.as_array() {
-                        if let Some(phase_def) = phases_array.iter().find(|p| p["id"].as_str() == Some(current_phase_id)) {
-                            // Check if it's a playerAction phase with a prompt
-                            if phase_def["type"].as_str() == Some("playerAction") {
-                                if let Some(prompt) = phase_def["prompt"].as_str() {
-                                    return Some(prompt.to_string());
+            for (_track, phase_id) in states_obj {
+                if let Some(current_phase_id) = phase_id.as_str() {
+                    // Find the phase definition by searching all phase sets
+                    if let Some(phase_sets_array) = bundle.phases.as_array() {
+                        for phase_set in phase_sets_array {
+                            if let Some(phases_array) = phase_set["phases"].as_array() {
+                                if let Some(phase_def) = phases_array.iter().find(|p| p["id"].as_str() == Some(current_phase_id)) {
+                                    // Check for different prompt sources
+                                    
+                                    // 1. Legacy type: "playerAction" with direct prompt field
+                                    if phase_def["type"].as_str() == Some("playerAction") {
+                                        if let Some(prompt) = phase_def["prompt"].as_str() {
+                                            return Some(prompt.to_string());
+                                        }
+                                    }
+                                    
+                                    // 2. Modern style: phases with possibleActions and ui.prompt
+                                    if phase_def.get("possibleActions").is_some() {
+                                        if let Some(ui_prompt) = phase_def["ui"]["prompt"].as_str() {
+                                            // Replace {actor} with current turn player
+                                            let mut prompt = ui_prompt.to_string();
+                                            if let Some(turn_player) = state.get("currentPlayer").and_then(|t| t.as_str()) {
+                                                prompt = prompt.replace("{actor}", turn_player);
+                                            }
+                                            return Some(prompt);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -279,64 +397,130 @@ impl Lobby {
             return player_action_maps;
         }
 
-        let turn_player = state["turn"].as_str().unwrap_or("");
+        let turn_player = state.get("currentPlayer")
+            .and_then(|cp| cp.as_str())
+            .unwrap_or("");
         println!("[DEBUG action_map] Current turn player: {}", turn_player);
 
-        if let Some(players) = state["players"].as_array() {
+        let players = state.get("players")
+            .and_then(|p| p.as_array())
+            .unwrap_or(&Vec::new())
+            .clone();
+
+        if !players.is_empty() {
             println!("[DEBUG action_map] Players in game: {:?}", players);
-            for player in players {
-                if let Some(id) = player["id"].as_str() {
-                    println!("[DEBUG action_map] Checking actions for player: {}", id);
-                    let mut action_map = serde_json::Map::new();
+            for (idx, _player) in players.iter().enumerate() {
+                let id = format!("p{}", idx + 1);
+                println!("[DEBUG action_map] Checking actions for player: {}", id);
+                let mut action_map = serde_json::Map::new();
+                
+                if id == turn_player {
+                    println!("[DEBUG action_map] Player {} is the current turn player", id);
                     
-                    if id == turn_player {
-                        println!("[DEBUG action_map] Player {} is the current turn player", id);
-                        // Get current phases from all active tracks
-                        let phase_states = state.get("meta")
-                            .and_then(|m| m.get("phaseStates"))
-                            .cloned()
-                            .unwrap_or(json!({}));
-                        
-                        // Build list of current phases
-                        let mut current_phases = Vec::new();
-                        if let Some(states_obj) = phase_states.as_object() {
-                            for (_track, track_state) in states_obj {
-                                if let Some(current) = track_state.get("current").and_then(|c| c.as_str()) {
-                                    current_phases.push(current);
+                    // Get current phases - check phases at top level (our format)
+                    let mut current_phases = Vec::new();
+                    if let Some(phases) = state.get("phases").and_then(|p| p.as_object()) {
+                        println!("[DEBUG action_map] Found phases: {:?}", phases);
+                        for (_phase_set, phase_id) in phases {
+                            if let Some(phase_str) = phase_id.as_str() {
+                                // Extract just the phase ID (e.g., "play" from "game.play")
+                                if let Some(phase_part) = phase_str.split('.').last() {
+                                    current_phases.push(phase_part.to_string());
+                                } else {
+                                    current_phases.push(phase_str.to_string());
                                 }
                             }
                         }
-                        if let Some(actionlist) = bundle.actions.as_array() {
-                            println!("[DEBUG action_map] Found {} actions in bundle, current phases: {:?}", actionlist.len(), current_phases);
+                    }
+                    
+                    println!("[DEBUG action_map] Current phases: {:?}", current_phases);
+                    if let Some(actionlist) = bundle.actions.as_array() {
+                        println!("[DEBUG action_map] Found {} actions in bundle, current phases: {:?}", actionlist.len(), current_phases);
+                        
+                        // Find which actions are allowed in current phases
+                        if let Some(phase_sets) = bundle.phases.as_array() {
+                            let mut allowed_actions = Vec::new();
                             
-                            // Find which actions are allowed in current phases
-                            if let Some(phases_array) = bundle.phases.as_array() {
-                                let mut allowed_actions = Vec::new();
-                                
-                                for phase_id in &current_phases {
-                                    if let Some(phase_def) = phases_array.iter().find(|p| p["id"].as_str() == Some(phase_id)) {
-                                        if let Some(actions) = phase_def["actions"].as_array() {
-                                            for action in actions {
-                                                if let Some(action_id) = action.as_str() {
-                                                    allowed_actions.push(action_id);
+                            // For each current phase, we need to find it within the phase sets
+                            for current_phase in &current_phases {
+                                    // Phase sets contain nested phases
+                                    for phase_set in phase_sets {
+                                        if let Some(phases) = phase_set["phases"].as_array() {
+                                            if let Some(phase_def) = phases.iter().find(|p| p["id"].as_str() == Some(current_phase)) {
+                                                println!("[DEBUG action_map] Found phase {} with definition: {:?}", current_phase, phase_def);
+                                                // Check both 'possibleActions' (new) and 'actions' (old) fields
+                                                let actions = phase_def["possibleActions"].as_array()
+                                                    .or_else(|| phase_def["actions"].as_array());
+                                                
+                                                if let Some(actions) = actions {
+                                                    println!("[DEBUG action_map] Phase {} has {} possible actions", current_phase, actions.len());
+                                                    for action in actions {
+                                                        if let Some(action_id) = action.as_str() {
+                                                            allowed_actions.push(action_id);
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
                                 
+                                println!("[DEBUG action_map] Allowed actions in current phases: {:?}", allowed_actions);
+                                
                                 for a in actionlist {
                                     let action_id = a["id"].as_str().unwrap_or("");
                                     
                                     // Skip actions not allowed in current phases
                                     if !allowed_actions.contains(&action_id) {
+                                        println!("[DEBUG action_map] Skipping action {} - not in allowed actions", action_id);
                                         continue;
                                     }
                                 // Support both 'uses' (new) and 'builtin' (old)
                                 let action_impl = a["uses"].as_str()
                                     .or_else(|| a["builtin"].as_str());
                                 println!("[DEBUG action_map] Action {} has implementation: {:?}", a["id"].as_str().unwrap_or("unknown"), action_impl);
-                                if action_impl == Some("grid.move") || action_impl == Some("moveEntity") {
+                                if action_impl == Some("place") {
+                                    // Handle place action for tic-tac-toe and similar games
+                                    println!("[DEBUG] Found place action: {:?}", a["id"]);
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        // For place actions, we need to find all empty cells on the board
+                                        if let Some(zones) = state.get("zones").and_then(|z| z.as_object()) {
+                                            for (zone_id, zone_data) in zones {
+                                                println!("[DEBUG] Checking zone {} for place action", zone_id);
+                                                
+                                                // Handle new format where zone has type and cells
+                                                if let Some(zone_obj) = zone_data.as_object() {
+                                                    if zone_obj.get("type").and_then(|t| t.as_str()) == Some("grid") {
+                                                        if let Some(cells) = zone_obj.get("cells").and_then(|c| c.as_array()) {
+                                                            println!("[DEBUG] Found grid zone with cells");
+                                                            for (r, row) in cells.iter().enumerate() {
+                                                                if let Some(row_array) = row.as_array() {
+                                                                    for (c, cell) in row_array.iter().enumerate() {
+                                                                        if cell.is_null() {
+                                                                            let location = format!("/zones/{}/cells/{}/{}", zone_id, r, c);
+                                                                            println!("[DEBUG] Empty cell at {}", location);
+                                                                            
+                                                                            // Get UI direction from action
+                                                                            let direction = a.get("ui")
+                                                                                .and_then(|ui| ui.get("direction"))
+                                                                                .and_then(|d| d.as_str())
+                                                                                .unwrap_or("Select this location");
+                                                                            
+                                                                            action_map.insert(location, serde_json::json!({
+                                                                                "action": action_id,
+                                                                                "direction": direction
+                                                                            }));
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if action_impl == Some("grid.move") || action_impl == Some("presets.grid.move") || action_impl == Some("moveEntity") {
                                     println!("[DEBUG] Found grid.move action: {:?}", a["id"]);
                                     if let Some(action_id) = a["id"].as_str() {
                                         // Support both 'with' (new) and 'params' (old)
@@ -384,7 +568,7 @@ impl Lobby {
                                                     if has_flip_effect {
                                                         // Only show moves that would flip at least one piece
                                                         let source_template = params["source"].as_str().unwrap_or("");
-                                                        let source_id = source_template.replace("{actor}", id);
+                                                        let source_id = source_template.replace("{actor}", &id);
                                                         let player_piece = if let Some(z) = state["zones"].get(&source_id) {
                                                             z["infinite"].as_str().unwrap_or("")
                                                         } else {
@@ -555,8 +739,8 @@ impl Lobby {
                                     // Handle moving a selected piece
                                     if let Some(action_id) = a["id"].as_str() {
                                         // Check if there's a selection for this player
-                                        if let Some(selection) = state.get("meta").and_then(|m| m.get("selection")) {
-                                            if selection["actor"].as_str() == Some(id) {
+                                        if let Some(selection) = state.get("selection") {
+                                            if selection["actor"].as_str() == Some(&id) {
                                                 let source_row = selection["row"].as_u64().unwrap_or(0) as usize;
                                                 let source_col = selection["col"].as_u64().unwrap_or(0) as usize;
                                                 
@@ -703,7 +887,7 @@ impl Lobby {
                                         let params = a.get("with").or_else(|| a.get("params"));
                                         if let Some(params) = params {
                                             if let Some(source) = params["source"].as_str() {
-                                                let source_zone = source.replace("{actor}", id);
+                                                let source_zone = source.replace("{actor}", &id);
                                                 println!("[DEBUG action_map] Source zone: {} (from {})", source_zone, source);
                                                 
                                                 // Check if this is a zone-level action (drawing from deck/discard)
@@ -719,7 +903,7 @@ impl Lobby {
                                                                         if let Some(cond_type) = condition.get("type").and_then(|t| t.as_str()) {
                                                                             if cond_type == "zone.count" {
                                                                                 if let Some(with) = condition.get("with") {
-                                                                                    let zone_id = with.get("zone").and_then(|z| z.as_str()).unwrap_or("").replace("{actor}", id);
+                                                                                    let zone_id = with.get("zone").and_then(|z| z.as_str()).unwrap_or("").replace("{actor}", &id);
                                                                                     // Get the zone we're checking
                                                                                     if let Some(check_zone) = state["zones"].get(&zone_id) {
                                                                                         if let Some(check_items) = check_zone.get("items").and_then(|i| i.as_array()) {
@@ -777,7 +961,7 @@ impl Lobby {
                                                                     if let Some(cond_type) = condition.get("type").and_then(|t| t.as_str()) {
                                                                         if cond_type == "zone.count" {
                                                                             if let Some(with) = condition.get("with") {
-                                                                                let zone_id = with.get("zone").and_then(|z| z.as_str()).unwrap_or("").replace("{actor}", id);
+                                                                                let zone_id = with.get("zone").and_then(|z| z.as_str()).unwrap_or("").replace("{actor}", &id);
                                                                                 if zone_id == source_zone {
                                                                                     if let Some(exact) = with.get("exact").and_then(|e| e.as_u64()) {
                                                                                         println!("[DEBUG conditions] Checking exact count for {}: {} == {}", zone_id, items.len(), exact);
@@ -824,7 +1008,6 @@ impl Lobby {
                                         }
                                     }
                                 }
-                            }
                             } // Close phases_array check
                         }
                     }
@@ -844,7 +1027,7 @@ impl Lobby {
     }
     
     /// Build a welcome message with consistent meta handling
-    fn build_welcome_message(&self, player_id: &str, include_state: bool) -> serde_json::Value {
+    fn build_welcome_message(&self, player_id: &str, include_state: bool, format: &MessageFormat) -> serde_json::Value {
         let actor = self.actor_for_player(player_id)
             .unwrap_or_else(|| "spectator".to_string());
         
@@ -852,19 +1035,24 @@ impl Lobby {
             let snapshot = { let g = self.state.lock(); g.clone() };
             let action_map = Lobby::compute_action_map(&snapshot, &self.bundle);
             
-            // Build meta object preserving existing meta data
-            let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
-                existing_meta.clone()
-            } else {
-                json!({})
-            };
+            // Build clean client meta object (no game state duplication)
+            let mut meta = json!({});
+            
+            // Client-specific fields will be created fresh each time
             
             // Update with current data
             if let Some(meta_obj) = meta.as_object_mut() {
                 meta_obj.insert("actionMap".to_string(), json!(action_map));
                 meta_obj.insert("players".to_string(), json!(self.player_list()));
                 meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
-                meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
+                // Expand zone metadata for player-specific zones
+                let expanded_zones = Lobby::expand_zone_metadata(&self.bundle.zones, &self.player_list());
+                meta_obj.insert("zones".to_string(), expanded_zones);
+                // Include zoneGroups from manifest if present, expanded with player IDs
+                if let Some(zone_groups) = &self.bundle.manifest.zone_groups {
+                    let expanded_groups = Lobby::expand_zone_groups(&json!(zone_groups), &self.player_list());
+                    meta_obj.insert("zoneGroups".to_string(), expanded_groups);
+                }
                 // Ensure gameLog exists
                 if !meta_obj.contains_key("gameLog") {
                     meta_obj.insert("gameLog".to_string(), json!([]));
@@ -875,7 +1063,7 @@ impl Lobby {
                 }
                 
                 // Add current phase prompt for turn player
-                if let Some(turn_player) = snapshot.get("turn").and_then(|t| t.as_str()) {
+                if let Some(turn_player) = snapshot.get("currentPlayer").and_then(|t| t.as_str()) {
                     if actor == turn_player {
                         // Get current phase prompt
                         let phase_prompt = Lobby::get_current_phase_prompt(&snapshot, &self.bundle);
@@ -886,24 +1074,40 @@ impl Lobby {
                 }
             }
             
-            json!({
+            let base_message = json!({
                 "type": "welcome",
                 "you": actor,
                 "started": true,
-                "state": snapshot,
-                "meta": meta,
+                "game": snapshot,
+                "ui": meta,
                 "tick": *self.tick.lock()
-            })
+            });
+            
+            // Apply formatting based on client preferences
+            format_welcome_message(base_message, format.clone())
         } else {
-            json!({
+            let mut meta = serde_json::Map::new();
+            meta.insert("players".to_string(), json!(self.player_list()));
+            meta.insert("entities".to_string(), self.bundle.entities.clone());
+            // Include zone metadata
+            let expanded_zones = Lobby::expand_zone_metadata(&self.bundle.zones, &self.player_list());
+            meta.insert("zones".to_string(), expanded_zones);
+            
+            // Include zoneGroups from manifest if present, expanded with player IDs
+            if let Some(zone_groups) = &self.bundle.manifest.zone_groups {
+                let expanded_groups = Lobby::expand_zone_groups(&json!(zone_groups), &self.player_list());
+                meta.insert("zoneGroups".to_string(), expanded_groups);
+            }
+            
+            let base_message = json!({
                 "type": "welcome",
                 "you": actor,
                 "started": false,
-                "meta": {
-                    "players": self.player_list(),
-                    "entities": self.bundle.entities.clone()
-                }
-            })
+                "ui": meta
+            });
+            
+            // Apply formatting based on client preferences
+            format_welcome_message(base_message, format.clone())
         }
     }
 
@@ -922,19 +1126,22 @@ pub fn start_game(self: Arc<Self>) {
     // Get action map after phase triggers
     let action_map = Lobby::compute_action_map(&snapshot, &self.bundle);
     
-    // Build meta object preserving existing meta data
-    let mut meta = if let Some(existing_meta) = snapshot.get("meta") {
-        existing_meta.clone()
-    } else {
-        json!({})
-    };
+    // Build UI meta object
+    let mut meta = json!({});
     
     // Update with current data
     if let Some(meta_obj) = meta.as_object_mut() {
         meta_obj.insert("actionMap".to_string(), json!(action_map));
         meta_obj.insert("players".to_string(), json!(self.player_list()));
         meta_obj.insert("entities".to_string(), self.bundle.entities.clone());
-        meta_obj.insert("zones".to_string(), self.bundle.zones.clone());
+        // Expand zone metadata for player-specific zones
+        let expanded_zones = Lobby::expand_zone_metadata(&self.bundle.zones, &self.player_list());
+        meta_obj.insert("zones".to_string(), expanded_zones);
+        // Include zoneGroups from manifest if present, expanded with player IDs
+        if let Some(zone_groups) = &self.bundle.manifest.zone_groups {
+            let expanded_groups = Lobby::expand_zone_groups(&json!(zone_groups), &self.player_list());
+            meta_obj.insert("zoneGroups".to_string(), expanded_groups);
+        }
         meta_obj.insert("gameLog".to_string(), json!([
             {
                 "message": "The game has started",
@@ -946,8 +1153,8 @@ pub fn start_game(self: Arc<Self>) {
     // Send full game state to all connected clients
     let game_started_msg = serde_json::json!({
         "type": "gameStarted",
-        "state": snapshot,
-        "meta": meta
+        "game": snapshot,
+        "ui": meta
     });
     let _ = self.tx.send(Message::Text(game_started_msg.to_string()));
     
@@ -966,12 +1173,12 @@ pub fn start_game(self: Arc<Self>) {
             
             // Get current state
             let mut snapshot = { let g = self_clone.state.lock(); g.clone() };
-            println!("[DEBUG] Current state phase states: {:?}", snapshot.get("meta").and_then(|m| m.get("phaseStates")));
+            println!("[DEBUG] Current state phases: {:?}", snapshot.get("phases"));
             
             // Process phases
             let phase_patches = engine::process_phases(&bundle, &mut snapshot);
             
-            if let Some(phase_arr) = phase_patches.as_array() {
+            if let Ok(phase_arr) = phase_patches {
                 if phase_arr.is_empty() {
                     println!("[DEBUG] No more phase patches, stopping phase processing");
                     break;
@@ -980,12 +1187,16 @@ pub fn start_game(self: Arc<Self>) {
                 println!("[DEBUG] Got {} patches from phase processing", phase_arr.len());
                 
                 // Apply patches to our state
-                for patch in phase_arr {
+                for patch in &phase_arr {
                     engine::apply_patch_to_state(&mut snapshot, patch);
                 }
                 
                 // Update the lobby state
-                *self_clone.state.lock() = snapshot;
+                *self_clone.state.lock() = snapshot.clone();
+                
+                // After phase transition, recompute action map
+                let action_map = Lobby::compute_action_map(&snapshot, &bundle);
+                println!("[DEBUG] Recomputed action map after phase transition: {:?}", action_map);
                 
                 // Increment tick
                 let tick = {
@@ -996,12 +1207,17 @@ pub fn start_game(self: Arc<Self>) {
                 
                 // Prepare patches for client - need to prefix paths
                 let mut client_patches = Vec::new();
-                for patch in phase_arr {
+                for patch in &phase_arr {
                     if let Some(path) = patch.get("path").and_then(|p| p.as_str()) {
                         let mut patch_obj = patch.clone();
-                        // Only prefix with /state if the path doesn't start with /meta
-                        if !path.starts_with("/meta") {
-                            patch_obj["path"] = json!(format!("/state{}", path));
+                        // Prefix with /game for game state patches
+                        if !path.starts_with("/ui") {
+                            let prefixed_path = if path.starts_with("/game") {
+                                path.to_string()
+                            } else {
+                                format!("/game{}", path)
+                            };
+                            patch_obj["path"] = json!(prefixed_path);
                         }
                         client_patches.push(patch_obj);
                     } else {
@@ -1009,46 +1225,32 @@ pub fn start_game(self: Arc<Self>) {
                     }
                 }
                 
-                // Recompute action map after phase changes
-                let current_state = { let g = self_clone.state.lock(); g.clone() };
-                let action_map = Lobby::compute_action_map(&current_state, &bundle);
-                for (pid, actions) in action_map {
-                    client_patches.push(json!({
-                        "op": "replace",
-                        "path": format!("/meta/actionMap/{}", pid),
-                        "value": actions
-                    }));
-                }
+                // Add action map update patch
+                client_patches.push(json!({
+                    "op": "replace",
+                    "path": "/ui/actionMap",
+                    "value": action_map
+                }));
                 
                 // Add current phase prompt for turn player
-                if let Some(_turn_player) = current_state.get("turn").and_then(|t| t.as_str()) {
+                let current_state = { let g = self_clone.state.lock(); g.clone() };
+                if let Some(_turn_player) = current_state.get("currentPlayer").and_then(|t| t.as_str()) {
                     // Get current phase prompt
                     let phase_prompt = Lobby::get_current_phase_prompt(&current_state, &bundle);
                     if let Some(prompt) = phase_prompt {
-                        // Use "add" or "replace" depending on whether the field exists
-                        let op = if current_state.get("meta")
-                            .and_then(|m| m.get("currentPhasePrompt"))
-                            .is_some() {
-                            "replace"
-                        } else {
-                            "add"
-                        };
+                        // Always use "replace" for phase prompts
+                        let op = "replace";
                         client_patches.push(json!({
                             "op": op,
-                            "path": "/meta/currentPhasePrompt",
+                            "path": "/ui/currentPhasePrompt",
                             "value": prompt
                         }));
                     } else {
                         // Remove prompt if no playerAction phase is active
-                        // Only remove if it exists
-                        if current_state.get("meta")
-                            .and_then(|m| m.get("currentPhasePrompt"))
-                            .is_some() {
-                            client_patches.push(json!({
-                                "op": "remove",
-                                "path": "/meta/currentPhasePrompt"
-                            }));
-                        }
+                        client_patches.push(json!({
+                            "op": "remove",
+                            "path": "/ui/currentPhasePrompt"
+                        }));
                     }
                 }
                 
@@ -1079,10 +1281,24 @@ pub fn start_game(self: Arc<Self>) {
 }
 
 /// Accept a new WebSocket client, drive send/recv loops.
-    pub async fn accept_client(self: Arc<Self>, socket: WebSocket, player_id: String, join: bool, since: u64) {
-        println!("[Lobby] Client {} connecting to lobby {} (join={}, since={})", player_id, self.id, join, since);
+    pub async fn accept_client(self: Arc<Self>, socket: WebSocket, player_id: String, join: bool, since: u64, format: String, updates: String) {
+        println!("[Lobby] Client {} connecting to lobby {} (join={}, since={}, format={}, updates={})", player_id, self.id, join, since, format, updates);
         let (ws_tx, mut rx) = socket.split();
         let tx = Arc::new(TokioMutex::new(ws_tx));
+        
+        // Parse client format preferences
+        let message_format = MessageFormat::from(format.as_str());
+        let update_format = UpdateFormat::from(updates.as_str());
+        
+        // Store client preferences
+        {
+            let mut clients = self.client_formats.lock();
+            clients.insert(player_id.clone(), ClientInfo {
+                player_id: player_id.clone(),
+                message_format: message_format.clone(),
+                update_format: update_format.clone(),
+            });
+        }
 
         if join {
             if self.add_player(player_id.clone()) {
@@ -1098,7 +1314,7 @@ pub fn start_game(self: Arc<Self>) {
         // Note: actor will be determined dynamically as it can change when players join/leave
 
         // Send initial welcome message and get current tick
-        let welcome = self.build_welcome_message(&player_id, self.is_started());
+        let welcome = self.build_welcome_message(&player_id, self.is_started(), &message_format);
         let current_tick = *self.tick.lock();
         let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
 
@@ -1110,12 +1326,28 @@ pub fn start_game(self: Arc<Self>) {
             let history = self.history.lock();
             history.clone()
         };
+        // Get client preferences for replay
+        let client_prefs = self.client_formats.lock().get(&player_id).cloned();
+        let client_update_format = client_prefs.as_ref().map(|cp| &cp.update_format).unwrap_or(&UpdateFormat::Patch);
+        let client_message_format = client_prefs.as_ref().map(|cp| &cp.message_format).unwrap_or(&MessageFormat::Standard);
         for frame in frames.into_iter() {
             if frame["tick"].as_u64().unwrap_or(0) > replay_after {
+                let mut frame_to_send = frame.clone();
+                
+                // Convert diff to full state if client prefers full updates
+                if frame["type"] == "diff" && matches!(client_update_format, UpdateFormat::Full) {
+                    let current_state = self.state.lock().clone();
+                    let tick = frame["tick"].as_u64().unwrap_or(0);
+                    frame_to_send = patch_to_full_state(&current_state, &frame["patch"], tick);
+                }
+                
+                // Apply message format
+                frame_to_send = format_welcome_message(frame_to_send, client_message_format.clone());
+                
                 let _ = tx
                     .lock()
                     .await
-                    .send(Message::Text(frame.to_string()))
+                    .send(Message::Text(frame_to_send.to_string()))
                     .await;
             }
         }
@@ -1128,17 +1360,43 @@ pub fn start_game(self: Arc<Self>) {
         let player_id_clone = player_id.clone();
         let forward = tokio::spawn(async move {
             while let Ok(msg) = bcast.recv().await {
-                // Handle gameStarted message specially to include correct "you" field
+                // Get client preferences
+                let client_info = self_ref.client_formats.lock().get(&player_id_clone).cloned();
+                let update_format = client_info.as_ref().map(|ci| &ci.update_format).unwrap_or(&UpdateFormat::Patch);
+                let message_format = client_info.as_ref().map(|ci| &ci.message_format).unwrap_or(&MessageFormat::Standard);
+                
+                // Handle different message types
                 if let Message::Text(text) = &msg {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(text) {
+                        // Handle gameStarted message specially to include correct "you" field
                         if json["type"] == "gameStarted" {
                             let actor = self_ref
                                 .actor_for_player(&player_id_clone)
                                 .unwrap_or_else(|| "spectator".to_string());
-                            let mut personalized = json.clone();
-                            personalized["you"] = serde_json::Value::String(actor);
-                            let personalized_msg = Message::Text(personalized.to_string());
+                            json["you"] = serde_json::Value::String(actor);
+                            
+                            // Apply message format
+                            json = format_welcome_message(json, message_format.clone());
+                            
+                            let personalized_msg = Message::Text(json.to_string());
                             if tx_forward.lock().await.send(personalized_msg).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                        
+                        // Handle diff messages based on update format preference
+                        if json["type"] == "diff" && matches!(update_format, UpdateFormat::Full) {
+                            // Convert patch to full state update
+                            let current_state = self_ref.state.lock().clone();
+                            let tick = json["tick"].as_u64().unwrap_or(0);
+                            let full_state = patch_to_full_state(&current_state, &json["patch"], tick);
+                            
+                            // Apply message format to the full state
+                            let formatted = format_welcome_message(full_state, message_format.clone());
+                            
+                            let full_msg = Message::Text(formatted.to_string());
+                            if tx_forward.lock().await.send(full_msg).await.is_err() {
                                 break;
                             }
                             continue;
@@ -1161,7 +1419,11 @@ pub fn start_game(self: Arc<Self>) {
                             self.broadcast_lobby_list();
                             
                             // Send updated welcome message to the joining player
-                            let welcome = self.build_welcome_message(&player_id, self.is_started());
+                            let client_format = self.client_formats.lock()
+                                .get(&player_id)
+                                .map(|c| c.message_format.clone())
+                                .unwrap_or(MessageFormat::Standard);
+                            let welcome = self.build_welcome_message(&player_id, self.is_started(), &client_format);
                             let _ = tx.lock().await.send(Message::Text(welcome.to_string())).await;
                             
                             // Broadcast player update to all OTHER connected clients
@@ -1200,8 +1462,97 @@ pub fn start_game(self: Arc<Self>) {
                         let action_id = json["action"].as_str().unwrap_or("");
                         let args = json.get("args").cloned();
                         
+                        // Find the action definition to get the verb and validate conditions
+                        let mut verb = None;
+                        let mut action_valid = true;
+                        if let Some(actions) = self.bundle.actions.as_array() {
+                            for action in actions {
+                                if action["id"].as_str() == Some(action_id) {
+                                    // Validate action conditions before executing
+                                    if let Some(when_conditions) = action.get("when").and_then(|w| w.as_array()) {
+                                        for condition in when_conditions {
+                                            if let Some(condition_type) = condition.get("condition").and_then(|c| c.as_str()) {
+                                                if condition_type == "zone.isEmpty" {
+                                                    if let Some(with_obj) = condition.get("with").and_then(|w| w.as_object()) {
+                                                        if let Some(zone_template) = with_obj.get("zone").and_then(|z| z.as_str()) {
+                                                            // Replace {target} with the actual location from args
+                                                            if let Some(args_obj) = args.as_ref().and_then(|a| a.as_object()) {
+                                                                if let Some(location) = args_obj.get("location").and_then(|l| l.as_str()) {
+                                                                    let zone_path = zone_template.replace("{target}", location);
+                                                                    
+                                                                    // Check if the zone/cell is actually empty
+                                                                    let state = self.state.lock();
+                                                                    let is_empty = if zone_path.contains("/cells/") {
+                                                                        // For grid cells, check if the cell is null
+                                                                        get_value_at_path(&state, &zone_path).map(|v| v.is_null()).unwrap_or(false)
+                                                                    } else {
+                                                                        // For other zones, you might have different empty logic
+                                                                        false
+                                                                    };
+                                                                    
+                                                                    if !is_empty {
+                                                                        println!("[Socket] Action validation failed: zone {} is not empty", zone_path);
+                                                                        action_valid = false;
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else if condition_type == "player.isActor" {
+                                                    // Check if the current player is the one making the move
+                                                    let state = self.state.lock();
+                                                    let current_player = state.get("currentPlayer")
+                                                        .and_then(|cp| cp.as_str())
+                                                        .unwrap_or("");
+                                                    
+                                                    if current_player != current_actor {
+                                                        println!("[Socket] Action validation failed: player {} is not the current turn player ({})", current_actor, current_player);
+                                                        action_valid = false;
+                                                        break;
+                                                    }
+                                                }
+                                                // Add other condition types here as needed
+                                            }
+                                        }
+                                    }
+                                    
+                                    if action_valid {
+                                        let verb_raw = action["uses"].as_str()
+                                            .or_else(|| action["builtin"].as_str());
+                                        
+                                        // Map presets to actual verbs
+                                        verb = verb_raw.map(|v| match v {
+                                            "presets.turn.advance" => "nextTurn",
+                                            "presets.entity.move" => "moveEntity",
+                                            "presets.cards.draw" => "draw",
+                                            "presets.phase.set" => "setPhase",
+                                            other => other
+                                        });
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if verb.is_none() {
+                            println!("[Socket] Error: Action {} not found or has no verb", action_id);
+                            continue;
+                        }
+                        
+                        if !action_valid {
+                            println!("[Socket] Error: Action {} validation failed", action_id);
+                            continue;
+                        }
+                        
+                        // Create the action in the format expected by apply_action
+                        let engine_action = json!({
+                            "verb": verb,
+                            "args": args
+                        });
+                        
                         let diff =
-                            engine::apply_action(&self.bundle, &mut self.state.lock(), &current_actor, &json);
+                            engine::apply_action(&self.bundle, &mut self.state.lock(), &current_actor, &engine_action);
                         println!("[Socket] Action result diff: {:?}", diff);
                         
                         let tick = {
@@ -1210,20 +1561,103 @@ pub fn start_game(self: Arc<Self>) {
                             *t
                         };
                         let mut patch_ops = Vec::new();
-                        if let Some(arr) = diff.as_array() {
+                        if let Ok(ref arr) = diff {
                             for op in arr {
                                 println!("[DEBUG] Original patch: {:?}", op);
                                 if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
                                     let mut op_obj = op.clone();
-                                    // Only prefix with /state if the path doesn't start with /meta
-                                    if !path.starts_with("/meta") {
-                                        op_obj["path"] =
-                                            serde_json::Value::String(format!("/state{}", path));
-                                    }
+                                    // Add /game prefix only if path doesn't already start with /game
+                                    let prefixed_path = if path.starts_with("/game") {
+                                        path.to_string()
+                                    } else {
+                                        format!("/game{}", path)
+                                    };
+                                    op_obj["path"] = serde_json::Value::String(prefixed_path);
                                     println!("[DEBUG] Transformed patch: {:?}", op_obj);
                                     patch_ops.push(op_obj);
                                 } else {
                                     patch_ops.push(op.clone());
+                                }
+                            }
+                        }
+                        
+                        // Process "then" actions if the initial action succeeded
+                        if diff.as_ref().map(|a| !a.is_empty()).unwrap_or(false) {
+                            println!("[Socket] Action succeeded, checking for 'then' actions");
+                            
+                            // Find the action definition to check for "then" clause
+                            if let Some(actions) = self.bundle.actions.as_array() {
+                                if let Some(action_def) = actions.iter().find(|a| a["id"].as_str() == Some(action_id)) {
+                                    if let Some(then_actions) = action_def.get("then").and_then(|t| t.as_array()) {
+                                        println!("[Socket] Found {} 'then' actions", then_actions.len());
+                                        
+                                        for then_action in then_actions {
+                                            if let Some(then_action_id) = then_action["action"].as_str() {
+                                                println!("[Socket] Processing 'then' action: {}", then_action_id);
+                                                
+                                                // Find the then action definition
+                                                if let Some(then_action_def) = actions.iter().find(|a| a["id"].as_str() == Some(then_action_id)) {
+                                                    let then_verb_raw = then_action_def["uses"].as_str()
+                                                        .or_else(|| then_action_def["builtin"].as_str());
+                                                    
+                                                    if let Some(verb_raw) = then_verb_raw {
+                                                        // Map presets to actual verbs
+                                                        let verb = match verb_raw {
+                                                            "presets.turn.advance" => "nextTurn",
+                                                            "presets.entity.move" => "moveEntity",
+                                                            "presets.cards.draw" => "draw",
+                                                            "presets.phase.set" => "setPhase",
+                                                            v => v
+                                                        };
+                                                        
+                                                        println!("[Socket] 'then' action verb: {} (mapped from {})", verb, verb_raw);
+                                                        
+                                                        // Create the then action
+                                                        let args = then_action_def.get("with").cloned().unwrap_or(json!({}));
+                                                        let then_engine_action = json!({
+                                                            "verb": verb,
+                                                            "args": args
+                                                        });
+                                                        
+                                                        // Apply the then action
+                                                        let then_diff = engine::apply_action(
+                                                            &self.bundle, 
+                                                            &mut self.state.lock(), 
+                                                            &current_actor, 
+                                                            &then_engine_action
+                                                        );
+                                                        
+                                                        println!("[Socket] 'then' action result: {:?}", then_diff);
+                                                        
+                                                        // Add the patches from the then action
+                                                        if let Ok(then_arr) = then_diff {
+                                                            for op in then_arr {
+                                                                if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
+                                                                    let mut op_obj = op.clone();
+                                                                    // Don't add /game prefix to /ui patches, they should stay at top level
+                                                                    if path.starts_with("/ui/") {
+                                                                        // Keep /ui patches at top level
+                                                                        patch_ops.push(op_obj);
+                                                                    } else {
+                                                                        // Add /game prefix to all other patches modifying game state
+                                                                        let prefixed_path = if path.starts_with("/game") {
+                                                                            path.to_string()
+                                                                        } else {
+                                                                            format!("/game{}", path)
+                                                                        };
+                                                                        op_obj["path"] = json!(prefixed_path);
+                                                                        patch_ops.push(op_obj);
+                                                                    }
+                                                                } else {
+                                                                    patch_ops.push(op.clone());
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1233,7 +1667,7 @@ pub fn start_game(self: Arc<Self>) {
                         let mut game_end_info = None;
                         for op in &patch_ops {
                             let path = op.get("path").and_then(|p| p.as_str()).unwrap_or("");
-                            let is_game_status = path == "/meta/gameStatus" || path == "/state/meta/gameStatus";
+                            let is_game_status = path == "/ui/gameStatus" || path == "/game/gameStatus";
                             if is_game_status {
                                 println!("[DEBUG] Found gameStatus patch at path: {}, value: {:?}", path, op.get("value"));
                                 if let Some(value) = op.get("value") {
@@ -1267,8 +1701,8 @@ pub fn start_game(self: Arc<Self>) {
                         } else {
                             // Game still active, process phases first
                             let phase_patches = engine::process_phases(&self.bundle, &mut self.state.lock());
-                            if let Some(phase_arr) = phase_patches.as_array() {
-                                patch_ops.extend_from_slice(phase_arr);
+                            if let Ok(phase_arr) = phase_patches {
+                                patch_ops.extend(phase_arr);
                             }
                             
                             // Then compute action map normally
@@ -1277,46 +1711,34 @@ pub fn start_game(self: Arc<Self>) {
                             for (pid, actions) in action_map {
                                 patch_ops.push(serde_json::json!({
                                     "op": "replace",
-                                    "path": format!("/meta/actionMap/{}", pid),
+                                    "path": format!("/ui/actionMap/{}", pid),
                                     "value": actions
                                 }));
                             }
                             
                             // Add current phase prompt for turn player
-                            if let Some(_turn_player) = current_state.get("turn").and_then(|t| t.as_str()) {
+                            if let Some(_turn_player) = current_state.get("currentPlayer").and_then(|t| t.as_str()) {
                                 // Get current phase prompt
                                 let phase_prompt = Lobby::get_current_phase_prompt(&current_state, &self.bundle);
                                 if let Some(prompt) = phase_prompt {
-                                    // Use "add" or "replace" depending on whether the field exists
-                                    let op = if current_state.get("meta")
-                                        .and_then(|m| m.get("currentPhasePrompt"))
-                                        .is_some() {
-                                        "replace"
-                                    } else {
-                                        "add"
-                                    };
+                                    // Always use "replace" for phase prompts
                                     patch_ops.push(serde_json::json!({
-                                        "op": op,
-                                        "path": "/meta/currentPhasePrompt",
+                                        "op": "replace",
+                                        "path": "/ui/currentPhasePrompt",
                                         "value": prompt
                                     }));
                                 } else {
                                     // Remove prompt if no playerAction phase is active
-                                    // Only remove if it exists
-                                    if current_state.get("meta")
-                                        .and_then(|m| m.get("currentPhasePrompt"))
-                                        .is_some() {
-                                        patch_ops.push(serde_json::json!({
-                                            "op": "remove",
-                                            "path": "/meta/currentPhasePrompt"
-                                        }));
-                                    }
+                                    patch_ops.push(serde_json::json!({
+                                        "op": "remove",
+                                        "path": "/ui/currentPhasePrompt"
+                                    }));
                                 }
                             }
                         }
                         
                         // Generate game log entry if action was successful and has a log template
-                        if !diff.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                        if diff.as_ref().map(|a| !a.is_empty()).unwrap_or(false) {
                             if let Some(action_spec) = self.bundle.actions.as_array()
                                 .and_then(|actions| actions.iter().find(|a| a["id"].as_str() == Some(action_id))) {
                                 if let Some(log_template) = action_spec["ui"]["logTemplate"].as_str() {
@@ -1343,7 +1765,7 @@ pub fn start_game(self: Arc<Self>) {
                                     // Add game log entry to patches
                                     patch_ops.push(serde_json::json!({
                                         "op": "add",
-                                        "path": "/meta/gameLog/-",
+                                        "path": "/ui/gameLog/-",
                                         "value": {
                                             "player": player_id,
                                             "actor": current_actor,
@@ -1374,7 +1796,7 @@ pub fn start_game(self: Arc<Self>) {
                                 
                                 patch_ops.push(serde_json::json!({
                                     "op": "add",
-                                    "path": "/meta/gameLog/-",
+                                    "path": "/ui/gameLog/-",
                                     "value": {
                                         "message": log_message,
                                         "timestamp": chrono::Local::now().format("%H:%M").to_string()
@@ -1389,10 +1811,15 @@ pub fn start_game(self: Arc<Self>) {
                         println!("[Lobby] Broadcasting diff with tick {} to {} receivers", tick, self.tx.receiver_count());
                         let _ = self.tx.send(Message::Text(frame.to_string()));
                         
-                        // If game ended, broadcast updated lobby list
+                        // If game ended, broadcast updated lobby list (but do it AFTER the diff to avoid race conditions)
                         if game_ended {
-                            println!("[Lobby] Game ended, broadcasting updated lobby list");
-                            self.broadcast_lobby_list();
+                            println!("[Lobby] Game ended, will broadcast updated lobby list after small delay");
+                            let self_clone = self.clone();
+                            tokio::spawn(async move {
+                                // Small delay to ensure the diff message is processed first
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                self_clone.broadcast_lobby_list();
+                            });
                         }
                     }
                 }
@@ -1400,6 +1827,12 @@ pub fn start_game(self: Arc<Self>) {
         }
 
         forward.abort();
+        
+        // Clean up client format preferences on disconnect
+        {
+            let mut clients = self.client_formats.lock();
+            clients.remove(&player_id);
+        }
     }
 }
 
@@ -1455,4 +1888,30 @@ fn would_flip_any(board: &serde_json::Value, row: usize, col: usize, player_piec
     }
     
     false
+}
+
+// Helper function to get a value at a specific path in the JSON state
+fn get_value_at_path<'a>(state: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let path_parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    
+    let mut current = state;
+    for part in path_parts {
+        if let Ok(index) = part.parse::<usize>() {
+            // This is an array index
+            if let Some(array) = current.as_array() {
+                if index < array.len() {
+                    current = &array[index];
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        } else {
+            // This is an object key
+            current = current.get(part)?;
+        }
+    }
+    
+    Some(current)
 }

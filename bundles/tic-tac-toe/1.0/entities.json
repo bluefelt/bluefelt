@@ -1,0 +1,11 @@
+[
+  {
+    "id": "mark_{player}",
+    "props": {
+      "value": "{player}"
+    },
+    "ui": {
+      "tokenType": "{player}"
+    }
+  }
+]

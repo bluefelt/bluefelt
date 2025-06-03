@@ -1,39 +1,29 @@
-- id: placeMark
-  uses: presets.grid.move
-  with:
-    source: marks_{actor}
-    target:
-      zone: board
+# Main action - place a mark on the board
+- id: placeMarker
+  uses: place
+  ui:
+    direction: "Click an empty cell to place your mark"
+    logTemplate: "{player} placed their mark"
+  when:
+    - condition: zone.isEmpty
+      with:
+        zone: "{target}"
+    - condition: player.isActor
   then:
-    - action: advanceTurn
     - action: checkWin
-    - action: checkTie
+    - action: advanceTurn
 
-- id: advanceTurn
-  uses: presets.turn.advance
-  auto: true
-
+# Check for winning condition after each move
 - id: checkWin
+  uses: grid.lineOfMarks
   auto: true
-  conditions:
-    - type: consecutiveMarksInRow
-      with:
-        zone: board
-        count: 3
-        entity: mark_{actor}
-      result: gameWin
-
-- id: checkTie
-  auto: true
-  conditions:
-    - type: allCellsFilled
-      with:
-        zone: board
-      result: gameTie
-
-- id: resetGame
-  uses: presets.zone.reset
   with:
-    zones: [board]
-  then:
-    - action: turn.reset
+    zone: "zones/board"
+    entity: "mark_{player}"
+    lineLength: 3
+    directions: ["horizontal", "vertical", "diagonal"]
+
+# Advance to next player's turn
+- id: advanceTurn
+  uses: nextTurn
+  auto: true

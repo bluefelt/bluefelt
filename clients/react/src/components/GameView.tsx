@@ -9,6 +9,7 @@ import GameZones from './GameZones';
 import GameLog from './GameLog';
 import GameResultBanner from './GameResultBanner';
 import PhaseDisplay from './PhaseDisplay';
+import PhaseTracker from './PhaseTracker';
 import type { GameManifest } from '../api/games';
 
 interface GameViewProps {
@@ -50,8 +51,20 @@ export default function GameView({ lobbyId }: GameViewProps) {
   useEffect(() => {
     if (lobbyState.error) {
       console.error('Lobby error:', lobbyState.error);
-      disconnect(); // Stop the WebSocket connection
-      navigate('/', { replace: true });
+      
+      // If lobby doesn't exist (e.g., after server restart), redirect to create a new one
+      if (lobbyState.error === 'Lobby does not exist') {
+        disconnect(); // Stop the WebSocket connection
+        // Navigate to home with a message
+        navigate('/', { 
+          replace: true,
+          state: { message: 'The game lobby was lost (server may have restarted). Please create a new game.' }
+        });
+      } else {
+        // For other errors, just disconnect and redirect
+        disconnect();
+        navigate('/', { replace: true });
+      }
     }
   }, [lobbyState.error, navigate, disconnect]);
 
@@ -89,71 +102,105 @@ export default function GameView({ lobbyId }: GameViewProps) {
 
   // Update lobby info when we receive state updates
   useEffect(() => {
-    if (lobbyState.meta && lobbyState.meta.players) {
+    if (lobbyState.ui && lobbyState.ui.players) {
       setLobbyInfo(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          players: lobbyState.meta?.players || prev.players,
+          players: lobbyState.ui?.players || prev.players,
           started: lobbyState.started || false
         };
       });
     }
-  }, [lobbyState.meta, lobbyState.started]);
+  }, [lobbyState.ui, lobbyState.started]);
 
   // Update game log from server
   useEffect(() => {
-    if (lobbyState.meta?.gameLog) {
-      console.log('[GameView] Updating game log, server log length:', lobbyState.meta.gameLog.length);
+    if (lobbyState.ui?.gameLog) {
+      console.log('[GameView] Updating game log, server log length:', lobbyState.ui.gameLog.length);
       // Reverse the array to show newest entries first
-      setGameLog(lobbyState.meta.gameLog.slice().reverse().map((entry: any) => ({
+      setGameLog(lobbyState.ui.gameLog.slice().reverse().map((entry: any) => ({
         message: entry.message,
         timestamp: entry.timestamp,
         player: entry.player,
         isYou: entry.player === player?.username
       })));
     }
-  }, [lobbyState.meta?.gameLog, player?.username]);
+  }, [lobbyState.ui?.gameLog, player?.username]);
 
+  // Debug log when game status changes
+  useEffect(() => {
+    if (lobbyState.game?.gameStatus) {
+      console.log('[GameView] Game status changed:', lobbyState.game.gameStatus);
+      console.log('[GameView] Current board state:', lobbyState.game?.zones?.board);
+    }
+  }, [lobbyState.game?.gameStatus]);
+
+  const currentPlayer = lobbyState.game?.currentPlayer;
   const isYourTurn = lobbyState.you && 
                      lobbyState.you !== 'spectator' && 
-                     lobbyState.state?.turn === lobbyState.you;
+                     currentPlayer === lobbyState.you &&
+                     lobbyState.game?.gameStatus?.state !== 'ended';
   
   // Debug logging
   console.log('[GameView Debug]', {
     you: lobbyState.you,
-    turn: lobbyState.state?.turn,
+    turn: lobbyState.game?.turn,
+    currentPlayer: currentPlayer,
     isYourTurn,
-    possibleActions: lobbyState.meta?.possibleActions?.[lobbyState.you || ''],
-    players: lobbyState.meta?.players
+    actionMap: lobbyState.ui?.actionMap?.[lobbyState.you || ''],
+    players: lobbyState.ui?.players,
+    phases: lobbyState.game?.phases,
+    phaseStates: lobbyState.ui?.phaseStates,
+    currentPhase: lobbyState.game?.phases?.game,
+    gameState: lobbyState.game,
+    clientUI: lobbyState.ui
   });
 
-  const currentPlayerIndex = lobbyState.state?.turn ? parseInt(lobbyState.state.turn.replace('p', '')) - 1 : -1;
-  const currentPlayerName = lobbyState.meta?.players?.[currentPlayerIndex] || '';
+  const currentPlayerIndex = currentPlayer ? parseInt(currentPlayer.replace('p', '')) - 1 : -1;
+  const currentPlayerName = lobbyState.ui?.players?.[currentPlayerIndex] || '';
 
 
   // Prepare player data for header
   const players = useMemo(() => {
-    return lobbyState.meta?.players?.map((username) => ({
+    return lobbyState.ui?.players?.map((username) => ({
       username,
       isConnected: true // You might want to track actual connection state
     })) || [];
-  }, [lobbyState.meta?.players]);
+  }, [lobbyState.ui?.players]);
 
   // Handle board cell clicks
   const handleCellClick = (row: number, col: number) => {
-    if (!isYourTurn) return;
+    console.log('[GameView] Cell clicked:', { row, col, isYourTurn, you: lobbyState.you });
+    
+    if (!isYourTurn) {
+      console.log('[GameView] Not your turn, ignoring click');
+      return;
+    }
     
     // Check if there's an action at this location
-    const playerActions = lobbyState.meta?.actionMap?.[lobbyState.you || ''] || {};
-    const location = `/zones/board/${row}/${col}`;
+    const playerActions = lobbyState.ui?.actionMap?.[lobbyState.you || ''] || {};
+    const location = `/zones/board/cells/${row}/${col}`;
     const action = playerActions[location];
     
+    console.log('[GameView] Action lookup:', {
+      location,
+      playerActions,
+      action,
+      allActionMaps: lobbyState.ui?.actionMap
+    });
+    
     if (action) {
+      // For place actions, we need to send location and entity
+      const entity = `mark_${lobbyState.you}`; // e.g., "mark_p1"
       const message = JSON.stringify({
         action: action.action,
-        args: { row, col }
+        args: {
+          location: location,
+          entity: entity
+        }
       });
+      console.log('[GameView] Sending action:', message);
       sendMessage(message);
     }
   };
@@ -162,7 +209,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
   const handleCardAction = (zoneId: string, cardIndex: number) => {
     if (!isYourTurn) return;
     
-    const playerActions = lobbyState.meta?.actionMap?.[lobbyState.you || ''] || {};
+    const playerActions = lobbyState.ui?.actionMap?.[lobbyState.you || ''] || {};
     let location: string;
     let action: any;
     
@@ -230,19 +277,19 @@ export default function GameView({ lobbyId }: GameViewProps) {
         lobbyId={lobbyId}
         gameId={lobbyId.slice(-10).toUpperCase()}
         gameName={lobbyInfo.manifest.metadata.name}
-        status={lobbyState.meta?.gameStatus?.state === 'ended' ? 'finished' : 
+        status={lobbyState.game?.gameStatus?.state === 'ended' ? 'finished' : 
                 lobbyState.started ? 'in_progress' : 'waiting'}
         players={players}
         currentPlayer={currentPlayerName}
-        entityDefinitions={lobbyState.meta?.entities}
+        entityDefinitions={lobbyState.ui?.entities}
         turnPrompt={(() => {
           // First check if there's a phase prompt
-          if (lobbyState.meta?.currentPhasePrompt) {
-            return lobbyState.meta.currentPhasePrompt;
+          if (lobbyState.ui?.currentPhasePrompt) {
+            return lobbyState.ui.currentPhasePrompt;
           }
           
           // Otherwise fall back to action directions
-          const actionMap = lobbyState.meta?.actionMap?.[lobbyState.you || ''];
+          const actionMap = lobbyState.ui?.actionMap?.[lobbyState.you || ''];
           if (!actionMap) return undefined;
           
           // Get unique directions from all available actions
@@ -266,8 +313,13 @@ export default function GameView({ lobbyId }: GameViewProps) {
 
       {/* Phase display */}
       <PhaseDisplay 
-        phaseMessages={lobbyState.meta?.phaseDisplayMessages}
-        phaseStates={lobbyState.meta?.phaseStates}
+        phaseMessages={lobbyState.ui?.phaseDisplayMessages}
+        phaseStates={lobbyState.ui?.phaseStates}
+      />
+
+      {/* Phase tracker (debug) */}
+      <PhaseTracker 
+        phaseStates={lobbyState.ui?.phaseStates}
       />
 
       {/* Main content */}
@@ -278,22 +330,23 @@ export default function GameView({ lobbyId }: GameViewProps) {
             <>
               {/* Game result banner - shown above the board when game ends */}
               <GameResultBanner
-                gameStatus={lobbyState.meta?.gameStatus}
+                gameStatus={lobbyState.game?.gameStatus}
                 you={lobbyState.you}
-                playerNames={lobbyState.meta?.players}
+                playerNames={lobbyState.ui?.players}
               />
               
               <GameZones
-                zones={lobbyState.state?.zones}
-                entityDefinitions={lobbyState.meta?.entities}
+                zones={lobbyState.game?.zones}
+                entityDefinitions={lobbyState.ui?.entities}
                 onCellClick={handleCellClick}
                 onCardAction={handleCardAction}
                 isMyTurn={!!isYourTurn}
-                zoneMetadata={(lobbyInfo.manifest as any)?.zones || (lobbyState.meta as any)?.zones}
-                playerNames={lobbyState.meta?.players}
-                actionMap={lobbyState.meta?.actionMap?.[lobbyState.you || ''] || {}}
-                selection={(lobbyState.state as any)?.meta?.selection}
+                zoneMetadata={lobbyState.ui?.zones || (lobbyInfo.manifest as any)?.zones}
+                playerNames={lobbyState.ui?.players}
+                actionMap={lobbyState.ui?.actionMap?.[lobbyState.you || ''] || {}}
+                selection={lobbyState.game?.selection}
                 you={lobbyState.you}
+                zoneGroups={lobbyState.ui?.zoneGroups}
               />
             </>
           ) : (
@@ -382,7 +435,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
         </div>
 
         {/* Game log - only show during game */}
-        {lobbyState.started && <GameLog entries={gameLog} playerNames={lobbyState.meta?.players} />}
+        {lobbyState.started && <GameLog entries={gameLog} playerNames={lobbyState.ui?.players} />}
       </div>
     </div>
   );

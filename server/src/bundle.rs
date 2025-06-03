@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fs};
 use crate::shorthand::expand_game_definitions;
+use crate::validation::{validate_bundle, print_validation_errors, ValidationError};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PlayersRange {
@@ -18,6 +19,13 @@ pub struct ManifestMetadata {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+pub struct ZoneGroup {
+    pub id: String,
+    pub title: String,
+    pub zones: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Manifest {
     #[serde(rename = "gameId")]
     pub game_id: String,
@@ -29,6 +37,8 @@ pub struct Manifest {
     pub phases: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub setup: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "zoneGroups")]
+    pub zone_groups: Option<Vec<ZoneGroup>>,
 }
 
 #[derive(Clone)]
@@ -50,6 +60,8 @@ pub struct BundleMap {
 impl BundleMap {
     pub fn load_dir(path: &str) -> anyhow::Result<Self> {
         let mut bundles = HashMap::new();
+        let mut all_validation_errors: Vec<ValidationError> = Vec::new();
+        
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
@@ -65,32 +77,32 @@ impl BundleMap {
             versions.sort();
             if let Some(ver) = versions.last() {
                 let base = entry.path().join(ver);
-                let manifest_path = base.join("manifest.yaml");
+                let manifest_path = base.join("manifest.json");
                 if manifest_path.exists() {
                     let manifest_contents = fs::read_to_string(&manifest_path)?;
-                    let manifest: Manifest = serde_yaml::from_str(&manifest_contents)
-                        .map_err(|e| anyhow::anyhow!("Failed to parse manifest for game '{}': {}", game_id, e))?;
+                    let manifest: Manifest = serde_json::from_str(&manifest_contents)
+                        .map_err(|e| anyhow::anyhow!("Failed to parse manifest.json for game '{}': {}", game_id, e))?;
 
-                    let entities_path = base.join("entities.yaml");
-                    let zones_path = base.join("zones.yaml");
-                    let actions_path = base.join("actions.yaml");
-                    let phases_path = base.join("phases.yaml");
+                    let entities_path = base.join("entities.json");
+                    let zones_path = base.join("zones.json");
+                    let actions_path = base.join("actions.json");
+                    let phases_path = base.join("phases.json");
 
                     let mut entities: Value = if entities_path.exists() {
-                        serde_yaml::from_str(&fs::read_to_string(&entities_path)?)
-                            .map_err(|e| anyhow::anyhow!("Failed to parse entities.yaml for game '{}': {}", game_id, e))?
+                        serde_json::from_str(&fs::read_to_string(&entities_path)?)
+                            .map_err(|e| anyhow::anyhow!("Failed to parse entities.json for game '{}': {}", game_id, e))?
                     } else { Value::Null };
                     let mut zones: Value = if zones_path.exists() {
-                        serde_yaml::from_str(&fs::read_to_string(&zones_path)?)
-                            .map_err(|e| anyhow::anyhow!("Failed to parse zones.yaml for game '{}': {}", game_id, e))?
+                        serde_json::from_str(&fs::read_to_string(&zones_path)?)
+                            .map_err(|e| anyhow::anyhow!("Failed to parse zones.json for game '{}': {}", game_id, e))?
                     } else { Value::Null };
                     let mut actions: Value = if actions_path.exists() {
-                        serde_yaml::from_str(&fs::read_to_string(&actions_path)?)
-                            .map_err(|e| anyhow::anyhow!("Failed to parse actions.yaml for game '{}': {}", game_id, e))?
+                        serde_json::from_str(&fs::read_to_string(&actions_path)?)
+                            .map_err(|e| anyhow::anyhow!("Failed to parse actions.json for game '{}': {}", game_id, e))?
                     } else { Value::Null };
                     let phases: Value = if phases_path.exists() {
-                        serde_yaml::from_str(&fs::read_to_string(&phases_path)?)
-                            .map_err(|e| anyhow::anyhow!("Failed to parse phases.yaml for game '{}': {}", game_id, e))?
+                        serde_json::from_str(&fs::read_to_string(&phases_path)?)
+                            .map_err(|e| anyhow::anyhow!("Failed to parse phases.json for game '{}': {}", game_id, e))?
                     } else { Value::Null };
                     
                     // Expand shorthand syntax
@@ -105,14 +117,22 @@ impl BundleMap {
                     };
 
                     println!("Loading game: {} v{}", game_id, ver);
-                    bundles.insert(
-                        game_id.clone(),
-                        Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, phases, hooks },
-                    );
+                    let bundle = Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, phases, hooks };
+                    
+                    // Validate the bundle
+                    let validation_errors = validate_bundle(&bundle);
+                    all_validation_errors.extend(validation_errors);
+                    
+                    bundles.insert(game_id.clone(), bundle);
                 }
             }
         }
+        
         println!("Loaded {} games total", bundles.len());
+        
+        // Print validation errors if any
+        print_validation_errors(&all_validation_errors);
+        
         Ok(Self { bundles })
     }
 

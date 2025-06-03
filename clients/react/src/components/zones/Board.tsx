@@ -31,11 +31,21 @@ import { getColorById, getPlayerColor, PLAYER_COLORS } from '../../config/colors
 const useMarkColor = () => {
   const { player } = usePlayer();
   
-  return (cell: string, playerNames?: string[]) => {
+  return (cell: any, playerNames?: string[]) => {
     if (!playerNames) return '#888';
     
+    // Extract entity ID from cell - could be a string or an object
+    let entityId: string;
+    if (typeof cell === 'string') {
+      entityId = cell;
+    } else if (cell && typeof cell === 'object' && cell.entity) {
+      entityId = cell.entity;
+    } else {
+      return '#888';
+    }
+    
     // Find which player this entity belongs to - matches mark_p1, chip_p1, etc.
-    const match = cell.match(/_p(\d+)$/);
+    const match = entityId.match(/_p(\d+)$/);
     if (!match) return '#888';
     
     const entityPlayerIndex = parseInt(match[1]) - 1;
@@ -55,6 +65,42 @@ const useMarkColor = () => {
     const colorIndex = entityPlayerIndex % PLAYER_COLORS.length;
     return PLAYER_COLORS[colorIndex].hex;
   };
+};
+
+// Helper function to calculate hue rotation for color filters
+const getHueRotation = (targetColor: string): number => {
+  // Convert hex to HSL to get hue
+  const hex = targetColor.replace('#', '');
+  const r = parseInt(hex.substr(0, 2), 16) / 255;
+  const g = parseInt(hex.substr(2, 2), 16) / 255;
+  const b = parseInt(hex.substr(4, 2), 16) / 255;
+  
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const diff = max - min;
+  
+  let h = 0;
+  if (diff !== 0) {
+    switch (max) {
+      case r: h = ((g - b) / diff + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / diff + 2) / 6; break;
+      case b: h = ((r - g) / diff + 4) / 6; break;
+    }
+  }
+  
+  const targetHue = h * 360;
+  
+  // Base hue for the token SVGs (pink/magenta is around 320 degrees)
+  const baseHue = 320;
+  
+  // Calculate rotation needed
+  let rotation = targetHue - baseHue;
+  
+  // Normalize to -180 to 180 range for better filter performance
+  while (rotation > 180) rotation -= 360;
+  while (rotation < -180) rotation += 360;
+  
+  return rotation;
 };
 
 function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zoneMetadata, playerNames, actionMap, selection }: ZoneProps) {
@@ -195,12 +241,22 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
   const fontSize = cellSize >= 80 ? 'text-5xl' : cellSize >= 60 ? 'text-4xl' : 'text-2xl';
   
   // Get glyph or token info from entity definitions
-  const getEntityDisplay = (cell: string) => {
-    const entity = entityDefinitions?.find(e => e.id === cell);
+  const getEntityDisplay = (cell: any) => {
+    // Extract entity ID from cell - could be a string or an object
+    let entityId: string;
+    if (typeof cell === 'string') {
+      entityId = cell;
+    } else if (cell && typeof cell === 'object' && cell.entity) {
+      entityId = cell.entity;
+    } else {
+      return { type: 'glyph', glyph: '?' }; // Unknown entity
+    }
+    
+    const entity = entityDefinitions?.find(e => e.id === entityId);
     if (entity?.ui?.tokenType) {
       return { type: 'token', tokenType: entity.ui.tokenType };
     }
-    return { type: 'glyph', glyph: entity?.ui?.glyph || (cell === 'stone_p1' ? 'X' : cell === 'stone_p2' ? 'O' : (cell === 'mark_p1' ? 'X' : 'O')) };
+    return { type: 'glyph', glyph: entity?.ui?.glyph || (entityId === 'stone_p1' ? 'X' : entityId === 'stone_p2' ? 'O' : (entityId === 'mark_p1' ? 'X' : 'O')) };
   };
   
   // Handle cell clicks for this specific zone
@@ -266,8 +322,13 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                 if (isMyTurn) {
                   if (actionMap !== undefined) {
                     // Check if there's an action at this location
-                    const location = `/zones/${zoneId}/${actualRow}/${actualCol}`;
+                    const location = `/zones/${zoneId}/cells/${actualRow}/${actualCol}`;
                     isClickable = location in actionMap;
+                    if (!isClickable) {
+                      // Also check without "cells" for backward compatibility
+                      const altLocation = `/zones/${zoneId}/${actualRow}/${actualCol}`;
+                      isClickable = altLocation in actionMap;
+                    }
                   } else if (isEmpty && (zoneId === 'board' || zoneId === 'da-board')) {
                     // Only fall back to old logic if actionMap is not provided at all
                     isClickable = true;
@@ -332,23 +393,19 @@ function Zone({ zoneId, boardData, isMyTurn, onCellClick, entityDefinitions, zon
                           const color = getMarkColor(actualCell, playerNames);
                           
                           if (display.type === 'token') {
-                            // Render SVG token
-                            const tokenSize = cellSize * 0.525; // 52.5% of cell size (reduced by 25%)
+                            // Render SVG token with color filter
+                            const tokenSize = cellSize * 0.7; // 70% of cell size
                             return (
                               <div 
                                 className="relative z-10"
                                 style={{ 
                                   width: `${tokenSize}px`, 
                                   height: `${tokenSize}px`,
-                                  backgroundColor: color,
-                                  maskImage: `url(/tokens/token_${display.tokenType}.svg)`,
-                                  maskSize: 'contain',
-                                  maskRepeat: 'no-repeat',
-                                  maskPosition: 'center',
-                                  WebkitMaskImage: `url(/tokens/token_${display.tokenType}.svg)`,
-                                  WebkitMaskSize: 'contain',
-                                  WebkitMaskRepeat: 'no-repeat',
-                                  WebkitMaskPosition: 'center'
+                                  backgroundImage: `url(/tokens/token_${display.tokenType}.svg)`,
+                                  backgroundSize: 'contain',
+                                  backgroundRepeat: 'no-repeat',
+                                  backgroundPosition: 'center',
+                                  filter: `hue-rotate(${getHueRotation(color)}deg) saturate(1.2)`
                                 }}
                               />
                             );

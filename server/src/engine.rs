@@ -40,12 +40,22 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
             };
 
             for pid in ids {
+                println!("  Creating zone: {}", pid);
                 let mut content_spec = contents.clone();
                 if per_player {
                     let player_id = pid.split('_').last().unwrap_or("");
                     if let Some(map) = contents.as_object() {
                         if let Some(specific) = map.get(player_id) {
                             content_spec = specific.clone();
+                        }
+                    }
+                    
+                    // Replace {player} placeholders in the content_spec
+                    if let Some(obj) = content_spec.as_object_mut() {
+                        if let Some(entity) = obj.get_mut("entity") {
+                            if let Some(entity_str) = entity.as_str() {
+                                *entity = Value::String(entity_str.replace("{player}", player_id));
+                            }
                         }
                     }
                 }
@@ -74,2376 +84,994 @@ pub fn load_initial_state(bundle: &Bundle) -> Value {
         }
     }
 
-    // Get initial phases from manifest setup section
-    let initial_phases = bundle.manifest.setup
-        .as_ref()
-        .and_then(|s| s.get("initialPhases"))
-        .cloned()
-        .unwrap_or_else(|| json!({"game": "game.setup"}));
-    
+    // Initialize all phase sets to their initial phase
     let mut phase_states = json!({});
     
-    // Initialize phase states
-    if let Some(phases_obj) = initial_phases.as_object() {
-        for (track, phase) in phases_obj {
-            if !phase.is_null() {
-                phase_states[track] = json!({
-                    "current": phase,
-                    "count": 0,
-                    "actionsProcessed": 0
-                });
+    if let Some(phase_sets) = bundle.phases.as_array() {
+        for phase_set in phase_sets {
+            if let Some(set_id) = phase_set["id"].as_str() {
+                // Find the initial phase in this set
+                if let Some(phases) = phase_set["phases"].as_array() {
+                    let initial = phases.iter()
+                        .find(|p| p["initial"].as_bool().unwrap_or(false))
+                        .or_else(|| phases.first())
+                        .and_then(|p| p["id"].as_str())
+                        .unwrap_or("null");
+                    
+                    phase_states[set_id] = json!(initial);
+                }
             }
         }
     }
-    
-    let meta = json!({
-        "phaseStates": phase_states,
-        "gameStatus": {
-            "state": "active"
-        },
-        "phaseDisplayMessages": []
-    });
-    
+
     json!({
-        "zones": Value::Object(zones),
+        "zones": zones,
         "players": players,
-        "turn": "p1",
-        "meta": meta
+        "tick": 0,
+        "turn": 0,
+        "currentPlayer": "p1",
+        "gameStatus": {
+            "state": "playing",
+            "winner": null,
+            "tie": false
+        },
+        "phases": phase_states
     })
 }
 
 fn init_grid(zone: &Value, contents: &Value) -> Value {
-    // Support both new (rows/cols) and old (width/height) naming
-    let grid_props = zone.get("gridProps");
-    let cols = grid_props
-        .and_then(|g| g.get("cols").or_else(|| g.get("width")))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as usize;
-    let rows = grid_props
-        .and_then(|g| g.get("rows").or_else(|| g.get("height")))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as usize;
-    if contents.as_str() == Some("empty") {
-        let mut grid_rows = Vec::new();
-        for _ in 0..rows {
-            grid_rows.push(vec![Value::Null; cols]);
-        }
-        return Value::Array(grid_rows.into_iter().map(Value::Array).collect());
-    }
-    if let Some(arr) = contents.as_array() {
-        let mut rows: Vec<Value> = Vec::new();
-        for row in arr {
-            if let Some(cells) = row.as_array() {
-                // wrap the row so the outer Vec is Vec<Value>
-                rows.push(Value::Array(cells.clone()));
-            }
-        }
-        return Value::Array(rows);
-    }
-    Value::Null
-}
-
-fn init_list(contents: &Value) -> Value {
-    if contents.as_str() == Some("empty") {
-        return json!({"items": []});
-    }
-    if let Some(arr) = contents.as_array() {
-        return json!({"items": arr.clone()});
-    }
-    if let Some(obj) = contents.as_object() {
-        let entity = obj.get("entity").and_then(|v| v.as_str()).unwrap_or("");
-        if let Some(count) = obj.get("count") {
-            if count.as_str() == Some("infinite") {
-                return json!({"items": [], "infinite": entity});
-            } else if let Some(n) = count.as_u64() {
-                let mut items = Vec::new();
-                for _ in 0..n {
-                    items.push(Value::String(entity.to_string()));
-                }
-                return json!({"items": items});
-            }
-        }
-    }
-    json!({"items": []})
-}
-
-/* --------------------------------------------------------------------------
-   Phase Processing
-   ----------------------------------------------------------------------- */
-pub fn process_phases(bundle: &Bundle, state: &mut Value) -> Value {
-    println!("[DEBUG process_phases] ============ Starting phase processing ============");
-    let mut patches = vec![];
+    let rows = zone["rows"].as_u64().unwrap_or(3) as usize;
+    let cols = zone["cols"].as_u64().unwrap_or(3) as usize;
     
-    // Get current phase states
-    let phase_states = state.get("meta")
-        .and_then(|m| m.get("phaseStates"))
-        .cloned()
-        .unwrap_or(json!({}));
-    
-    println!("[DEBUG process_phases] Current phase states: {:?}", phase_states);
-    
-    // Check each phase track
-    if let Some(phase_states_obj) = phase_states.as_object() {
-        println!("[DEBUG process_phases] Processing {} phase tracks", phase_states_obj.len());
-        for (track_name, track_state) in phase_states_obj {
-            println!("[DEBUG process_phases] Processing track: {}, state: {:?}", track_name, track_state);
-            if let Some(current_phase_id) = track_state.get("current").and_then(|p| p.as_str()) {
-                println!("[DEBUG process_phases] Current phase for track {}: {}", track_name, current_phase_id);
-                // Find the phase definition
-                if let Some(phases_array) = bundle.phases.as_array() {
-                    println!("[DEBUG process_phases] Bundle has {} phase definitions", phases_array.len());
-                    if let Some(phase_def) = phases_array.iter().find(|p| p["id"].as_str() == Some(current_phase_id)) {
-                        let phase_type = phase_def["type"].as_str().unwrap_or("container");
-                        
-                        match phase_type {
-                            "automatic" => {
-                                // Check if we need to show the phase message first
-                                let processed_count = track_state.get("actionsProcessed")
-                                    .and_then(|c| c.as_u64())
-                                    .unwrap_or(0) as usize;
-                                
-                                println!("[DEBUG process_phases] Automatic phase {} - processed_count: {}", current_phase_id, processed_count);
-                                
-                                // First pass - show phase message only
-                                if processed_count == 0 && phase_def.get("displayMessage").is_some() {
-                                    if let Some(display_msg) = phase_def["displayMessage"].as_str() {
-                                        println!("[DEBUG process_phases] Showing phase message: {}", display_msg);
-                                        let phase_message = json!({
-                                            "track": track_name,
-                                            "phase": current_phase_id,
-                                            "message": display_msg,
-                                            "timestamp": std::time::SystemTime::now()
-                                                .duration_since(std::time::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_millis() as u64
-                                        });
-                                        
-                                        patches.push(json!({
-                                            "op": "add",
-                                            "path": "/meta/phaseDisplayMessages/-",
-                                            "value": phase_message
-                                        }));
-                                        
-                                        // Increment processed count without executing an action
-                                        patches.push(json!({
-                                            "op": "replace",
-                                            "path": format!("/meta/phaseStates/{}/actionsProcessed", track_name),
-                                            "value": 1
-                                        }));
-                                        
-                                        return json!(patches);
-                                    }
-                                }
-                                
-                                // Process actions
-                                if let Some(actions) = phase_def["actions"].as_array() {
-                                    // If we have a display message, the first iteration (processed_count=0) shows the message
-                                    // So actual actions start at processed_count=1
-                                    let action_index = if phase_def.get("displayMessage").is_some() && processed_count > 0 {
-                                        processed_count - 1  // Subtract 1 because iteration 0 was the phase message
-                                    } else if phase_def.get("displayMessage").is_none() {
-                                        processed_count  // No display message, so processed_count maps directly to action index
-                                    } else {
-                                        // This means processed_count=0 and we have a display message, so no action to process
-                                        return json!(patches);
-                                    };
-                                    
-                                    println!("[DEBUG process_phases] Phase has {} actions, action index: {}", actions.len(), action_index);
-                                    
-                                    if action_index < actions.len() {
-                                        // Process just the next action
-                                        if let Some(action_def) = actions.get(action_index) {
-                                            let action_id = if let Some(id) = action_def.get("id").and_then(|v| v.as_str()) {
-                                                id
-                                            } else if let Some(id) = action_def.as_str() {
-                                                id
-                                            } else {
-                                                return json!(patches);
-                                            };
-                                                
-                                            // Show action message
-                                            if let Some(display_msg) = action_def.get("displayMessage").and_then(|m| m.as_str()) {
-                                                let action_message = json!({
-                                                    "action": action_id,
-                                                    "message": display_msg,
-                                                    "timestamp": std::time::SystemTime::now()
-                                                        .duration_since(std::time::UNIX_EPOCH)
-                                                        .unwrap()
-                                                        .as_millis() as u64
-                                                });
-                                                patches.push(json!({
-                                                    "op": "add",
-                                                    "path": "/meta/phaseDisplayMessages/-",
-                                                    "value": action_message
-                                                }));
-                                            }
-                                            
-                                            // Execute the action
-                                            println!("[DEBUG process_phases] Executing action: {}", action_id);
-                                            let action_json = json!({"action": action_id});
-                                            let action_patches = apply_action(bundle, state, "system", &action_json);
-                                            if let Some(arr) = action_patches.as_array() {
-                                                patches.extend_from_slice(arr);
-                                            }
-                                            
-                                            // Update processed count
-                                            patches.push(json!({
-                                                "op": "replace",
-                                                "path": format!("/meta/phaseStates/{}/actionsProcessed", track_name),
-                                                "value": processed_count + 1
-                                            }));
-                                            
-                                            
-                                            // Return here to process one action at a time
-                                            return json!(patches);
-                                        }
-                                    } else {
-                                        // All actions processed, advance to next phase
-                                        if let Some(next_phase) = phase_def["next"].as_str() {
-                                            advance_phase(state, track_name, next_phase, &mut patches);
-                                        }
-                                    }
-                                } else {
-                                    // No actions, but we might still need to show phase message
-                                    if processed_count == 0 && phase_def.get("displayMessage").is_some() {
-                                        // Show phase message first
-                                        if let Some(display_msg) = phase_def["displayMessage"].as_str() {
-                                            let phase_message = json!({
-                                                "track": track_name,
-                                                "phase": current_phase_id,
-                                                "message": display_msg,
-                                                "timestamp": std::time::SystemTime::now()
-                                                    .duration_since(std::time::UNIX_EPOCH)
-                                                    .unwrap()
-                                                    .as_millis() as u64
-                                            });
-                                            
-                                            patches.push(json!({
-                                                "op": "add",
-                                                "path": "/meta/phaseDisplayMessages/-",
-                                                "value": phase_message
-                                            }));
-                                            
-                                            // Increment processed count to indicate message was shown
-                                            patches.push(json!({
-                                                "op": "replace",
-                                                "path": format!("/meta/phaseStates/{}/actionsProcessed", track_name),
-                                                "value": 1
-                                            }));
-                                            
-                                            return json!(patches);
-                                        }
-                                    } else {
-                                        // Already showed message (processed_count > 0) or no message to show
-                                        // Advance to next phase
-                                        if let Some(next_phase) = phase_def["next"].as_str() {
-                                            advance_phase(state, track_name, next_phase, &mut patches);
-                                        }
-                                    }
-                                }
-                            }
-                            "playerTurns" => {
-                                // Handle player turn ordering
-                                let _order_by = phase_def["orderBy"].as_str().unwrap_or("alternating");
-                                
-                                // Activate turn phase track if specified (only once)
-                                if let Some(subtrack) = phase_def["subtrack"].as_str() {
-                                    let already_activated = track_state.get("subtrackActivated")
-                                        .and_then(|v| v.as_bool())
-                                        .unwrap_or(false);
-                                    
-                                    if !already_activated {
-                                        activate_phase_track(state, subtrack, &mut patches);
-                                        
-                                        patches.push(json!({
-                                            "op": "add",
-                                            "path": format!("/meta/phaseStates/{}/subtrackActivated", track_name),
-                                            "value": true
-                                        }));
-                                    }
-                                }
-                            }
-                            _ => {
-                                // Container phases just activate subtracks once
-                                if let Some(subtrack) = phase_def["subtrack"].as_str() {
-                                    // Check if we've already activated this subtrack
-                                    let already_activated = track_state.get("subtrackActivated")
-                                        .and_then(|v| v.as_bool())
-                                        .unwrap_or(false);
-                                    
-                                    if !already_activated {
-                                        println!("[DEBUG process_phases] Container phase {} activating subtrack: {}", current_phase_id, subtrack);
-                                        activate_phase_track(state, subtrack, &mut patches);
-                                        
-                                        // Mark that we've activated the subtrack
-                                        patches.push(json!({
-                                            "op": "add",
-                                            "path": format!("/meta/phaseStates/{}/subtrackActivated", track_name),
-                                            "value": true
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    json!(patches)
-}
-
-fn advance_phase(state: &mut Value, track: &str, next_phase: &str, patches: &mut Vec<Value>) {
-    if let Some(phase_states) = state.get_mut("meta")
-        .and_then(|m| m.get_mut("phaseStates"))
-        .and_then(|p| p.as_object_mut()) {
-        
-        if let Some(track_state) = phase_states.get_mut(track).and_then(|t| t.as_object_mut()) {
-            track_state.insert("current".to_string(), json!(next_phase));
-            track_state.insert("actionsProcessed".to_string(), json!(0)); // Reset action count
-            if let Some(count) = track_state.get("count").and_then(|c| c.as_u64()) {
-                track_state.insert("count".to_string(), json!(count + 1));
-            }
-            
-            let count_val = track_state.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
-            
-            patches.push(json!({
-                "op": "replace",
-                "path": format!("/meta/phaseStates/{}/current", track),
-                "value": next_phase
-            }));
-            
-            patches.push(json!({
-                "op": "replace",
-                "path": format!("/meta/phaseStates/{}/actionsProcessed", track),
-                "value": 0
-            }));
-            
-            patches.push(json!({
-                "op": "replace",
-                "path": format!("/meta/phaseStates/{}/count", track),
-                "value": count_val + 1
-            }));
-            
-            // Add game log entry for phase transition
-            let phase_name = next_phase.split('.').last().unwrap_or(next_phase);
-            let formatted_name = phase_name.chars().enumerate()
-                .map(|(i, c)| if i == 0 { c.to_uppercase().to_string() } else { c.to_string() })
-                .collect::<String>();
-            
-            patches.push(json!({
-                "op": "add",
-                "path": "/meta/gameLog/-",
-                "value": {
-                    "message": format!("Entering {} phase", formatted_name),
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    "isSystem": true
-                }
-            }));
-        }
-    }
-}
-
-fn activate_phase_track(state: &mut Value, track: &str, patches: &mut Vec<Value>) {
-    println!("[DEBUG activate_phase_track] Activating track: {}", track);
-    if let Some(phase_states) = state.get_mut("meta")
-        .and_then(|m| m.get_mut("phaseStates"))
-        .and_then(|p| p.as_object_mut()) {
-        
-        if !phase_states.contains_key(track) {
-            // Find first phase for this track - special handling for known tracks
-            let first_phase = match track {
-                "turn" => "turn.player".to_string(),      // First turn phase
-                "turnPhase" => "turnPhase.draw".to_string(), // First turn sub-phase
-                _ => format!("{}.setup", track)  // Default naming convention
-            };
-            
-            println!("[DEBUG activate_phase_track] Creating new track {} with initial phase: {}", track, first_phase);
-            phase_states.insert(track.to_string(), json!({
-                "current": first_phase,
-                "count": 0,
-                "actionsProcessed": 0
-            }));
-            
-            patches.push(json!({
-                "op": "add",
-                "path": format!("/meta/phaseStates/{}", track),
-                "value": {
-                    "current": first_phase,
-                    "count": 0,
-                    "actionsProcessed": 0
-                }
-            }));
-        } else {
-            println!("[DEBUG activate_phase_track] Track {} already exists with state: {:?}", track, phase_states.get(track));
-        }
-    }
-}
-
-/* --------------------------------------------------------------------------
-   Apply action
-   ----------------------------------------------------------------------- */
-pub fn apply_action(
-    bundle: &Bundle,
-    state: &mut Value,
-    caller: &str,
-    action: &Value,
-) -> Value {
-    let action_id = action["action"].as_str().unwrap_or("");
-    println!("[DEBUG apply_action] Looking for action: {}", action_id);
-    
-    // First try to find the action in the bundle
-    let action_spec = bundle
-        .actions
-        .as_array()
-        .and_then(|a| a.iter().find(|x| x["id"].as_str() == Some(action_id)));
-    
-    // If not found and it's a builtin action, create a minimal spec
-    let builtin_spec;
-    let spec = if let Some(s) = action_spec {
-        println!("[DEBUG apply_action] Found action {} in bundle", action_id);
-        s
-    } else if action_id.contains('.') {
-        // This looks like a builtin action (e.g., "phase.set", "entity.move")
-        println!("[DEBUG apply_action] Creating builtin spec for {}", action_id);
-        builtin_spec = json!({
-            "id": action_id,
-            "uses": action_id,
-            "auto": true,
-            "with": action.get("with").cloned().unwrap_or(json!({}))
-        });
-        &builtin_spec
-    } else {
-        println!("[DEBUG apply_action] Action {} not found!", action_id);
-        return json!([]);
-    };
-    
-    // Check if this is an auto action (no turn validation)
-    let is_auto = spec["auto"].as_bool().unwrap_or(false);
-    
-    // Don't allow any non-auto actions if game has ended
-    if !is_auto {
-        if let Some(meta) = state.get("meta") {
-            if let Some(game_status) = meta.get("gameStatus") {
-                if game_status["state"].as_str() == Some("ended") {
-                    return json!([]);
-                }
-            }
-        }
-        
-        // Ensure the caller is the active player
-        if state["turn"].as_str() != Some(caller) {
-            return json!([]);
-        }
-    }
-    
-    // Check 'when' conditions if present
-    if let Some(when_conditions) = spec.get("when").and_then(|w| w.as_array()) {
-        for condition in when_conditions {
-            if let Some(cond_type) = condition["condition"].as_str() {
-                match cond_type {
-                    "turn.isCurrent" => {
-                        let player = condition["player"].as_str()
-                            .unwrap_or("")
-                            .replace("{actor}", caller);
-                        if state["turn"].as_str() != Some(&player) {
-                            return json!([]);
-                        }
-                    }
-                    _ => {
-                        // Other condition types can be added here
-                    }
-                }
-            }
-        }
-    }
-
-    let mut patches = vec![];
-    
-    // Apply the action - check new terminology first, fall back to builtin for compatibility
-    let implementation = spec["uses"].as_str()
-        .or_else(|| spec["implementation"].as_str())
-        .or_else(|| spec["builtin"].as_str());
-    
-    println!("[DEBUG apply_action] Action {} has implementation: {:?}", action_id, implementation);
-    println!("[DEBUG apply_action] About to match implementation for {}", action_id);
-    
-    // Strip "presets." prefix if present for matching
-    let implementation_core = implementation.map(|s| {
-        if s.starts_with("presets.") {
-            &s[8..] // Remove "presets." prefix
-        } else {
-            s
-        }
-    });
-    
-    let action_patches = match implementation_core {
-        Some("entity.move") | Some("grid.move") | Some("moveEntity") => {
-            println!("[DEBUG apply_action] Matched entity move action - calling apply_move_entity");
-            apply_move_entity(bundle, state, spec, action, caller)
-        }
-        Some("turn.advance") | Some("nextTurn") => {
-            apply_next_turn(state, caller)
-        }
-        Some("deck.draw") | Some("drawCard") => {
-            apply_draw_card(bundle, state, spec, action, caller)
-        }
-        Some("deck.transfer") | Some("transferCards") => {
-            apply_transfer_cards(bundle, state, spec, action, caller)
-        }
-        Some("grid.select") | Some("selectEntity") => {
-            apply_select_entity(bundle, state, spec, action, caller)
-        }
-        Some("grid.moveSelected") | Some("moveSelectedEntity") => {
-            apply_move_selected_entity(bundle, state, spec, action, caller)
-        }
-        Some("zone.reset") => {
-            apply_zone_reset(bundle, state, spec, action, caller)
-        }
-        Some("turn.reset") => {
-            apply_turn_reset(state)
-        }
-        Some("game.end") => {
-            apply_game_end(state, spec, action, caller)
-        }
-        Some("phase.set") | Some("setPhase") => {
-            apply_set_phase(state, spec, caller)
-        }
-        Some("phase.advance") => {
-            apply_advance_phase(state, spec, caller)
-        }
-        Some("turnPhase.set") => {
-            apply_set_turn_phase(state, spec, caller)
-        }
-        Some("updateScore") => {
-            apply_update_score(state, spec, caller)
-        }
-        Some("checkScore") => {
-            apply_check_score(state, spec, action, caller)
-        }
-        Some("countCards") => {
-            apply_count_cards(state, spec, caller)
-        }
-        _ => {
-            // Check for old-style conditions or hooks
-            if spec.get("hook").is_some() {
-                apply_hook(bundle, state, spec, action, caller)
-            } else if spec.get("conditions").is_some() || spec.get("check").is_some() || spec.get("checks").is_some() {
-                apply_conditions(bundle, state, spec, action, caller)
+    let mut grid = Vec::new();
+    for _r in 0..rows {
+        let mut row = Vec::new();
+        for _c in 0..cols {
+            let cell_value = if contents.as_str() == Some("empty") {
+                Value::Null
             } else {
-                json!([])
-            }
-        }
-    };
-    
-    if let Some(arr) = action_patches.as_array() {
-        patches.extend_from_slice(arr);
-    }
-    
-    // Apply patches to state before triggers
-    for patch in &patches {
-        apply_patch_to_state(state, patch);
-    }
-    
-    // Process triggers - support both 'triggers' and 'then'
-    let triggers = spec.get("then").or_else(|| spec.get("triggers"));
-    println!("[DEBUG] Processing triggers/then for action {}: {:?}", spec["id"].as_str().unwrap_or("unknown"), triggers);
-    if let Some(triggers) = triggers.and_then(|t| t.as_array()) {
-        println!("[DEBUG] Found {} triggers to process", triggers.len());
-        for trigger in triggers {
-            let trigger_action_id = if let Some(id) = trigger.as_str() {
-                // Old format: just a string
-                id
-            } else if let Some(act) = trigger["action"].as_str() {
-                // New format: { action: "action_id" }
-                act
-            } else {
-                continue;
+                contents.clone()
             };
-            
-            println!("[DEBUG] Processing trigger: {}", trigger_action_id);
-            // Create a trigger action
-            let trigger_action = json!({ "action": trigger_action_id });
-            let trigger_patches = apply_action(bundle, state, caller, &trigger_action);
-            println!("[DEBUG] Trigger {} produced patches: {:?}", trigger_action_id, trigger_patches);
-            if let Some(arr) = trigger_patches.as_array() {
-                patches.extend_from_slice(arr);
-                // Apply trigger patches to state as well
-                for patch in arr {
-                    apply_patch_to_state(state, patch);
-                }
-            }
+            row.push(cell_value);
         }
+        grid.push(Value::Array(row));
     }
     
-    // Remove turn advancement patches if game has ended
-    if let Some(meta) = state.get("meta") {
-        if let Some(game_status) = meta.get("gameStatus") {
-            if game_status["state"].as_str() == Some("ended") {
-                patches.retain(|p| p["path"].as_str() != Some("/turn"));
-            }
-        }
-    }
-    
-    json!(patches)
-}
-
-fn apply_move_entity(
-    bundle: &Bundle,
-    state: &mut Value,
-    spec: &Value,
-    action: &Value,
-    actor: &str,
-) -> Value {
-    // Support both old 'params' and new 'with' terminology
-    let params = spec.get("with").or_else(|| spec.get("params"));
-    let params = params.unwrap_or(&spec["params"]); // fallback to params if neither exists
-    
-    let source_template = params["source"].as_str()
-        .or_else(|| params["from"].as_str())
-        .unwrap_or("");
-    let source_id = source_template.replace("{actor}", actor);
-    
-    let target = params.get("target").or_else(|| params.get("to"));
-    let target = target.unwrap_or(&params["target"]);
-    let target_zone = target["zone"].as_str()
-        .or_else(|| target.as_str()) // Allow direct zone reference
-        .unwrap_or("");
-    let target_id = target_zone.replace("{actor}", actor);
-
-    // Extract entity from source
-    let mut entity = String::new();
-    let mut remove_source = false;
-    
-    println!("[DEBUG apply_move_entity] Moving from {} to {}", source_id, target_id);
-    
-    if let Some(z) = state["zones"].get_mut(&source_id) {
-        println!("[DEBUG apply_move_entity] Source zone structure: {:?}", z);
-        
-        if z.get("infinite").is_some() {
-            entity = z["infinite"].as_str().unwrap().to_string();
-            // Replace {player} or {actor} with actual actor ID
-            entity = entity.replace("{player}", actor).replace("{actor}", actor);
-        } else if let Some(items) = z.get_mut("items").and_then(|v| v.as_array_mut()) {
-            println!("[DEBUG apply_move_entity] Source has {} items", items.len());
-            
-            // Check if a specific card index was provided
-            let mut card_index = action.get("args")
-                .and_then(|args| args.get("card"))
-                .and_then(|c| c.as_u64())
-                .map(|idx| idx as usize);
-                
-            // For deck zones without a specific index, take from the top (last item)
-            if card_index.is_none() && (source_id == "drawPile" || source_id == "discardPile") && !items.is_empty() {
-                card_index = Some(items.len() - 1);
-                println!("[DEBUG apply_move_entity] Deck zone - taking top card at index {}", card_index.unwrap());
-            }
-            
-            let final_index = card_index.unwrap_or(0);
-            println!("[DEBUG apply_move_entity] Final card index: {}", final_index);
-            
-            if final_index < items.len() {
-                if let Some(val) = items.get(final_index) {
-                    entity = val.as_str().unwrap_or("").to_string();
-                    items.remove(final_index);
-                    remove_source = true;
-                }
-            }
-        } else {
-            println!("[DEBUG apply_move_entity] Source zone has no items array!");
-        }
-    } else {
-        println!("[DEBUG apply_move_entity] Source zone {} not found!", source_id);
-    }
-    
-    if entity.is_empty() {
-        println!("[DEBUG apply_move_entity] No entity found to move!");
-        return json!([]);
-    }
-    
-
-    // Apply to target
-    let mut ops = Vec::new();
-    let mut final_row = 0;
-    let mut final_col = 0;
-    
-    if let Some(zone_val) = state["zones"].get_mut(&target_id) {
-        if zone_val.is_array() {
-            // grid
-            let mut row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
-            let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
-            final_row = row;
-            final_col = col;
-            
-            // Check for gravity mode
-            let gravity = spec["params"]["target"]["gravity"].as_bool().unwrap_or(false);
-            
-            if gravity {
-                // For gravity mode, find the lowest empty row in the column
-                if let Some(grid) = zone_val.as_array() {
-                    // First check if column is full
-                    let mut column_full = true;
-                    for r in 0..grid.len() {
-                        if let Some(row_arr) = grid[r].as_array() {
-                            if row_arr.get(col).map(|c| c.is_null()).unwrap_or(false) {
-                                column_full = false;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if column_full {
-                        return json!([]); // Column is full, can't place
-                    }
-                    
-                    // Find lowest empty row
-                    for r in (0..grid.len()).rev() {
-                        if let Some(row_arr) = grid[r].as_array() {
-                            if row_arr.get(col).map(|c| c.is_null()).unwrap_or(false) {
-                                row = r;
-                                final_row = r;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if let Some(row_arr) = zone_val.as_array_mut().and_then(|r| r.get_mut(row)) {
-                if let Some(cells) = row_arr.as_array_mut() {
-                    if cells[col].is_null() {
-                        cells[col] = Value::String(entity.clone());
-                        ops.push(json!({
-                            "op": "replace",
-                            "path": format!("/zones/{}/{}/{}", target_id, row, col),
-                            "value": entity
-                        }));
-                    } else {
-                        return json!([]);
-                    }
-                }
-            }
-        } else if zone_val.get("items").is_some() {
-            let items = zone_val.get_mut("items").unwrap().as_array_mut().unwrap();
-            let _idx = items.len();
-            items.push(Value::String(entity.clone()));
-            ops.push(json!({
-                "op": "add",
-                "path": format!("/zones/{}/items/-", target_id),
-                "value": entity
-            }));
-        }
-    }
-
-    if remove_source {
-        // Use the card index from args if available
-        let mut card_index = action.get("args")
-            .and_then(|args| args.get("card"))
-            .and_then(|c| c.as_u64())
-            .map(|idx| idx as usize);
-            
-        // For deck zones without a specific index, we removed from the top (last item)
-        if card_index.is_none() && (source_id == "drawPile" || source_id == "discardPile") {
-            // Get the current length after removal (it's already been removed above)
-            if let Some(z) = state["zones"].get(&source_id) {
-                if let Some(items) = z.get("items").and_then(|i| i.as_array()) {
-                    card_index = Some(items.len()); // This was the last index before removal
-                }
-            }
-        }
-        
-        let final_index = card_index.unwrap_or(0);
-            
-        ops.insert(0, json!({
-            "op": "remove",
-            "path": format!("/zones/{}/items/{}", source_id, final_index)
-        }));
-    }
-    
-    // Apply any effects specified in the verb
-    if let Some(effects) = spec["params"]["effects"].as_array() {
-        for effect in effects {
-            match effect["type"].as_str() {
-                Some("flip") => {
-                    let flip_ops = apply_flip_effect(state, effect, &target_id, final_row, final_col, &entity);
-                    if let Some(arr) = flip_ops.as_array() {
-                        ops.extend_from_slice(arr);
-                    }
-                }
-                Some("capture") => {
-                    let capture_ops = apply_capture_effect(state, effect, &target_id, final_row, final_col, actor);
-                    if let Some(arr) = capture_ops.as_array() {
-                        ops.extend_from_slice(arr);
-                    }
-                }
-                Some("transform") => {
-                    let transform_ops = apply_transform_effect(bundle, state, effect, &target_id, final_row, final_col, &entity, actor);
-                    if let Some(arr) = transform_ops.as_array() {
-                        ops.extend_from_slice(arr);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    Value::Array(ops)
-}
-
-fn apply_next_turn(state: &mut Value, caller: &str) -> Value {
-    // Get next player in turn order
-    let next_turn = {
-        if let Some(players) = state["players"].as_array() {
-            players
-                .iter()
-                .position(|p| p["id"].as_str() == Some(caller))
-                .map(|idx| {
-                    players[(idx + 1) % players.len()]["id"]
-                        .as_str()
-                        .unwrap()
-                        .to_string()
-                })
-        } else {
-            None
-        }
-    };
-
-    let mut patches = vec![];
-    
-    if let Some(next) = next_turn {
-        state["turn"] = Value::String(next.clone());
-        patches.push(json!({ "op": "replace", "path": "/turn", "value": next }));
-        
-        // Reset turn phase to first phase if turn phases are being used (old system)
-        if state.get("meta").and_then(|m| m.get("currentTurnPhase")).is_some() {
-            // Reset to "draw" or the first turn phase defined
-            // For now, we'll default to "draw" - could be made configurable
-            if let Some(meta) = state.get_mut("meta").and_then(|m| m.as_object_mut()) {
-                meta.insert("currentTurnPhase".to_string(), json!("draw"));
-            }
-            patches.push(json!({ "op": "replace", "path": "/meta/currentTurnPhase", "value": "draw" }));
-        }
-        
-        // Reset turnPhase track if it exists (new phase track system)
-        if let Some(phase_states) = state.get_mut("meta")
-            .and_then(|m| m.get_mut("phaseStates"))
-            .and_then(|p| p.as_object_mut()) {
-            
-            if let Some(turn_phase_state) = phase_states.get_mut("turnPhase").and_then(|t| t.as_object_mut()) {
-                turn_phase_state.insert("current".to_string(), json!("turnPhase.draw"));
-                turn_phase_state.insert("actionsProcessed".to_string(), json!(0));
-                
-                patches.push(json!({ "op": "replace", "path": "/meta/phaseStates/turnPhase/current", "value": "turnPhase.draw" }));
-                patches.push(json!({ "op": "replace", "path": "/meta/phaseStates/turnPhase/actionsProcessed", "value": 0 }));
-            }
-        }
-    }
-    
-    json!(patches)
-}
-
-fn apply_set_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
-    // Support both 'with' (new) and 'params' (old) syntax
-    let params = spec.get("with").or_else(|| spec.get("params")).unwrap_or(&spec["params"]);
-    let new_phase = params["phase"].as_str().unwrap_or("play");
-    
-    // Update phase in meta
-    if let Some(meta) = state.get_mut("meta").and_then(|m| m.as_object_mut()) {
-        meta.insert("currentPhase".to_string(), json!(new_phase));
-    }
-    
-    json!([{ "op": "replace", "path": "/meta/currentPhase", "value": new_phase }])
-}
-
-fn apply_advance_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
-    // Support both 'with' (new) and 'params' (old) syntax
-    let params = spec.get("with").or_else(|| spec.get("params")).unwrap_or(&spec["params"]);
-    let track = params["track"].as_str().unwrap_or("game");
-    
-    let mut patches = vec![];
-    
-    // Get current phase for the track
-    if let Some(phase_states) = state.get("meta")
-        .and_then(|m| m.get("phaseStates"))
-        .and_then(|p| p.as_object()) {
-        
-        if let Some(track_state) = phase_states.get(track) {
-            if let Some(current_phase) = track_state.get("current").and_then(|c| c.as_str()) {
-                // Find the phase definition and get its next phase
-                // Since we don't have access to bundle here, we'll use a simple approach
-                // For turnPhase track, we know the sequence: draw -> discard -> draw (new turn)
-                let next_phase = match (track, current_phase) {
-                    ("turnPhase", "turnPhase.draw") => "turnPhase.discard",
-                    ("turnPhase", "turnPhase.discard") => "turnPhase.draw",
-                    _ => return json!([]) // Unknown phase transition
-                };
-                
-                // Use the existing advance_phase function
-                advance_phase(state, track, next_phase, &mut patches);
-            }
-        }
-    }
-    
-    json!(patches)
-}
-
-fn apply_set_turn_phase(state: &mut Value, spec: &Value, _caller: &str) -> Value {
-    // Support both 'with' (new) and 'params' (old) syntax
-    let params = spec.get("with").or_else(|| spec.get("params")).unwrap_or(&spec["params"]);
-    let new_turn_phase = params["phase"].as_str().unwrap_or("draw");
-    
-    // Update turn phase in meta
-    if let Some(meta) = state.get_mut("meta").and_then(|m| m.as_object_mut()) {
-        meta.insert("currentTurnPhase".to_string(), json!(new_turn_phase));
-    }
-    
-    json!([{ "op": "replace", "path": "/meta/currentTurnPhase", "value": new_turn_phase }])
-}
-
-fn apply_update_score(state: &mut Value, spec: &Value, caller: &str) -> Value {
-    let params = &spec["params"];
-    let player = params["player"].as_str()
-        .unwrap_or("{actor}")
-        .replace("{actor}", caller);
-    
-    let amount = params["amount"].as_i64().unwrap_or(0);
-    let operation = params["operation"].as_str().unwrap_or("add");
-    
-    // Initialize scores if not present
-    if state["scores"].is_null() {
-        state["scores"] = json!({});
-    }
-    
-    let current_score = state["scores"][&player].as_i64().unwrap_or(0);
-    let new_score = match operation {
-        "add" => current_score + amount,
-        "subtract" => current_score - amount,
-        "set" => amount,
-        _ => current_score
-    };
-    
-    state["scores"][&player] = json!(new_score);
-    
-    json!([{
-        "op": "replace",
-        "path": format!("/scores/{}", player),
-        "value": new_score
-    }])
-}
-
-fn apply_check_score(state: &mut Value, spec: &Value, _action: &Value, caller: &str) -> Value {
-    let params = &spec["params"];
-    let player = params["player"].as_str()
-        .unwrap_or("{actor}")
-        .replace("{actor}", caller);
-    
-    let threshold = params["threshold"].as_i64().unwrap_or(100);
-    let comparison = params["comparison"].as_str().unwrap_or("gte");
-    
-    let score = state["scores"][&player].as_i64().unwrap_or(0);
-    
-    let condition_met = match comparison {
-        "gte" => score >= threshold,
-        "gt" => score > threshold,
-        "lte" => score <= threshold,
-        "lt" => score < threshold,
-        "eq" => score == threshold,
-        _ => false
-    };
-    
-    if condition_met {
-        if let Some(result) = params.get("result") {
-            if result["gameWin"].as_str() == Some("player") {
-                return json!([{
-                    "op": "add",
-                    "path": "/meta/gameStatus",
-                    "value": {
-                        "state": "ended",
-                        "winner": player
-                    }
-                }]);
-            } else if result["gameLose"].as_str() == Some("player") {
-                // Find winner (other players)
-                if let Some(players) = state["players"].as_array() {
-                    for p in players {
-                        if let Some(pid) = p["id"].as_str() {
-                            if pid != player {
-                                return json!([{
-                                    "op": "add",
-                                    "path": "/meta/gameStatus",
-                                    "value": {
-                                        "state": "ended",
-                                        "winner": pid
-                                    }
-                                }]);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    json!([])
-}
-
-/* --------------------------------------------------------------------------
-   Constraint validation for card games
-   ----------------------------------------------------------------------- */
-fn validate_card_constraint(
-    state: &Value,
-    constraint: &Value,
-    source_card: &str,
-    target_zone: &str,
-    _target_card: Option<&str>,
-) -> bool {
-    // Get card properties from entities
-    let source_props = get_card_properties(state, source_card);
-    
-    if let Some(constraint_type) = constraint.as_str() {
-        match constraint_type {
-            "matchingCard" => {
-                // For Crazy Eights - match rank or suit, 8s are wild
-                if let Some(discard_pile) = state["zones"][target_zone].get("items") {
-                    if let Some(items) = discard_pile.as_array() {
-                        if let Some(top_card) = items.last() {
-                            let top_props = get_card_properties(state, top_card.as_str().unwrap_or(""));
-                            
-                            // Check if source is an 8 (wild)
-                            if source_props.get("rank").and_then(|r| r.as_str()) == Some("8") {
-                                return true;
-                            }
-                            
-                            // Check rank or suit match
-                            let rank_match = source_props.get("rank") == top_props.get("rank");
-                            let suit_match = source_props.get("suit") == top_props.get("suit");
-                            
-                            return rank_match || suit_match;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    } else if let Some(constraint_obj) = constraint.as_object() {
-        // Handle complex constraints
-        if let Some(match_by) = constraint_obj.get("matchBy").and_then(|m| m.as_array()) {
-            // For games that specify what to match
-            for match_type in match_by {
-                if let Some(match_str) = match_type.as_str() {
-                    match match_str {
-                        "rank" => {
-                            // Check rank matching logic
-                        }
-                        "suit" => {
-                            // Check suit matching logic
-                        }
-                        "color" => {
-                            // Check color matching (red/black)
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
-    
-    true // Default to allowing the move
-}
-
-fn get_card_properties(state: &Value, card_id: &str) -> serde_json::Map<String, Value> {
-    // Look up card in entities
-    if let Some(entities) = state.get("meta").and_then(|m| m.get("entities")) {
-        if let Some(entities_array) = entities.as_array() {
-            for entity in entities_array {
-                if entity["id"].as_str() == Some(card_id) {
-                    if let Some(props) = entity.get("props").and_then(|p| p.as_object()) {
-                        return props.clone();
-                    }
-                }
-            }
-        }
-    }
-    serde_json::Map::new()
-}
-
-fn apply_count_cards(state: &mut Value, spec: &Value, caller: &str) -> Value {
-    let params = &spec["params"];
-    let zone_template = params["zone"].as_str().unwrap_or("");
-    let zone = zone_template.replace("{actor}", caller);
-    
-    let count = if let Some(zone_data) = state["zones"].get(&zone) {
-        if let Some(items) = zone_data.get("items").and_then(|i| i.as_array()) {
-            items.len() as i64
-        } else if zone_data.is_array() {
-            // Count non-null cells in grid
-            let mut count = 0;
-            if let Some(rows) = zone_data.as_array() {
-                for row in rows {
-                    if let Some(cells) = row.as_array() {
-                        count += cells.iter().filter(|c| !c.is_null()).count();
-                    }
-                }
-            }
-            count as i64
-        } else {
-            0
-        }
-    } else {
-        0
-    };
-    
-    // Store count if variable name provided
-    if let Some(var_name) = params.get("storeAs").and_then(|v| v.as_str()) {
-        let path = format!("/temp/{}", var_name);
-        return json!([{
-            "op": "add",
-            "path": path,
-            "value": count
-        }]);
-    }
-    
-    json!([])
-}
-
-/* --------------------------------------------------------------------------
-   Check tic-tac-toe game end
-   ----------------------------------------------------------------------- */
-pub fn apply_patch_to_state(state: &mut Value, patch: &Value) {
-    // Simple patch application for our use case
-    if let (Some(op), Some(path), Some(value)) = (
-        patch["op"].as_str(),
-        patch["path"].as_str(),
-        patch.get("value")
-    ) {
-        if op == "add" || op == "replace" {
-            // Parse the path and apply the change
-            let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-            let mut current = state;
-            
-            for (i, part) in parts.iter().enumerate() {
-                if i == parts.len() - 1 {
-                    // Last part - set the value
-                    if let Some(obj) = current.as_object_mut() {
-                        obj.insert(part.to_string(), value.clone());
-                    }
-                } else {
-                    // Navigate deeper - create missing objects
-                    if !current.get(part).is_some() {
-                        if let Some(obj) = current.as_object_mut() {
-                            obj.insert(part.to_string(), json!({}));
-                        }
-                    }
-                    // Safety check before unwrap
-                    if let Some(next) = current.get_mut(part) {
-                        current = next;
-                    } else {
-                        // Path doesn't exist and we couldn't create it
-                        return;
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn apply_conditions(_bundle: &Bundle, state: &Value, spec: &Value, _action: &Value, caller: &str) -> Value {
-    println!("[DEBUG] apply_conditions called for action: {:?}, caller: {}", spec["id"], caller);
-    
-    // Support both 'checks' and 'conditions' for compatibility
-    let conditions = spec.get("checks")
-        .or_else(|| spec.get("conditions"))
-        .and_then(|c| c.as_array());
-    
-    let conditions = match conditions {
-        Some(c) => c,
-        None => return json!([]),
-    };
-    
-    let mut patches = vec![];
-    
-    // For checkWin or checkGameEnd, we need to check conditions for all players
-    let players_to_check = if spec["id"].as_str() == Some("checkGameEnd") || spec["id"].as_str() == Some("checkWin") {
-        // Get all players from state
-        if let Some(players) = state["players"].as_array() {
-            players.iter()
-                .filter_map(|p| p["id"].as_str())
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-        } else {
-            vec![caller.to_string()]
-        }
-    } else {
-        vec![caller.to_string()]
-    };
-    
-    for check_player in &players_to_check {
-        for condition in conditions {
-            // Support both 'type' and 'builtin' fields
-            let condition_type = condition["type"].as_str()
-                .or_else(|| condition["builtin"].as_str());
-            let condition_type = match condition_type {
-                Some(t) => t,
-                None => continue,
-            };
-            
-            let condition_met = match condition_type {
-                "grid.consecutiveMarks" | "consecutiveMarksInRow" => check_consecutive_marks(state, condition, check_player),
-                "grid.allFilled" | "allCellsFilled" => check_all_cells_filled(state, condition),
-                "deck.empty" | "deckEmpty" => check_deck_empty(state, condition),
-                "zoneEmpty" => check_zone_empty(state, condition, check_player),
-                "pieces.none" | "noPiecesRemaining" => check_no_pieces_remaining(state, condition, check_player),
-                "moves.none" | "noValidMoves" => check_no_valid_moves(state, condition, check_player),
-                "any" => {
-                    // Handle nested conditions for "any" type
-                    // For "any", we need to check each sub-condition and apply its result if true
-                    if let Some(sub_conditions) = condition["conditions"].as_array() {
-                        for sub_cond in sub_conditions {
-                            let sub_met = match sub_cond["type"].as_str() {
-                                Some("grid.consecutiveMarks") | Some("consecutiveMarksInRow") => check_consecutive_marks(state, sub_cond, check_player),
-                                Some("grid.allFilled") | Some("allCellsFilled") => check_all_cells_filled(state, sub_cond),
-                                Some("pieces.none") | Some("noPiecesRemaining") => check_no_pieces_remaining(state, sub_cond, check_player),
-                                Some("moves.none") | Some("noValidMoves") => check_no_valid_moves(state, sub_cond, check_player),
-                                _ => false,
-                            };
-                            
-                            if sub_met {
-                                // Apply the result from the matching sub-condition
-                                let result = sub_cond["result"].as_str().unwrap_or("");
-                                match result {
-                                    "gameWin" => {
-                                        patches.push(json!({
-                                            "op": "add",
-                                            "path": "/meta/gameStatus",
-                                            "value": {
-                                                "state": "ended",
-                                                "winner": check_player,
-                                                "tie": false
-                                            }
-                                        }));
-                                        return json!(patches);
-                                    }
-                                    "gameTie" => {
-                                        patches.push(json!({
-                                            "op": "add",
-                                            "path": "/meta/gameStatus",
-                                            "value": {
-                                                "state": "ended",
-                                                "tie": true
-                                            }
-                                        }));
-                                        return json!(patches);
-                                    }
-                                    "gameLose" => {
-                                        let winner = if check_player == "p1" { "p2" } else { "p1" };
-                                        patches.push(json!({
-                                            "op": "add",
-                                            "path": "/meta/gameStatus",
-                                            "value": {
-                                                "state": "ended",
-                                                "winner": winner,
-                                                "tie": false
-                                            }
-                                        }));
-                                        return json!(patches);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        false // No sub-condition matched
-                    } else {
-                        false
-                    }
-                },
-                _ => false,
-            };
-            
-            if condition_met {
-                // Apply the result - support both string and array formats
-                if let Some(result_array) = condition.get("result").and_then(|r| r.as_array()) {
-                    // Handle array format like [{ "gameWin": "actor" }]
-                    for result_item in result_array {
-                        if let Some(game_win) = result_item.get("gameWin").and_then(|v| v.as_str()) {
-                            let winner = if game_win == "actor" { check_player } else { game_win };
-                            patches.push(json!({
-                                "op": "add",
-                                "path": "/meta/gameStatus",
-                                "value": {
-                                    "state": "ended",
-                                    "winner": winner,
-                                    "tie": false
-                                }
-                            }));
-                            return json!(patches);
-                        } else if result_item.get("gameTie").is_some() {
-                            patches.push(json!({
-                                "op": "add",
-                                "path": "/meta/gameStatus",
-                                "value": {
-                                    "state": "ended",
-                                    "tie": true
-                                }
-                            }));
-                            return json!(patches);
-                        }
-                    }
-                } else if let Some(result) = condition["result"].as_str() {
-                    // Handle old string format
-                    match result {
-                        "gameWin" => {
-                            patches.push(json!({
-                                "op": "add",
-                                "path": "/meta/gameStatus",
-                                "value": {
-                                    "state": "ended",
-                                    "winner": check_player,
-                                    "tie": false
-                                }
-                            }));
-                            return json!(patches); // Exit after finding a winner
-                        }
-                        "gameTie" => {
-                            patches.push(json!({
-                                "op": "add",
-                                "path": "/meta/gameStatus",
-                                "value": {
-                                    "state": "ended",
-                                    "tie": true
-                                }
-                            }));
-                            return json!(patches);
-                        }
-                        "gameLose" => {
-                            // The current player loses, so the other player wins
-                            let winner = if check_player == "p1" { "p2" } else { "p1" };
-                            patches.push(json!({
-                                "op": "add",
-                                "path": "/meta/gameStatus",
-                                "value": {
-                                    "state": "ended",
-                                    "winner": winner,
-                                    "tie": false
-                                }
-                            }));
-                            return json!(patches);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
-    
-    json!(patches)
-}
-
-fn check_consecutive_marks(state: &Value, condition: &Value, caller: &str) -> bool {
-    let params = &condition["params"];
-    let zone_name = params["zone"].as_str().unwrap_or("");
-    let count = params["count"].as_u64().unwrap_or(3) as usize;
-    let entity_template = params["entity"].as_str().unwrap_or("");
-    let entity = entity_template.replace("{actor}", caller);
-    
-    println!("[DEBUG] Checking consecutive marks - zone: {}, count: {}, entity: {}, caller: {}", 
-        zone_name, count, entity, caller);
-    
-    let board = match state["zones"][zone_name].as_array() {
-        Some(b) => b,
-        None => {
-            println!("[DEBUG] Zone {} not found or not an array", zone_name);
-            return false;
-        }
-    };
-    
-    let rows = board.len();
-    if rows == 0 {
-        return false;
-    }
-    let cols = board[0].as_array().map(|r| r.len()).unwrap_or(0);
-    
-    // Check rows
-    for (row_idx, row) in board.iter().enumerate() {
-        if let Some(cells) = row.as_array() {
-            println!("[DEBUG] Row {}: {:?}", row_idx, cells);
-            for window in cells.windows(count) {
-                if window.iter().all(|cell| cell.as_str() == Some(&entity)) {
-                    println!("[DEBUG] Found {} consecutive {} in row {}!", count, entity, row_idx);
-                    return true;
-                }
-            }
-        }
-    }
-    
-    // Check columns
-    for col in 0..cols {
-        let mut consecutive = 0;
-        for row in 0..rows {
-            if let Some(cell) = board[row].as_array().and_then(|r| r.get(col)) {
-                if cell.as_str() == Some(&entity) {
-                    consecutive += 1;
-                    if consecutive >= count {
-                        return true;
-                    }
-                } else {
-                    consecutive = 0;
-                }
-            }
-        }
-    }
-    
-    // Check diagonals
-    // Top-left to bottom-right
-    for start_row in 0..=rows.saturating_sub(count) {
-        for start_col in 0..=cols.saturating_sub(count) {
-            let mut all_match = true;
-            for i in 0..count {
-                let row = start_row + i;
-                let col = start_col + i;
-                if let Some(cell) = board.get(row)
-                    .and_then(|r| r.as_array())
-                    .and_then(|r| r.get(col)) {
-                    if cell.as_str() != Some(&entity) {
-                        all_match = false;
-                        break;
-                    }
-                } else {
-                    all_match = false;
-                    break;
-                }
-            }
-            if all_match {
-                return true;
-            }
-        }
-    }
-    
-    // Top-right to bottom-left
-    for start_row in 0..=rows.saturating_sub(count) {
-        for start_col in (count - 1)..cols {
-            let mut all_match = true;
-            for i in 0..count {
-                let row = start_row + i;
-                let col = start_col - i;
-                if let Some(cell) = board.get(row)
-                    .and_then(|r| r.as_array())
-                    .and_then(|r| r.get(col)) {
-                    if cell.as_str() != Some(&entity) {
-                        all_match = false;
-                        break;
-                    }
-                } else {
-                    all_match = false;
-                    break;
-                }
-            }
-            if all_match {
-                return true;
-            }
-        }
-    }
-    
-    false
-}
-
-fn check_deck_empty(state: &Value, condition: &Value) -> bool {
-    let zone_id = condition["params"]["zone"].as_str().unwrap_or("");
-    if let Some(zone) = state["zones"].get(zone_id) {
-        if let Some(items) = zone.get("items").and_then(|i| i.as_array()) {
-            return items.is_empty();
-        }
-    }
-    false
-}
-
-fn check_zone_empty(state: &Value, condition: &Value, actor: &str) -> bool {
-    let zone_template = condition["params"]["zone"].as_str().unwrap_or("");
-    let zone_id = zone_template.replace("{actor}", actor);
-    
-    if let Some(zone) = state["zones"].get(&zone_id) {
-        if let Some(items) = zone.get("items").and_then(|i| i.as_array()) {
-            return items.is_empty();
-        }
-        // Check grid zones
-        if let Some(rows) = zone.as_array() {
-            for row in rows {
-                if let Some(cells) = row.as_array() {
-                    for cell in cells {
-                        if !cell.is_null() {
-                            return false;
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-    }
-    false
-}
-
-fn check_all_cells_filled(state: &Value, condition: &Value) -> bool {
-    let params = &condition["params"];
-    let zone_name = params["zone"].as_str().unwrap_or("");
-    
-    let board = match state["zones"][zone_name].as_array() {
-        Some(b) => b,
-        None => return false,
-    };
-    
-    board.iter().all(|row| {
-        row.as_array()
-            .map(|r| r.iter().all(|cell| !cell.is_null()))
-            .unwrap_or(false)
+    json!({
+        "type": "grid",
+        "cells": grid
     })
 }
 
-fn apply_hook(_bundle: &Bundle, state: &mut Value, spec: &Value, _action: &Value, _caller: &str) -> Value {
-    let hook_name = match spec["hook"].as_str() {
-        Some(name) => name,
-        None => return json!([]),
+fn init_list(contents: &Value) -> Value {
+    let items = if contents.as_str() == Some("empty") {
+        Vec::new()
+    } else if let Some(entity_id) = contents.get("entity").and_then(|e| e.as_str()) {
+        let count = contents.get("count").and_then(|c| c.as_u64()).unwrap_or(1);
+        (0..count).map(|_| json!({"entity": entity_id})).collect()
+    } else if let Some(arr) = contents.as_array() {
+        arr.clone()
+    } else {
+        vec![contents.clone()]
     };
     
-    // For now, implement checkGameEnd directly
-    // TODO: In production, use HookRuntime to execute WASM modules
-    if hook_name == "checkGameEnd" {
-        return check_tic_tac_toe_game_end(state);
+    json!({
+        "type": "list",
+        "items": items
+    })
+}
+
+/* --------------------------------------------------------------------------
+   Apply verb functions 
+   ----------------------------------------------------------------------- */
+
+pub fn apply_verb(
+    state: &mut Value,
+    verb: &str,
+    args: &Value,
+    bundle: &Bundle,
+) -> Result<Vec<Value>, String> {
+    match verb {
+        "draw" => apply_draw(state, args),
+        "moveEntity" => apply_move_entity(state, args),
+        "place" => apply_place(state, args),
+        "nextTurn" => apply_next_turn(state, args, bundle),
+        "setPhase" => apply_set_phase(state, args),
+        "grid.lineOfMarks" => apply_check_for_win(state, args),
+        _ => Err(format!("Unknown verb: {}", verb)),
+    }
+}
+
+fn apply_draw(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let from_path = args["from"].as_str().ok_or("Missing 'from' path")?;
+    let to_path = args["to"].as_str().ok_or("Missing 'to' path")?;
+    let count = args["count"].as_u64().unwrap_or(1) as usize;
+
+    let mut patches = Vec::new();
+
+    for _ in 0..count {
+        // Get the source zone
+        let from_zone = get_zone_mut(state, from_path)?;
+        let items = from_zone["items"].as_array_mut()
+            .ok_or("Source zone is not a list/deck")?;
+        
+        if items.is_empty() {
+            return Err("Cannot draw from empty deck".to_string());
+        }
+
+        // Remove item from source
+        let item = items.remove(0);
+        patches.push(json!({
+            "op": "remove",
+            "path": format!("{}/items/0", from_path)
+        }));
+
+        // Add to destination
+        let to_zone = get_zone_mut(state, to_path)?;
+        let to_items = to_zone["items"].as_array_mut()
+            .ok_or("Destination zone is not a list")?;
+        
+        let insert_index = to_items.len();
+        to_items.push(item.clone());
+        patches.push(json!({
+            "op": "add",
+            "path": format!("{}/items/{}", to_path, insert_index),
+            "value": item
+        }));
+    }
+
+    Ok(patches)
+}
+
+fn apply_move_entity(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let from_path = args["from"].as_str().ok_or("Missing 'from' path")?;
+    let to_path = args["to"].as_str().ok_or("Missing 'to' path")?;
+
+    let mut patches = Vec::new();
+
+    // Handle grid to grid moves
+    if from_path.contains("/cells/") && to_path.contains("/cells/") {
+        let from_value = get_cell_value(state, from_path)?;
+        
+        // Remove from source
+        set_cell_value(state, from_path, Value::Null)?;
+        patches.push(json!({
+            "op": "replace",
+            "path": from_path,
+            "value": null
+        }));
+
+        // Add to destination
+        set_cell_value(state, to_path, from_value.clone())?;
+        patches.push(json!({
+            "op": "replace",
+            "path": to_path,
+            "value": from_value
+        }));
+    }
+
+    Ok(patches)
+}
+
+fn apply_place(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let location = args["location"].as_str().ok_or("Missing 'location' path")?;
+    let entity = args["entity"].as_str().ok_or("Missing 'entity' id")?;
+    
+    let entity_value = json!({"entity": entity});
+    set_cell_value(state, location, entity_value.clone())?;
+    
+    Ok(vec![json!({
+        "op": "replace", 
+        "path": format!("/game{}", location),
+        "value": entity_value
+    })])
+}
+
+fn apply_next_turn(state: &mut Value, _args: &Value, bundle: &Bundle) -> Result<Vec<Value>, String> {
+    let state_obj = state.as_object_mut().ok_or("State is not an object")?;
+    
+    // Increment tick
+    let current_tick = state_obj["tick"].as_u64().unwrap_or(0);
+    state_obj.insert("tick".to_string(), json!(current_tick + 1));
+    
+    // Advance turn
+    let player_count = bundle.manifest.metadata.players.max;
+    let current_turn = state_obj["turn"].as_u64().unwrap_or(0);
+    let next_turn = (current_turn + 1) % player_count as u64;
+    let next_player = format!("p{}", next_turn + 1);
+    
+    state_obj.insert("turn".to_string(), json!(next_turn));
+    state_obj.insert("currentPlayer".to_string(), json!(next_player));
+    
+    Ok(vec![
+        json!({
+            "op": "replace",
+            "path": "/game/tick",
+            "value": current_tick + 1
+        }),
+        json!({
+            "op": "replace",
+            "path": "/game/turn",
+            "value": next_turn
+        }),
+        json!({
+            "op": "replace",
+            "path": "/game/currentPlayer",
+            "value": next_player
+        })
+    ])
+}
+
+fn apply_set_phase(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let phase_set = args["phaseSet"].as_str().ok_or("Missing 'phaseSet'")?;
+    let phase = args["phase"].as_str().ok_or("Missing 'phase'")?;
+    
+    let state_obj = state.as_object_mut().ok_or("State is not an object")?;
+    let phases = state_obj.get_mut("phases").and_then(|p| p.as_object_mut())
+        .ok_or("Missing phases in state")?;
+    
+    phases.insert(phase_set.to_string(), json!(phase));
+    
+    Ok(vec![json!({
+        "op": "replace",
+        "path": format!("/game/phases/{}", phase_set),
+        "value": phase
+    })])
+}
+
+fn apply_check_for_win(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let zone_path = args["zone"].as_str().ok_or("Missing 'zone' path")?;
+    let entity_pattern = args["entity"].as_str().ok_or("Missing 'entity' pattern")?;
+    let line_length = args["lineLength"].as_u64().unwrap_or(3) as usize;
+    let directions = args["directions"].as_array().ok_or("Missing 'directions' array")?;
+    
+    // Get the grid from the specified zone
+    let zone = get_zone_ref(state, zone_path)?;
+    let cells = zone["cells"].as_array()
+        .ok_or("Zone is not a grid with cells")?;
+    
+    if cells.is_empty() {
+        return Err("Grid has no rows".to_string());
     }
     
-    json!([])
-}
-
-fn check_tic_tac_toe_game_end(state: &Value) -> Value {
-    let board = match state["zones"]["board"].as_array() {
-        Some(b) => b,
-        None => return json!([]),
-    };
-
-    // Check for winner
-    if let Some(winner) = check_winner(board) {
-        return json!([{
-            "op": "add",
-            "path": "/meta/gameStatus",
-            "value": {
-                "state": "ended",
-                "winner": winner,
-                "tie": false
-            }
-        }]);
-    }
-
-    // Check for tie (board full)
-    let is_full = board.iter().all(|row| {
-        row.as_array()
-            .map(|r| r.iter().all(|cell| !cell.is_null()))
-            .unwrap_or(false)
-    });
-
-    if is_full {
-        return json!([{
-            "op": "add",
-            "path": "/meta/gameStatus",
-            "value": {
-                "state": "ended",
-                "tie": true
-            }
-        }]);
-    }
-
-    json!([])
-}
-
-fn check_winner(board: &[Value]) -> Option<String> {
-    // Convert board to a more manageable format
-    let mut cells: Vec<Vec<Option<String>>> = vec![vec![None; 3]; 3];
-    for (r, row) in board.iter().enumerate() {
-        if let Some(row_array) = row.as_array() {
-            for (c, cell) in row_array.iter().enumerate() {
-                if r < 3 && c < 3 {
-                    cells[r][c] = cell.as_str().map(|s| s.to_string());
+    let rows = cells.len();
+    let cols = cells[0].as_array()
+        .ok_or("Grid row is not an array")?
+        .len();
+    
+    // Check for winning lines in each enabled direction
+    for direction in directions {
+        let dir_str = direction.as_str()
+            .ok_or("Direction must be a string")?;
+        
+        match dir_str {
+            "horizontal" => {
+                if let Some(winner) = check_horizontal_lines(cells, entity_pattern, line_length, rows, cols)? {
+                    return set_game_winner(state, &winner);
                 }
+            },
+            "vertical" => {
+                if let Some(winner) = check_vertical_lines(cells, entity_pattern, line_length, rows, cols)? {
+                    return set_game_winner(state, &winner);
+                }
+            },
+            "diagonal" => {
+                if let Some(winner) = check_diagonal_lines(cells, entity_pattern, line_length, rows, cols)? {
+                    return set_game_winner(state, &winner);
+                }
+            },
+            _ => return Err(format!("Unknown direction: {}", dir_str))
+        }
+    }
+    
+    // Check for tie (board full with no winner)
+    if is_board_full(cells, rows, cols)? {
+        return set_game_tie(state);
+    }
+    
+    // No winner and board not full - game continues
+    Ok(vec![])
+}
+
+fn get_zone_ref<'a>(state: &'a Value, zone_path: &str) -> Result<&'a Value, String> {
+    let path_parts: Vec<&str> = zone_path.split('/').filter(|p| !p.is_empty()).collect();
+    
+    let mut current = state;
+    for part in path_parts {
+        current = current.get(part)
+            .ok_or_else(|| format!("Path not found: {}", zone_path))?;
+    }
+    
+    Ok(current)
+}
+
+fn check_horizontal_lines(cells: &[Value], entity_pattern: &str, line_length: usize, rows: usize, cols: usize) -> Result<Option<String>, String> {
+    for row in 0..rows {
+        for start_col in 0..=(cols.saturating_sub(line_length)) {
+            if let Some(winner) = check_line_at_position(cells, entity_pattern, line_length, row, start_col, 0, 1)? {
+                return Ok(Some(winner));
             }
         }
     }
+    Ok(None)
+}
 
-    // Check rows
-    for r in 0..3 {
-        if let Some(winner) = check_line(&cells[r][0], &cells[r][1], &cells[r][2]) {
-            return Some(winner);
+fn check_vertical_lines(cells: &[Value], entity_pattern: &str, line_length: usize, rows: usize, cols: usize) -> Result<Option<String>, String> {
+    for col in 0..cols {
+        for start_row in 0..=(rows.saturating_sub(line_length)) {
+            if let Some(winner) = check_line_at_position(cells, entity_pattern, line_length, start_row, col, 1, 0)? {
+                return Ok(Some(winner));
+            }
         }
     }
+    Ok(None)
+}
 
-    // Check columns
-    for col in 0..3 {
-        if let Some(winner) = check_line(&cells[0][col], &cells[1][col], &cells[2][col]) {
-            return Some(winner);
+fn check_diagonal_lines(cells: &[Value], entity_pattern: &str, line_length: usize, rows: usize, cols: usize) -> Result<Option<String>, String> {
+    // Check main diagonal (top-left to bottom-right)
+    for row in 0..=(rows.saturating_sub(line_length)) {
+        for col in 0..=(cols.saturating_sub(line_length)) {
+            if let Some(winner) = check_line_at_position(cells, entity_pattern, line_length, row, col, 1, 1)? {
+                return Ok(Some(winner));
+            }
         }
     }
-
-    // Check diagonals
-    if let Some(winner) = check_line(&cells[0][0], &cells[1][1], &cells[2][2]) {
-        return Some(winner);
+    
+    // Check anti-diagonal (top-right to bottom-left)
+    for row in 0..=(rows.saturating_sub(line_length)) {
+        for col in (line_length - 1)..cols {
+            if let Some(winner) = check_line_at_position(cells, entity_pattern, line_length, row, col, 1, -1)? {
+                return Ok(Some(winner));
+            }
+        }
     }
-    if let Some(winner) = check_line(&cells[0][2], &cells[1][1], &cells[2][0]) {
-        return Some(winner);
-    }
+    
+    Ok(None)
+}
 
+fn check_line_at_position(
+    cells: &[Value], 
+    entity_pattern: &str, 
+    line_length: usize, 
+    start_row: usize, 
+    start_col: usize, 
+    row_delta: i32, 
+    col_delta: i32
+) -> Result<Option<String>, String> {
+    let mut first_entity: Option<String> = None;
+    
+    for i in 0..line_length {
+        let row = (start_row as i32 + (i as i32 * row_delta)) as usize;
+        let col = (start_col as i32 + (i as i32 * col_delta)) as usize;
+        
+        let cell = cells.get(row)
+            .and_then(|r| r.as_array())
+            .and_then(|r| r.get(col))
+            .ok_or("Cell position out of bounds")?;
+        
+        let entity_id = extract_entity_id(cell);
+        
+        if let Some(id) = entity_id {
+            if matches_pattern(&id, entity_pattern) {
+                if let Some(ref first) = first_entity {
+                    if first != &id {
+                        return Ok(None); // Different entities in line
+                    }
+                } else {
+                    first_entity = Some(id);
+                }
+            } else {
+                return Ok(None); // Entity doesn't match pattern or empty cell
+            }
+        } else {
+            return Ok(None); // Empty cell
+        }
+    }
+    
+    first_entity.map(|entity| extract_player_from_entity(&entity)).transpose().map(|opt| opt.flatten())
+}
+
+fn extract_entity_id(cell: &Value) -> Option<String> {
+    if let Some(entity_obj) = cell.as_object() {
+        if let Some(entity_id) = entity_obj.get("entity").and_then(|e| e.as_str()) {
+            return Some(entity_id.to_string());
+        }
+    }
     None
 }
 
-/* --------------------------------------------------------------------------
-   Card game mechanics - draw cards from deck
-   ----------------------------------------------------------------------- */
-fn apply_draw_card(
-    _bundle: &Bundle,
-    state: &mut Value,
-    spec: &Value,
-    _action: &Value,
-    actor: &str,
-) -> Value {
-    let source = spec["params"]["source"].as_str().unwrap_or("");
-    let target_template = spec["params"]["target"].as_str().unwrap_or("");
-    let target = target_template.replace("{actor}", actor);
-    let count = spec["params"]["count"].as_u64().unwrap_or(1) as usize;
-    
-    let mut ops = Vec::new();
-    
-    // Get cards from deck
-    let mut drawn_cards = Vec::new();
-    if let Some(deck) = state["zones"][source].get_mut("items").and_then(|v| v.as_array_mut()) {
-        for _ in 0..count {
-            if let Some(card) = deck.pop() {
-                drawn_cards.push(card);
-            } else {
-                break; // No more cards in deck
-            }
-        }
-    }
-    
-    if drawn_cards.is_empty() {
-        return json!([]);
-    }
-    
-    // Add to target hand
-    if let Some(hand) = state["zones"][&target].get_mut("items").and_then(|v| v.as_array_mut()) {
-        for card in drawn_cards.iter() {
-            hand.push(card.clone());
-            ops.push(json!({
-                "op": "add",
-                "path": format!("/zones/{}/items/-", target),
-                "value": card
-            }));
-        }
-        
-        // Remove operations were already handled by deck.pop() above
-        let deck_len = state["zones"][source]["items"].as_array().map(|a| a.len()).unwrap_or(0);
-        for i in 0..drawn_cards.len() {
-            ops.insert(0, json!({
-                "op": "remove",
-                "path": format!("/zones/{}/items/{}", source, deck_len + i)
-            }));
-        }
-    }
-    
-    Value::Array(ops)
-}
-
-/* --------------------------------------------------------------------------
-   Transfer cards between players (for Go Fish asking)
-   ----------------------------------------------------------------------- */
-fn apply_transfer_cards(
-    bundle: &Bundle,
-    state: &mut Value,
-    _spec: &Value,
-    action: &Value,
-    actor: &str,
-) -> Value {
-    let target_player = action["args"]["targetPlayer"].as_str().unwrap_or("");
-    let requested_rank = action["args"]["rank"].as_str().unwrap_or("");
-    
-    let source_zone = format!("hand_{}", target_player);
-    let target_zone = format!("hand_{}", actor);
-    
-    let mut ops = Vec::new();
-    let mut transferred_cards = Vec::new();
-    
-    // Get entities from bundle
-    let entities = bundle.entities.as_array();
-    
-    // Find and remove matching cards from target player's hand
-    if let Some(source_hand) = state["zones"][&source_zone].get_mut("items").and_then(|v| v.as_array_mut()) {
-        let mut i = 0;
-        while i < source_hand.len() {
-            let card = &source_hand[i];
-            
-            // Check if card matches requested rank
-            if let Some(entities_array) = entities {
-                if let Some(entity) = entities_array.iter().find(|e| &e["id"] == card) {
-                    if entity["props"]["rank"].as_str() == Some(requested_rank) {
-                        transferred_cards.push(source_hand.remove(i));
-                        continue;
-                    }
-                }
-            }
-            i += 1;
-        }
-    }
-    
-    // Add cards to requester's hand
-    if !transferred_cards.is_empty() {
-        if let Some(target_hand) = state["zones"][&target_zone].get_mut("items").and_then(|v| v.as_array_mut()) {
-            for card in &transferred_cards {
-                target_hand.push(card.clone());
-                ops.push(json!({
-                    "op": "add",
-                    "path": format!("/zones/{}/items/-", target_zone),
-                    "value": card
-                }));
-            }
-            
-            // Remove from source (in reverse order to maintain indices)
-            if let Some(source_hand) = state["zones"][&source_zone].as_array() {
-                let original_len = source_hand.len() + transferred_cards.len();
-                for i in 0..transferred_cards.len() {
-                    ops.push(json!({
-                        "op": "remove",
-                        "path": format!("/zones/{}/items/{}", source_zone, original_len - i - 1)
-                    }));
-                }
-            }
-        }
-    }
-    
-    // Add metadata about the transfer result
-    ops.push(json!({
-        "op": "add",
-        "path": "/meta/lastAskResult",
-        "value": {
-            "asker": actor,
-            "target": target_player,
-            "rank": requested_rank,
-            "cardsTransferred": transferred_cards.len()
-        }
-    }));
-    
-    Value::Array(ops)
-}
-
-fn get_flips_in_direction(
-    board: &Value,
-    start_row: usize,
-    start_col: usize,
-    dr: i32,
-    dc: i32,
-    player_piece: &str,
-) -> Vec<(usize, usize)> {
-    let flips = Vec::new();
-    let mut temp_flips = Vec::new();
-    
-    let board_array = match board.as_array() {
-        Some(arr) => arr,
-        None => return flips,
-    };
-    
-    let board_size = board_array.len();
-    let mut r = start_row as i32 + dr;
-    let mut c = start_col as i32 + dc;
-    
-    // Get the opponent's piece type
-    let opponent_piece = if player_piece.contains("_p1") {
-        player_piece.replace("_p1", "_p2")
+fn matches_pattern(entity_id: &str, pattern: &str) -> bool {
+    // Simple pattern matching - for now just check if the pattern is a substring
+    // Could be enhanced to support wildcards like "mark_{player}"
+    if pattern.contains("{player}") {
+        // Extract the base pattern without {player}
+        let base_pattern = pattern.replace("{player}", "");
+        entity_id.starts_with(&base_pattern)
     } else {
-        player_piece.replace("_p2", "_p1")
-    };
-    
-    // Look for opponent pieces
-    while r >= 0 && r < board_size as i32 && c >= 0 && c < board_size as i32 {
-        let row_idx = r as usize;
-        let col_idx = c as usize;
-        
-        if let Some(row_array) = board_array[row_idx].as_array() {
-            if col_idx < row_array.len() {
-                match row_array[col_idx].as_str() {
-                    Some(piece) if piece == opponent_piece => {
-                        temp_flips.push((row_idx, col_idx));
-                    }
-                    Some(piece) if piece == player_piece => {
-                        // Found our own piece - all temp_flips are valid
-                        return temp_flips;
-                    }
-                    _ => {
-                        // Empty cell or edge - no flips in this direction
-                        return flips;
-                    }
-                }
-            }
-        }
-        
-        r += dr;
-        c += dc;
-    }
-    
-    // Hit edge without finding our piece - no flips
-    flips
-}
-
-fn check_line(a: &Option<String>, b: &Option<String>, c: &Option<String>) -> Option<String> {
-    match (a, b, c) {
-        (Some(mark_a), Some(mark_b), Some(mark_c)) if mark_a == mark_b && mark_b == mark_c => {
-            // Convert mark to player ID (mark_x -> p1, mark_o -> p2)
-            if mark_a == "mark_x" {
-                Some("p1".to_string())
-            } else if mark_a == "mark_o" {
-                Some("p2".to_string())
-            } else {
-                None
-            }
-        }
-        _ => None,
+        entity_id == pattern
     }
 }
 
-/* --------------------------------------------------------------------------
-   Effect Functions for moveEntity
-   ----------------------------------------------------------------------- */
-
-fn apply_flip_effect(
-    state: &mut Value,
-    effect: &Value,
-    zone_id: &str,
-    row: usize,
-    col: usize,
-    entity: &str,
-) -> Value {
-    let mut ops = Vec::new();
-    let pattern = effect["pattern"].as_str().unwrap_or("straight");
-    
-    if pattern == "straight" {
-        // Similar to Reversi - flip pieces in straight lines
-        let directions = [
-            (-1, -1), (-1, 0), (-1, 1),
-            (0, -1),           (0, 1),
-            (1, -1),  (1, 0),  (1, 1)
-        ];
-        
-        for (dr, dc) in directions.iter() {
-            let flips = get_flips_in_direction(&state["zones"][zone_id], row, col, *dr, *dc, entity);
-            for (flip_row, flip_col) in flips {
-                ops.push(json!({
-                    "op": "replace",
-                    "path": format!("/zones/{}/{}/{}", zone_id, flip_row, flip_col),
-                    "value": entity
-                }));
-            }
-        }
+fn extract_player_from_entity(entity_id: &str) -> Result<Option<String>, String> {
+    // Extract player ID from entity like "mark_p1" -> "p1"
+    if let Some(pos) = entity_id.rfind("_p") {
+        let player_part = &entity_id[pos + 1..];
+        return Ok(Some(player_part.to_string()));
     }
-    
-    json!(ops)
+    Ok(None)
 }
 
-fn apply_capture_effect(
-    state: &mut Value,
-    effect: &Value,
-    zone_id: &str,
-    row: usize,
-    col: usize,
-    actor: &str,
-) -> Value {
-    let mut ops = Vec::new();
-    let capture_type = effect["captureType"].as_str().unwrap_or("adjacent");
-    
-    if capture_type == "adjacent" {
-        // Capture all adjacent opponent pieces
-        let directions = [
-            (-1, -1), (-1, 0), (-1, 1),
-            (0, -1),           (0, 1),
-            (1, -1),  (1, 0),  (1, 1)
-        ];
-        
-        if let Some(zone) = state["zones"][zone_id].as_array() {
-            for (dr, dc) in directions.iter() {
-                let adj_row = row as i32 + dr;
-                let adj_col = col as i32 + dc;
-                
-                if adj_row >= 0 && adj_row < zone.len() as i32 && adj_col >= 0 {
-                    if let Some(cell) = zone.get(adj_row as usize)
-                        .and_then(|r| r.as_array())
-                        .and_then(|r| r.get(adj_col as usize))
-                        .and_then(|c| c.as_str()) {
-                        
-                        // Check if it's an opponent's piece
-                        if !cell.is_empty() && !cell.contains(&format!("_{}", actor)) {
-                            ops.push(json!({
-                                "op": "replace",
-                                "path": format!("/zones/{}/{}/{}", zone_id, adj_row, adj_col),
-                                "value": null
-                            }));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    json!(ops)
-}
-
-fn apply_transform_effect(
-    _bundle: &Bundle,
-    _state: &mut Value,
-    effect: &Value,
-    zone_id: &str,
-    row: usize,
-    col: usize,
-    entity: &str,
-    actor: &str,
-) -> Value {
-    let mut ops = Vec::new();
-    
-    // Check if transformation condition is met
-    if let Some(condition) = effect.get("when") {
-        let condition_type = condition["type"].as_str().unwrap_or("");
-        
-        if condition_type == "reachesRow" {
-            let target_row = condition["row"].as_str().unwrap_or("");
-            let should_transform = match target_row {
-                "opposite" => {
-                    (entity.contains("_p1") && row == 0) ||
-                    (entity.contains("_p2") && row == 7)
-                }
-                _ => {
-                    if let Ok(specific_row) = target_row.parse::<usize>() {
-                        row == specific_row
-                    } else {
-                        false
-                    }
-                }
-            };
+fn is_board_full(cells: &[Value], rows: usize, cols: usize) -> Result<bool, String> {
+    for row in 0..rows {
+        for col in 0..cols {
+            let cell = cells.get(row)
+                .and_then(|r| r.as_array())
+                .and_then(|r| r.get(col))
+                .ok_or("Cell position out of bounds")?;
             
-            if should_transform {
-                if let Some(to_template) = effect["to"].as_str() {
-                    let new_entity = to_template.replace("{actor}", actor);
-                    ops.push(json!({
-                        "op": "replace",
-                        "path": format!("/zones/{}/{}/{}", zone_id, row, col),
-                        "value": new_entity
-                    }));
-                }
+            if extract_entity_id(cell).is_none() {
+                return Ok(false); // Found empty cell
             }
         }
     }
-    
-    json!(ops)
+    Ok(true) // All cells filled
 }
 
-/* --------------------------------------------------------------------------
-   Check if player has no pieces remaining (for checkers win condition)
-   ----------------------------------------------------------------------- */
-fn check_no_pieces_remaining(state: &Value, condition: &Value, player: &str) -> bool {
-    let zone_name = condition["params"]["zone"].as_str().unwrap_or("");
+fn set_game_winner(state: &mut Value, winner: &str) -> Result<Vec<Value>, String> {
+    let state_obj = state.as_object_mut().ok_or("State is not an object")?;
     
-    // For checkers, check if player has any pieces OR kings
-    if let Some(board) = state["zones"][zone_name].as_array() {
-        for row in board {
-            if let Some(cells) = row.as_array() {
-                for cell in cells {
-                    if let Some(cell_entity) = cell.as_str() {
-                        // Check if this entity belongs to the player
-                        if cell_entity.ends_with(&format!("_{}", player)) {
-                            return false; // Found at least one piece belonging to this player
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    true // No pieces found for this player
-}
-
-/* --------------------------------------------------------------------------
-   Check if player has no valid moves (for checkers stalemate)
-   ----------------------------------------------------------------------- */
-fn check_no_valid_moves(_state: &Value, _condition: &Value, _player: &str) -> bool {
-    // This would require checking all pieces and their possible moves
-    // For now, return false to not trigger this condition
-    // In a full implementation, this would check if the player has any legal moves
-    false
-}
-
-/* --------------------------------------------------------------------------
-   Select entity for two-step interactions (e.g., checkers piece selection)
-   ----------------------------------------------------------------------- */
-fn apply_select_entity(
-    _bundle: &Bundle,
-    state: &mut Value,
-    spec: &Value,
-    action: &Value,
-    actor: &str,
-) -> Value {
-    let zone = spec["params"]["zone"].as_str().unwrap_or("");
-    let row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
-    let col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
-    
-    // Store the selection in state
-    let selection = json!({
-        "actor": actor,
-        "zone": zone,
-        "row": row,
-        "col": col
+    let game_status = json!({
+        "state": "ended",
+        "winner": winner,
+        "tie": false
     });
     
-    state["meta"]["selection"] = selection.clone();
+    state_obj.insert("gameStatus".to_string(), game_status.clone());
     
-    json!([{
-        "op": "add",
-        "path": "/meta/selection",
-        "value": selection
-    }])
+    Ok(vec![json!({
+        "op": "replace",
+        "path": "/game/gameStatus",
+        "value": game_status
+    })])
 }
 
-/* --------------------------------------------------------------------------
-   Move the previously selected entity (for checkers)
-   ----------------------------------------------------------------------- */
-fn apply_move_selected_entity(
-    bundle: &Bundle,
-    state: &mut Value,
-    spec: &Value,
-    action: &Value,
-    actor: &str,
-) -> Value {
-    // Get the current selection and extract values we need
-    let (source_zone, source_row, source_col) = {
-        let selection = match state.get("meta").and_then(|m| m.get("selection")) {
-            Some(sel) => sel,
-            None => return json!([]),
-        };
-        
-        // Verify the selection belongs to the current actor
-        if selection["actor"].as_str() != Some(actor) {
-            return json!([]);
-        }
-        
-        (
-            selection["zone"].as_str().unwrap_or("").to_string(),
-            selection["row"].as_u64().unwrap_or(0) as usize,
-            selection["col"].as_u64().unwrap_or(0) as usize,
-        )
-    };
+fn set_game_tie(state: &mut Value) -> Result<Vec<Value>, String> {
+    let state_obj = state.as_object_mut().ok_or("State is not an object")?;
     
-    let target_zone = spec["params"]["target"]["zone"].as_str().unwrap_or("");
-    let target_row = action["args"]["row"].as_u64().unwrap_or(0) as usize;
-    let target_col = action["args"]["col"].as_u64().unwrap_or(0) as usize;
+    let game_status = json!({
+        "state": "ended",
+        "winner": null,
+        "tie": true
+    });
     
-    let mut ops = Vec::new();
+    state_obj.insert("gameStatus".to_string(), game_status.clone());
     
-    // Get the entity from source position
-    let entity = if let Some(zone_val) = state["zones"].get(&source_zone) {
-        if let Some(row_arr) = zone_val.as_array().and_then(|z| z.get(source_row)) {
-            if let Some(cell) = row_arr.as_array().and_then(|r| r.get(source_col)) {
-                cell.as_str().unwrap_or("").to_string()
+    Ok(vec![json!({
+        "op": "replace",
+        "path": "/game/gameStatus",
+        "value": game_status
+    })])
+}
+
+// Helper functions
+fn get_zone_mut<'a>(state: &'a mut Value, zone_path: &str) -> Result<&'a mut Value, String> {
+    let path_parts: Vec<&str> = zone_path.split('/').filter(|p| !p.is_empty()).collect();
+    
+    let mut current = state;
+    for part in path_parts {
+        current = current.get_mut(part)
+            .ok_or_else(|| format!("Path not found: {}", zone_path))?;
+    }
+    
+    Ok(current)
+}
+
+fn get_cell_value(state: &Value, cell_path: &str) -> Result<Value, String> {
+    let path_parts: Vec<&str> = cell_path.split('/').filter(|p| !p.is_empty()).collect();
+    
+    let mut current = state;
+    for part in &path_parts {
+        if let Ok(index) = part.parse::<usize>() {
+            // This is an array index
+            if let Some(array) = current.as_array() {
+                if index < array.len() {
+                    current = &array[index];
+                } else {
+                    return Err(format!("Array index {} out of bounds (length: {})", index, array.len()));
+                }
             } else {
-                return json!([]);
+                return Err(format!("Expected array for numeric index '{}'", part));
             }
         } else {
-            return json!([]);
-        }
-    } else {
-        return json!([]);
-    };
-    
-    if entity.is_empty() {
-        return json!([]);
-    }
-    
-    // Check if this is a capture move (diagonal with a piece to capture)
-    let is_capture = (source_row as i32 - target_row as i32).abs() == 2 &&
-                     (source_col as i32 - target_col as i32).abs() == 2;
-    
-    if is_capture {
-        // Calculate the captured piece position
-        let captured_row = ((source_row + target_row) / 2) as usize;
-        let captured_col = ((source_col + target_col) / 2) as usize;
-        
-        // Remove the captured piece
-        if let Some(zone_val) = state["zones"].get_mut(&target_zone) {
-            if let Some(row_arr) = zone_val.as_array_mut().and_then(|z| z.get_mut(captured_row)) {
-                if let Some(cells) = row_arr.as_array_mut() {
-                    cells[captured_col] = Value::Null;
-                    ops.push(json!({
-                        "op": "replace",
-                        "path": format!("/zones/{}/{}/{}", target_zone, captured_row, captured_col),
-                        "value": null
-                    }));
-                }
-            }
+            // This is an object key
+            current = current.get(part)
+                .ok_or_else(|| format!("Path not found: '{}' in path '{}'", part, cell_path))?;
         }
     }
     
-    // We'll handle promotion through the transform effect system now
-    let final_entity = entity.clone();
-    
-    // Move the piece to target
-    if let Some(zone_val) = state["zones"].get_mut(&target_zone) {
-        if let Some(row_arr) = zone_val.as_array_mut().and_then(|z| z.get_mut(target_row)) {
-            if let Some(cells) = row_arr.as_array_mut() {
-                if cells[target_col].is_null() {
-                    cells[target_col] = Value::String(final_entity.clone());
-                    ops.push(json!({
-                        "op": "replace",
-                        "path": format!("/zones/{}/{}/{}", target_zone, target_row, target_col),
-                        "value": final_entity.clone()
-                    }));
-                }
-            }
-        }
-    }
-    
-    // Remove from source
-    if let Some(zone_val) = state["zones"].get_mut(&source_zone) {
-        if let Some(row_arr) = zone_val.as_array_mut().and_then(|z| z.get_mut(source_row)) {
-            if let Some(cells) = row_arr.as_array_mut() {
-                cells[source_col] = Value::Null;
-                ops.push(json!({
-                    "op": "replace",
-                    "path": format!("/zones/{}/{}/{}", source_zone, source_row, source_col),
-                    "value": null
-                }));
-            }
-        }
-    }
-    
-    // Clear the selection
-    ops.push(json!({
-        "op": "remove",
-        "path": "/meta/selection"
-    }));
-    
-    // Apply any transform effects (like king promotion)
-    if let Some(effects) = spec["params"]["effects"].as_array() {
-        for effect in effects {
-            if effect["type"].as_str() == Some("transform") {
-                let transform_ops = apply_transform_effect(bundle, state, effect, &target_zone, target_row, target_col, &final_entity, actor);
-                if let Some(arr) = transform_ops.as_array() {
-                    ops.extend_from_slice(arr);
-                }
-            }
-        }
-    }
-    
-    // Check if this was a capture move by a king and more captures are available
-    if is_capture && final_entity.contains("king_") {
-        // Check if there are more captures available from the new position
-        let mut has_more_captures = false;
-        
-        // Check all four diagonal directions for potential captures
-        for dr in [-2i32, 2].iter() {
-            for dc in [-2i32, 2].iter() {
-                let next_row = target_row as i32 + dr;
-                let next_col = target_col as i32 + dc;
-                
-                if next_row >= 0 && next_row < 8 && next_col >= 0 && next_col < 8 {
-                    let mid_row = ((target_row as i32 + next_row) / 2) as usize;
-                    let mid_col = ((target_col as i32 + next_col) / 2) as usize;
-                    
-                    // Check if the destination is empty and there's an opponent piece to jump
-                    if let Some(zone_val) = state["zones"].get(&target_zone) {
-                        if let Some(dest_cell) = zone_val.as_array()
-                            .and_then(|z| z.get(next_row as usize))
-                            .and_then(|r| r.as_array())
-                            .and_then(|r| r.get(next_col as usize)) {
-                            
-                            if dest_cell.is_null() {
-                                if let Some(mid_cell) = zone_val.as_array()
-                                    .and_then(|z| z.get(mid_row))
-                                    .and_then(|r| r.as_array())
-                                    .and_then(|r| r.get(mid_col))
-                                    .and_then(|c| c.as_str()) {
-                                    
-                                    // Check if it's an opponent's piece
-                                    if !mid_cell.contains(&format!("_{}", actor)) && !mid_cell.is_empty() {
-                                        has_more_captures = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if has_more_captures {
-                break;
-            }
-        }
-        
-        // If more captures are available, automatically select the king at its new position
-        if has_more_captures {
-            ops.push(json!({
-                "op": "add",
-                "path": "/meta/selection",
-                "value": {
-                    "actor": actor,
-                    "zone": target_zone,
-                    "row": target_row,
-                    "col": target_col
-                }
-            }));
-            
-            // Don't advance turn - same player continues
-            return Value::Array(ops);
-        }
-    }
-    
-    // Advance turn if we're not continuing with multiple jumps
-    let next_turn = {
-        if let Some(players) = state["players"].as_array() {
-            players
-                .iter()
-                .position(|p| p["id"].as_str() == Some(actor))
-                .map(|idx| {
-                    players[(idx + 1) % players.len()]["id"]
-                        .as_str()
-                        .unwrap()
-                        .to_string()
-                })
-        } else {
-            None
-        }
-    };
-
-    if let Some(next) = next_turn {
-        ops.push(json!({ "op": "replace", "path": "/turn", "value": next }));
-    }
-    
-    Value::Array(ops)
+    Ok(current.clone())
 }
 
-fn apply_zone_reset(
-    bundle: &Bundle,
-    _state: &mut Value,
-    spec: &Value,
-    _action: &Value,
-    actor: &str,
-) -> Value {
-    let mut ops = Vec::new();
+fn set_cell_value(state: &mut Value, cell_path: &str, value: Value) -> Result<(), String> {
+    let path_parts: Vec<&str> = cell_path.split('/').filter(|p| !p.is_empty()).collect();
     
-    // Support both old 'params' and new 'with' terminology
-    let params = spec.get("with").or_else(|| spec.get("params"));
-    let params = params.unwrap_or(&spec["params"]);
+    let mut current = state;
+    for part in &path_parts {
+        if let Ok(index) = part.parse::<usize>() {
+            // This is an array index
+            if let Some(array) = current.as_array_mut() {
+                if index < array.len() {
+                    current = &mut array[index];
+                } else {
+                    return Err(format!("Array index {} out of bounds (length: {})", index, array.len()));
+                }
+            } else {
+                return Err(format!("Expected array for numeric index '{}'", part));
+            }
+        } else {
+            // This is an object key
+            if let Some(obj) = current.as_object_mut() {
+                current = obj.get_mut(*part)
+                    .ok_or_else(|| format!("Path not found: '{}' in path '{}'", part, cell_path))?;
+            } else {
+                return Err(format!("Expected object for key '{}'", part));
+            }
+        }
+    }
     
-    if let Some(zones) = params["zones"].as_array() {
-        for zone_ref in zones {
-            let zone_id = zone_ref.as_str().unwrap_or("").replace("{actor}", actor);
-            
-            // Find the zone definition in the bundle
-            if let Some(zone_def) = bundle.zones.as_object()
-                .and_then(|zones| zones.get(&zone_id)) {
+    // Replace the final value
+    *current = value;
+    Ok(())
+}
+
+// Additional functions needed by lobby module (stubs for now)
+pub fn process_phases(bundle: &Bundle, state: &mut Value) -> Result<Vec<Value>, String> {
+    let mut patches = Vec::new();
+    
+    // Get current phase states
+    let phase_states = state["phases"].as_object()
+        .ok_or("Missing phase states")?
+        .clone();
+    
+    // Check each phase set for enterActions
+    if let Some(phase_sets) = bundle.phases.as_array() {
+        for (phase_set_id, current_phase_id) in phase_states.iter() {
+            // Find the phase set definition
+            if let Some(phase_set) = phase_sets.iter()
+                .find(|ps| ps["id"].as_str() == Some(phase_set_id)) {
                 
-                // Reset based on zone type
-                if let Some(zone_type) = zone_def["type"].as_str() {
-                    match zone_type {
-                        "grid" => {
-                            // Reset grid to empty cells
-                            if let Some(rows) = zone_def["rows"].as_u64() {
-                                if let Some(cols) = zone_def["cols"].as_u64() {
-                                    let empty_grid: Vec<Vec<Value>> = (0..rows)
-                                        .map(|_| vec![Value::Null; cols as usize])
-                                        .collect();
-                                    ops.push(json!({
+                // Find the current phase within the set
+                if let Some(phases) = phase_set["phases"].as_array() {
+                    if let Some(current_phase) = phases.iter()
+                        .find(|p| p["id"].as_str() == Some(current_phase_id.as_str().unwrap_or(""))) {
+                        
+                        // Check for enterActions
+                        if let Some(enter_actions) = current_phase["enterActions"].as_array() {
+                            println!("[DEBUG process_phases] Found enterActions for phase {}.{}", 
+                                phase_set_id, current_phase_id.as_str().unwrap_or(""));
+                            
+                            // Process each enter action
+                            for action in enter_actions {
+                                if let Some(transition_to) = action["transitionToPhase"].as_str() {
+                                    // This is a phase transition action
+                                    println!("[DEBUG process_phases] Transitioning to phase: {}", transition_to);
+                                    
+                                    // Update the phase state
+                                    let phases = state["phases"].as_object_mut().unwrap();
+                                    phases.insert(phase_set_id.clone(), json!(transition_to));
+                                    
+                                    // Create patch for the transition
+                                    patches.push(json!({
                                         "op": "replace",
-                                        "path": format!("/zones/{}", zone_id),
-                                        "value": empty_grid
+                                        "path": format!("/phases/{}", phase_set_id),
+                                        "value": transition_to
                                     }));
                                 }
+                                // Handle other types of enter actions here if needed
                             }
                         }
-                        "list" => {
-                            // Reset list to empty or infinite source
-                            if zone_def.get("infinite").is_some() {
-                                // Keep infinite zones as is
-                            } else {
-                                ops.push(json!({
-                                    "op": "replace",
-                                    "path": format!("/zones/{}/items", zone_id),
-                                    "value": []
-                                }));
-                            }
-                        }
-                        _ => {}
                     }
                 }
             }
         }
     }
     
-    Value::Array(ops)
+    Ok(patches)
 }
 
-fn apply_turn_reset(state: &Value) -> Value {
-    let mut ops = Vec::new();
+pub fn apply_patch_to_state(state: &mut Value, patch: &Value) {
+    // TODO: Implement JSON patch application
+    // For now, this is a stub
+    if let Some(op) = patch.get("op").and_then(|o| o.as_str()) {
+        match op {
+            "replace" => {
+                if let (Some(path), Some(value)) = (patch.get("path"), patch.get("value")) {
+                    if let Some(path_str) = path.as_str() {
+                        let _ = set_value_at_path(state, path_str, value.clone());
+                    }
+                }
+            }
+            _ => {
+                // TODO: Implement other patch operations
+            }
+        }
+    }
+}
+
+pub fn apply_action(
+    bundle: &Bundle,
+    state: &mut Value,
+    _player_id: &str,
+    action: &Value,
+) -> Result<Vec<Value>, String> {
+    // Extract verb and args from action
+    if let (Some(verb), Some(args)) = (
+        action.get("verb").and_then(|v| v.as_str()),
+        action.get("args")
+    ) {
+        apply_verb(state, verb, args, bundle)
+    } else {
+        Err("Invalid action format".to_string())
+    }
+}
+
+fn set_value_at_path(state: &mut Value, path: &str, value: Value) -> Result<(), String> {
+    let path_parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
     
-    // Reset to first player
-    if let Some(players) = state["players"].as_array() {
-        if let Some(first_player) = players.first() {
-            if let Some(player_id) = first_player["id"].as_str() {
-                ops.push(json!({
-                    "op": "replace",
-                    "path": "/turn",
-                    "value": player_id
-                }));
+    let mut current = state;
+    for part in &path_parts {
+        if let Ok(index) = part.parse::<usize>() {
+            // This is an array index
+            if let Some(array) = current.as_array_mut() {
+                if index < array.len() {
+                    current = &mut array[index];
+                } else {
+                    return Err(format!("Array index {} out of bounds (length: {})", index, array.len()));
+                }
+            } else {
+                return Err(format!("Expected array for numeric index '{}'", part));
+            }
+        } else {
+            // This is an object key
+            if let Some(obj) = current.as_object_mut() {
+                current = obj.get_mut(*part)
+                    .ok_or_else(|| format!("Path not found: '{}' in path '{}'", part, path))?;
+            } else {
+                return Err(format!("Expected object for key '{}'", part));
             }
         }
     }
     
-    // Reset game status
-    ops.push(json!({
-        "op": "replace",
-        "path": "/meta/gameStatus",
-        "value": {
-            "state": "playing"
-        }
-    }));
-    
-    Value::Array(ops)
+    // Replace the final value
+    *current = value;
+    Ok(())
 }
 
-fn apply_game_end(
-    _state: &Value,
-    spec: &Value,
-    _action: &Value,
-    _caller: &str,
-) -> Value {
-    let mut ops = Vec::new();
-    
-    // Support both old 'params' and new 'with' terminology
-    let params = spec.get("with").or_else(|| spec.get("params"));
-    let params = params.unwrap_or(&spec["params"]);
-    
-    // Determine game result
-    let game_status = if let Some(winner) = params.get("winner").and_then(|w| w.as_str()) {
-        json!({
-            "state": "ended",
-            "winner": winner
-        })
-    } else if params.get("result").and_then(|r| r.as_str()) == Some("tie") {
-        json!({
-            "state": "ended",
-            "result": "tie"
-        })
-    } else {
-        json!({
-            "state": "ended"
-        })
-    };
-    
-    ops.push(json!({
-        "op": "replace",
-        "path": "/meta/gameStatus",
-        "value": game_status
-    }));
-    
-    Value::Array(ops)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_grid_line_of_marks_horizontal() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "cells": [
+                        [{"entity": "mark_p1"}, {"entity": "mark_p1"}, {"entity": "mark_p1"}],
+                        [null, null, null],
+                        [null, null, null]
+                    ]
+                }
+            },
+            "gameStatus": {
+                "state": "playing",
+                "winner": null,
+                "tie": false
+            }
+        });
+
+        let args = json!({
+            "zone": "zones/board",
+            "entity": "mark_{player}",
+            "lineLength": 3,
+            "directions": ["horizontal"]
+        });
+
+        let result = apply_check_for_win(&mut state, &args).unwrap();
+        
+        // Should detect win and set game status
+        assert_eq!(result.len(), 1);
+        assert_eq!(state["gameStatus"]["state"], "ended");
+        assert_eq!(state["gameStatus"]["winner"], "p1");
+        assert_eq!(state["gameStatus"]["tie"], false);
+    }
+
+    #[test]
+    fn test_grid_line_of_marks_vertical() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "cells": [
+                        [{"entity": "mark_p2"}, null, null],
+                        [{"entity": "mark_p2"}, null, null],
+                        [{"entity": "mark_p2"}, null, null]
+                    ]
+                }
+            },
+            "gameStatus": {
+                "state": "playing",
+                "winner": null,
+                "tie": false
+            }
+        });
+
+        let args = json!({
+            "zone": "zones/board",
+            "entity": "mark_{player}",
+            "lineLength": 3,
+            "directions": ["vertical"]
+        });
+
+        let result = apply_check_for_win(&mut state, &args).unwrap();
+        
+        // Should detect win
+        assert_eq!(result.len(), 1);
+        assert_eq!(state["gameStatus"]["winner"], "p2");
+    }
+
+    #[test]
+    fn test_grid_line_of_marks_diagonal() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "cells": [
+                        [{"entity": "mark_p1"}, null, null],
+                        [null, {"entity": "mark_p1"}, null],
+                        [null, null, {"entity": "mark_p1"}]
+                    ]
+                }
+            },
+            "gameStatus": {
+                "state": "playing",
+                "winner": null,
+                "tie": false
+            }
+        });
+
+        let args = json!({
+            "zone": "zones/board",
+            "entity": "mark_{player}",
+            "lineLength": 3,
+            "directions": ["diagonal"]
+        });
+
+        let result = apply_check_for_win(&mut state, &args).unwrap();
+        
+        // Should detect diagonal win
+        assert_eq!(result.len(), 1);
+        assert_eq!(state["gameStatus"]["winner"], "p1");
+    }
+
+    #[test]
+    fn test_grid_line_of_marks_tie() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "cells": [
+                        [{"entity": "mark_p1"}, {"entity": "mark_p2"}, {"entity": "mark_p1"}],
+                        [{"entity": "mark_p2"}, {"entity": "mark_p1"}, {"entity": "mark_p2"}],
+                        [{"entity": "mark_p2"}, {"entity": "mark_p1"}, {"entity": "mark_p2"}]
+                    ]
+                }
+            },
+            "gameStatus": {
+                "state": "playing",
+                "winner": null,
+                "tie": false
+            }
+        });
+
+        let args = json!({
+            "zone": "zones/board",
+            "entity": "mark_{player}",
+            "lineLength": 3,
+            "directions": ["horizontal", "vertical", "diagonal"]
+        });
+
+        let result = apply_check_for_win(&mut state, &args).unwrap();
+        
+        // Should detect tie (board full, no winner)
+        assert_eq!(result.len(), 1);
+        assert_eq!(state["gameStatus"]["state"], "ended");
+        assert_eq!(state["gameStatus"]["winner"], Value::Null);
+        assert_eq!(state["gameStatus"]["tie"], true);
+    }
+
+    #[test]
+    fn test_grid_line_of_marks_no_winner() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "cells": [
+                        [{"entity": "mark_p1"}, null, null],
+                        [null, {"entity": "mark_p2"}, null],
+                        [null, null, null]
+                    ]
+                }
+            },
+            "meta": {}
+        });
+
+        let args = json!({
+            "zone": "zones/board",
+            "entity": "mark_{player}",
+            "lineLength": 3,
+            "directions": ["horizontal", "vertical", "diagonal"]
+        });
+
+        let result = apply_check_for_win(&mut state, &args).unwrap();
+        
+        // Should return empty - no winner, game continues
+        assert_eq!(result.len(), 0);
+        assert!(state["meta"]["gameStatus"].is_null());
+    }
+
+    #[test]
+    fn test_apply_draw_basic() {
+        let mut state = json!({
+            "zones": {
+                "deck": {
+                    "type": "list",
+                    "items": [
+                        {"entity": "card1"},
+                        {"entity": "card2"}
+                    ]
+                },
+                "hand": {
+                    "type": "list", 
+                    "items": []
+                }
+            }
+        });
+
+        let args = json!({
+            "from": "/zones/deck",
+            "to": "/zones/hand",
+            "count": 1
+        });
+
+        let result = apply_draw(&mut state, &args);
+        assert!(result.is_ok());
+        
+        let patches = result.unwrap();
+        assert_eq!(patches.len(), 2);
+        
+        // Check that card was moved
+        let deck_items = state["zones"]["deck"]["items"].as_array().unwrap();
+        let hand_items = state["zones"]["hand"]["items"].as_array().unwrap();
+        
+        assert_eq!(deck_items.len(), 1);
+        assert_eq!(hand_items.len(), 1);
+        assert_eq!(hand_items[0]["entity"], "card1");
+    }
+
+    #[test]
+    fn test_apply_draw_empty_deck() {
+        let mut state = json!({
+            "zones": {
+                "deck": {
+                    "type": "list",
+                    "items": []
+                },
+                "hand": {
+                    "type": "list",
+                    "items": []
+                }
+            }
+        });
+
+        let args = json!({
+            "from": "/zones/deck",
+            "to": "/zones/hand",
+            "count": 1
+        });
+
+        let result = apply_draw(&mut state, &args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty deck"));
+    }
+
+    #[test]
+    fn test_apply_place() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "type": "grid",
+                    "cells": [
+                        [null, null, null],
+                        [null, null, null],
+                        [null, null, null]
+                    ]
+                }
+            }
+        });
+
+        let args = json!({
+            "location": "/zones/board/cells/0/0",
+            "entity": "x_token"
+        });
+
+        let result = apply_place(&mut state, &args);
+        assert!(result.is_ok());
+        
+        let patches = result.unwrap();
+        assert_eq!(patches.len(), 1);
+        
+        // Check that entity was placed
+        let cell_value = &state["zones"]["board"]["cells"][0][0];
+        assert_eq!(cell_value["entity"], "x_token");
+    }
+
+    #[test]
+    fn test_apply_move_entity() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "type": "grid",
+                    "cells": [
+                        [{"entity": "piece"}, null, null],
+                        [null, null, null],
+                        [null, null, null]
+                    ]
+                }
+            }
+        });
+
+        let args = json!({
+            "from": "/zones/board/cells/0/0",
+            "to": "/zones/board/cells/1/1"
+        });
+
+        let result = apply_move_entity(&mut state, &args);
+        assert!(result.is_ok());
+        
+        let patches = result.unwrap();
+        assert_eq!(patches.len(), 2);
+        
+        // Check that entity was moved
+        assert!(state["zones"]["board"]["cells"][0][0].is_null());
+        assert_eq!(state["zones"]["board"]["cells"][1][1]["entity"], "piece");
+    }
+
+    #[test]
+    fn test_set_cell_value_grid() {
+        let mut state = json!({
+            "zones": {
+                "board": {
+                    "cells": [[null, null], [null, null]]
+                }
+            }
+        });
+
+        let result = set_cell_value(&mut state, "/zones/board/cells/0/1", json!({"entity": "test"}));
+        assert!(result.is_ok());
+        
+        assert_eq!(state["zones"]["board"]["cells"][0][1]["entity"], "test");
+    }
+
+    #[test]
+    fn test_get_cell_value() {
+        let state = json!({
+            "zones": {
+                "board": {
+                    "cells": [[{"entity": "piece"}, null]]
+                }
+            }
+        });
+
+        let result = get_cell_value(&state, "/zones/board/cells/0/0");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap()["entity"], "piece");
+    }
 }

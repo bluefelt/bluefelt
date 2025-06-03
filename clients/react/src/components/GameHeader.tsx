@@ -159,7 +159,7 @@ export default function GameHeader({ gameId, gameName, status, players, currentP
               {player?.username === currentPlayer ? 'YOUR TURN' : `${currentPlayer.toUpperCase()}'S TURN`}
             </span>
             <span className="text-base">
-              {turnPrompt || 'Make your move'}
+              {turnPrompt || ''}
             </span>
           </div>
         </div>

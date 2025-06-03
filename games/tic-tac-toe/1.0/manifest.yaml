@@ -1,16 +1,11 @@
 gameId: tic-tac-toe
-version: 1.0
+version: "1.0"
 specVersion: 1
+
 metadata:
   name: "Tic-Tac-Toe"
-  description: "Classic 3x3 grid game"
-  author: "System"
+  description: "Classic game of X's and O's on a 3x3 grid"
+  author: "Bluefelt Team"
   players:
     min: 2
     max: 2
-
-setup:
-  initialPhases:
-    game: game.setup
-    turn: null
-    turnPhase: null

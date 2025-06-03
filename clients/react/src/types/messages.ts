@@ -4,8 +4,11 @@ export type WelcomeMessage = {
   type: 'welcome';
   you: string;
   started: boolean;
+  // Support both old and new formats during transition
   state?: GameState;
-  meta: MetaState;
+  meta?: MetaState;
+  game?: GameState;
+  ui?: MetaState;
   tick?: number;
 };
 
@@ -17,8 +20,11 @@ export type PlayerUpdateMessage = {
 export type GameStartedMessage = {
   type: 'gameStarted';
   you?: string;
-  state: GameState;
-  meta: MetaState;
+  // Support both old and new formats during transition
+  state?: GameState;
+  meta?: MetaState;
+  game?: GameState;
+  ui?: MetaState;
 };
 
 export type DiffMessage = {
@@ -42,9 +48,8 @@ export type StartedMessage = {
 };
 
 export type GameState = {
-  players: Array<{ id: string }>;
-  turn: string;
-  zones: Record<string, unknown[][]>;
+  players?: Array<{ id: string }>;
+  zones: Record<string, any>; // Can be arrays or objects with type/cells
 };
 
 export type EntityDefinition = {
@@ -58,15 +63,35 @@ export type EntityDefinition = {
   };
 };
 
+export type ZoneGroup = {
+  id: string;
+  title: string;
+  zones: string[];
+};
+
 export type MetaState = {
   actionMap?: Record<string, Record<string, ActionInfo>>;
   players?: string[];
   entities?: EntityDefinition[];
   gameStatus?: {
-    state: 'ended';
-    winner?: string;
+    state: 'playing' | 'ended';
+    winner?: string | null;
     tie?: boolean;
   };
+  zoneGroups?: ZoneGroup[];
+  currentPhasePrompt?: string;
+  phaseDisplayMessages?: any[];
+  zones?: any;
+  turn?: number;
+  currentPlayer?: string;
+  tick?: number;
+  gameLog?: Array<{
+    player: string;
+    actor: string;
+    message: string;
+    timestamp: string;
+  }>;
+  phaseStates?: any;
 };
 
 export type ActionInfo = {

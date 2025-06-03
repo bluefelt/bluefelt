@@ -17,6 +17,8 @@ mod engine;
 mod lobby;
 mod utils;
 mod shorthand;
+mod validation;
+mod message_format;
 
 use bundle::BundleMap;
 use crate::lobby::{LobbyMap, new_lobby, current_lobbies_json};
@@ -24,12 +26,12 @@ use crate::utils::error_response;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Locate the games directory relative to the crate location so `cargo run`
+    // Locate the bundles directory relative to the crate location so `cargo run`
     // works from any path
-    let games_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let bundles_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("games");
-    let bundles = BundleMap::load_dir(games_dir.to_str().unwrap())?;
+        .join("bundles");
+    let bundles = BundleMap::load_dir(bundles_dir.to_str().unwrap())?;
     
     // Wrap the DashMap in an Arc to ensure proper sharing between requests
     let lobbies = Arc::new(LobbyMap::default());
@@ -220,6 +222,10 @@ async fn ws_handler(
     let join = params.get("join").map(|v| v != "0" && v != "false").unwrap_or(true);
     let since = params.get("since").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
     
+    // Message format options for clients with limited JSON support
+    let format = params.get("format").cloned().unwrap_or_else(|| "standard".to_string());
+    let updates = params.get("updates").cloned().unwrap_or_else(|| "patch".to_string());
+    
     println!("[Socket] Connection request from player {} for lobby {}", player_id, id);
     
     let Some(lobby_ref) = lobbies.get(&id) else {
@@ -249,7 +255,7 @@ async fn ws_handler(
     );
     
     ws.on_upgrade(move |sock| async move {
-        println!("[Socket] WebSocket connections successful for player {} in lobby {}", player_id, id);
-        lobby.accept_client(sock, player_id, join, since).await;
+        println!("[Socket] WebSocket connections successful for player {} in lobby {} (format: {}, updates: {})", player_id, id, format, updates);
+        lobby.accept_client(sock, player_id, join, since, format, updates).await;
     })
 }

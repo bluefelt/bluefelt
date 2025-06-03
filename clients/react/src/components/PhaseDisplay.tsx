@@ -62,21 +62,85 @@ export default function PhaseDisplay({ phaseMessages, phaseStates }: PhaseDispla
     
     const statusParts: string[] = [];
     
-    // Get current phases
+    // Get current phases - handle gin rummy's multi-phase system
     Object.entries(phaseStates).forEach(([track, state]) => {
-      if (state.current) {
-        // Format phase name (e.g., "game.setup" -> "Game Setup")
-        const phaseName = state.current
-          .split('.')
-          .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-          .join(' ');
-        
-        if (track === 'round' && state.count > 0) {
-          statusParts.push(`Round ${state.count}`);
+      if (state.current && state.current !== 'null') {
+        // Handle specific phase patterns for different games
+        if (track === 'game') {
+          if (state.current === 'setup') {
+            statusParts.push('Setting Up...');
+          } else if (state.current === 'rounds') {
+            // For gin rummy, "rounds" is the main game phase
+            // Don't show it as it's not informative
+          } else if (state.current === 'endScoring') {
+            statusParts.push('Final Scoring');
+          } else if (state.current === 'end') {
+            statusParts.push('Game Over');
+          } else if (state.current === 'play') {
+            // For simple games, don't show "play" phase
+          } else {
+            // Fallback for other game phases
+            const phaseName = state.current
+              .replace(/([A-Z])/g, ' $1')
+              .trim()
+              .split(' ')
+              .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+              .join(' ');
+            statusParts.push(phaseName);
+          }
+        } else if (track === 'round') {
+          // For gin rummy rounds
+          if (state.current === 'deal') {
+            statusParts.push('Dealing Cards...');
+          } else if (state.current === 'play') {
+            // Show round number during play
+            if (state.count > 0) {
+              statusParts.push(`Round ${state.count}`);
+            }
+          } else if (state.current === 'scoring') {
+            statusParts.push(`Scoring Round ${state.count}`);
+          } else if (state.current === 'checkEnd') {
+            // Don't show checkEnd phase
+          } else if (state.current !== 'null') {
+            const phaseName = state.current
+              .replace(/([A-Z])/g, ' $1')
+              .trim()
+              .split(' ')
+              .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+              .join(' ');
+            statusParts.push(phaseName);
+          }
         } else if (track === 'turn') {
-          // Don't show turn track in status
+          // Turn tracking - usually handled by turn indicator
+          if (state.current === 'player') {
+            // Player turn is shown by turn indicator
+          } else if (state.current !== 'null') {
+            const phaseName = state.current
+              .replace(/([A-Z])/g, ' $1')
+              .trim()
+              .split(' ')
+              .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+              .join(' ');
+            statusParts.push(phaseName);
+          }
+        } else if (track === 'playerTurn') {
+          // Gin rummy specific turn phases
+          if (state.current === 'draw') {
+            statusParts.push('Draw Phase');
+          } else if (state.current === 'discard') {
+            statusParts.push('Discard Phase');
+          }
         } else {
-          statusParts.push(phaseName);
+          // Default formatting for other tracks
+          if (state.current !== 'null') {
+            const phaseName = state.current
+              .replace(/([A-Z])/g, ' $1')
+              .trim()
+              .split(' ')
+              .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+              .join(' ');
+            statusParts.push(phaseName);
+          }
         }
       }
     });
