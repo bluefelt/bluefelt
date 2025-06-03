@@ -16,7 +16,6 @@ pub type LobbyMap = DashMap<String, Arc<Lobby>>;
 /// Client connection preferences
 #[derive(Clone)]
 struct ClientInfo {
-    player_id: String,
     message_format: MessageFormat,
     update_format: UpdateFormat,
 }
@@ -1294,7 +1293,6 @@ pub fn start_game(self: Arc<Self>) {
         {
             let mut clients = self.client_formats.lock();
             clients.insert(player_id.clone(), ClientInfo {
-                player_id: player_id.clone(),
                 message_format: message_format.clone(),
                 update_format: update_format.clone(),
             });

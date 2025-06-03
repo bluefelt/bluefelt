@@ -49,7 +49,7 @@ pub struct Bundle {
     pub zones: Value,
     pub actions: Value,
     pub phases: Value,
-    pub hooks: Option<Vec<u8>>, // WebAssembly module bytes
+    pub _hooks: Option<Vec<u8>>, // WebAssembly module bytes (reserved for future use)
 }
 
 #[derive(Clone)]
@@ -117,7 +117,7 @@ impl BundleMap {
                     };
 
                     println!("Loading game: {} v{}", game_id, ver);
-                    let bundle = Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, phases, hooks };
+                    let bundle = Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, phases, _hooks: hooks };
                     
                     // Validate the bundle
                     let validation_errors = validate_bundle(&bundle);

@@ -23,7 +23,7 @@ async fn test_websocket_handshake() {
         }
     };
 
-    let (mut write, mut read) = ws_stream.split();
+    let (_write, mut read) = ws_stream.split();
 
     // Should receive a welcome message
     let welcome_msg = timeout(Duration::from_secs(5), read.next()).await;
@@ -267,7 +267,7 @@ async fn test_multiple_clients_same_lobby() {
     };
 
     let (mut write1, mut read1) = ws1.split();
-    let (mut write2, mut read2) = ws2.split();
+    let (_write2, mut read2) = ws2.split();
 
     // Both should receive welcome messages
     let welcome1 = timeout(Duration::from_secs(3), read1.next()).await;
