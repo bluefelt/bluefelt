@@ -1,5 +1,7 @@
 # Bluefelt Game Developer Guide
 
+> **📘 Note**: This guide covers the complete schema reference. For a step-by-step implementation process, see the [Game Implementation Guide](./game-implementation-guide.md).
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Core Concepts](#core-concepts)

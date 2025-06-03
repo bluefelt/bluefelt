@@ -25,6 +25,27 @@ export default function Board({
     return null;
   }
   
+  // Enhanced cell click handler that supports both cell and column actions
+  const handleCellClick = (zoneKey: string, row: number, col: number) => {
+    // Check if there's a column-based action for this column
+    const columnPath = `/zones/${zoneKey}/columns/${col}`;
+    const columnAction = actionMap?.[columnPath];
+    
+    if (columnAction) {
+      // This is a column-based action (like gravity) - trigger the column action
+      // We need to pass the column information to the action handler
+      if (onCellClick) {
+        // Store the column info in a way the action handler can access
+        // For now, we'll use a special row value to indicate this is a column action
+        onCellClick(-1, col); // -1 indicates column action
+      }
+      return;
+    }
+    
+    // Standard cell click
+    onCellClick?.(row, col);
+  };
+  
   // Find all grid-shaped zones (2D arrays)
   const gridZones: Array<{key: string, data: any[][]}> = [];
   Object.entries(zones).forEach(([key, value]) => {
@@ -49,7 +70,7 @@ export default function Board({
           zoneId={zoneId}
           boardData={boardData}
           isMyTurn={isMyTurn}
-          onCellClick={onCellClick}
+          onCellClick={(row, col) => handleCellClick(zoneId, row, col)}
           entityDefinitions={entityDefinitions}
           zoneMetadata={zoneMetadata}
           isSingleZone={gridZones.length === 1}

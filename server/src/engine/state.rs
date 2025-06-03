@@ -140,8 +140,13 @@ fn apply_deck_shuffling(zone: &Value, value: &mut Value, pid: &str) {
 }
 
 fn init_grid(zone: &Value, contents: &Value) -> Value {
-    let rows = zone["rows"].as_u64().unwrap_or(DEFAULT_GRID_SIZE) as usize;
-    let cols = zone["cols"].as_u64().unwrap_or(DEFAULT_GRID_SIZE) as usize;
+    // Support both direct rows/cols and gridProps.rows/cols
+    let rows = zone["rows"].as_u64()
+        .or_else(|| zone["gridProps"]["rows"].as_u64())
+        .unwrap_or(DEFAULT_GRID_SIZE) as usize;
+    let cols = zone["cols"].as_u64()
+        .or_else(|| zone["gridProps"]["cols"].as_u64())
+        .unwrap_or(DEFAULT_GRID_SIZE) as usize;
     
     let grid = create_grid_cells(rows, cols, contents);
     

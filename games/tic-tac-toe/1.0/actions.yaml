@@ -3,7 +3,7 @@
   uses: place
   ui:
     direction: "Click an empty cell to place your mark"
-    logTemplate: "{player} placed their mark"
+    logTemplate: "{player} placed their mark at ({row}, {col})"
   when:
     - condition: zone.isEmpty
       with:

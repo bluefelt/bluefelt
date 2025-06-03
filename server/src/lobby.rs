@@ -519,6 +519,64 @@ impl Lobby {
                                             }
                                         }
                                     }
+                                } else if action_impl == Some("placeWithGravity") {
+                                    // Handle placeWithGravity action for Connect 4 and similar games
+                                    println!("[DEBUG] Found placeWithGravity action: {:?}", a["id"]);
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        // Get the zone parameter from the action
+                                        if let Some(zone_path) = a.get("with")
+                                            .and_then(|w| w.get("zone"))
+                                            .and_then(|z| z.as_str()) {
+                                            
+                                            // Extract zone name from path like "/zones/board"
+                                            let zone_name = zone_path.strip_prefix("/zones/").unwrap_or(zone_path);
+                                            
+                                            if let Some(zones) = state.get("zones").and_then(|z| z.as_object()) {
+                                                if let Some(zone_data) = zones.get(zone_name) {
+                                                    if let Some(zone_obj) = zone_data.as_object() {
+                                                        if zone_obj.get("type").and_then(|t| t.as_str()) == Some("grid") {
+                                                            if let Some(cells) = zone_obj.get("cells").and_then(|c| c.as_array()) {
+                                                                println!("[DEBUG] Found grid zone for gravity action");
+                                                                
+                                                                // Get number of columns from first row
+                                                                if let Some(first_row) = cells.get(0).and_then(|r| r.as_array()) {
+                                                                    for col in 0..first_row.len() {
+                                                                        // Check if column has space (any null cell)
+                                                                        let mut has_space = false;
+                                                                        for row in cells {
+                                                                            if let Some(row_array) = row.as_array() {
+                                                                                if row_array.get(col).map(|c| c.is_null()).unwrap_or(false) {
+                                                                                    has_space = true;
+                                                                                    break;
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        
+                                                                        if has_space {
+                                                                            let location = format!("/zones/{}/columns/{}", zone_name, col);
+                                                                            println!("[DEBUG] Available column at {}", location);
+                                                                            
+                                                                            // Get UI direction from action
+                                                                            let direction = a.get("ui")
+                                                                                .and_then(|ui| ui.get("direction"))
+                                                                                .and_then(|d| d.as_str())
+                                                                                .unwrap_or("Click this column");
+                                                                            
+                                                                            action_map.insert(location, serde_json::json!({
+                                                                                "action": action_id,
+                                                                                "direction": direction,
+                                                                                "targetColumn": col
+                                                                            }));
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else if action_impl == Some("grid.move") || action_impl == Some("presets.grid.move") || action_impl == Some("moveEntity") {
                                     println!("[DEBUG] Found grid.move action: {:?}", a["id"]);
                                     if let Some(action_id) = a["id"].as_str() {
@@ -1753,6 +1811,9 @@ pub fn start_game(self: Arc<Self>) {
                                         }
                                         if let Some(col) = args_obj["col"].as_i64() {
                                             log_text = log_text.replace("{col}", &(col + 1).to_string()); // 1-indexed for display
+                                        }
+                                        if let Some(column) = args_obj["column"].as_i64() {
+                                            log_text = log_text.replace("{column}", &(column + 1).to_string()); // 1-indexed for display
                                         }
                                     }
                                     

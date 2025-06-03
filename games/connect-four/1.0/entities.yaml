@@ -1,0 +1,14 @@
+# Disc entities for each player
+- id: disc_p1
+  name: "Red Disc"
+  props:
+    value: "p1"
+  ui:
+    tokenType: "p1"  # Will render using player colors
+
+- id: disc_p2
+  name: "Yellow Disc"
+  props:
+    value: "p2"
+  ui:
+    tokenType: "p2"  # Will render using player colors

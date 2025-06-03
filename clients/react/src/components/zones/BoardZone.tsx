@@ -28,6 +28,15 @@ export default function BoardZone({
   selection
 }: BoardZoneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Detect if this zone has column-based actions
+  const columnActions = Object.keys(actionMap || {})
+    .filter(path => path.includes(`/zones/${zoneId}/columns/`))
+    .map(path => {
+      const match = path.match(/\/zones\/[^/]+\/columns\/(\d+)/);
+      return match ? parseInt(match[1]) : -1;
+    })
+    .filter(col => col >= 0);
   const [cellSize, setCellSize] = useState(60);
   const lastContainerWidth = useRef<number>(0);
   const getMarkColor = useMarkColor();
@@ -194,6 +203,57 @@ export default function BoardZone({
              WebkitOverflowScrolling: 'touch'
            }}>
           <div className="bg-black p-4 rounded inline-block">
+          {/* Column drop zones for gravity-based games */}
+          {columnActions.length > 0 && (
+            <div 
+              className="grid gap-0 mb-2"
+              style={{
+                gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
+                width: 'max-content',
+                height: '40px'
+              }}
+            >
+              {Array.from({ length: cols }, (_, colIndex) => {
+                const isClickableColumn = columnActions.includes(colIndex);
+                const columnPath = `/zones/${zoneId}/columns/${colIndex}`;
+                const columnAction = actionMap?.[columnPath];
+                
+                return (
+                  <div
+                    key={`column-${colIndex}`}
+                    className={`
+                      border border-gray-600 flex items-center justify-center text-xs font-medium
+                      transition-all duration-200 relative overflow-hidden
+                      ${isClickableColumn && isMyTurn 
+                        ? 'bg-blue-600 hover:bg-blue-500 cursor-pointer text-white' 
+                        : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                      }
+                    `}
+                    onClick={() => {
+                      if (isClickableColumn && isMyTurn && onCellClick) {
+                        onCellClick(-1, colIndex); // -1 indicates column action
+                      }
+                    }}
+                    title={columnAction?.direction || `Column ${colIndex + 1}`}
+                    style={{
+                      width: `${cellSize}px`,
+                      height: '40px'
+                    }}
+                  >
+                    {isClickableColumn && isMyTurn && (
+                      <>
+                        <span className="relative z-10">↓</span>
+                        <div className="absolute inset-0 bg-gradient-to-b from-blue-400 to-blue-600 opacity-20"></div>
+                      </>
+                    )}
+                    {!isClickableColumn && (
+                      <span className="text-gray-500">{colIndex + 1}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div 
             className="grid gap-0 border-2 border-white"
             style={{

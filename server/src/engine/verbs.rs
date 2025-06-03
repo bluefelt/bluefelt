@@ -13,6 +13,7 @@ pub fn apply_verb(
         "draw" => apply_draw(state, args),
         "moveEntity" => apply_move_entity(state, args),
         "place" => apply_place(state, args),
+        "placeWithGravity" => apply_place_with_gravity(state, args),
         "nextTurn" => apply_next_turn(state, args, bundle),
         "setPhase" => apply_set_phase(state, args),
         "grid.lineOfMarks" => apply_check_for_win(state, args),
@@ -123,6 +124,47 @@ fn apply_place(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
     Ok(vec![json!({
         "op": "replace", 
         "path": format!("/game{}", location),
+        "value": entity_value
+    })])
+}
+
+fn apply_place_with_gravity(state: &mut Value, args: &Value) -> Result<Vec<Value>, String> {
+    let zone_path = args["zone"].as_str().ok_or("Missing 'zone' path")?;
+    let column = args["column"].as_u64().ok_or("Missing 'column' index")? as usize;
+    let entity = args["entity"].as_str().ok_or("Missing 'entity' id")?;
+    
+    // Get the zone data
+    let zone = get_zone_mut(state, zone_path)?;
+    let cells = zone["cells"].as_array_mut()
+        .ok_or("Zone is not a grid with cells")?;
+    
+    // Find the lowest empty row in the specified column
+    let mut target_row = None;
+    for (row_idx, row) in cells.iter().enumerate().rev() {
+        let row_array = row.as_array()
+            .ok_or("Row is not an array")?;
+        
+        if column >= row_array.len() {
+            return Err("Column index out of bounds".to_string());
+        }
+        
+        if row_array[column].is_null() {
+            target_row = Some(row_idx);
+            break;
+        }
+    }
+    
+    let row = target_row.ok_or("Column is full")?;
+    
+    // Place the entity at the calculated position
+    let entity_value = json!({"entity": entity});
+    let row_array = cells[row].as_array_mut()
+        .ok_or("Row is not an array")?;
+    row_array[column] = entity_value.clone();
+    
+    Ok(vec![json!({
+        "op": "replace",
+        "path": format!("/game{}/cells/{}/{}", zone_path, row, column),
         "value": entity_value
     })])
 }

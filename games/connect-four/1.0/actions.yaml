@@ -1,0 +1,31 @@
+# Main action - drop a disc into a column
+- id: dropDisc
+  uses: placeWithGravity
+  ui:
+    direction: "Click a column to drop your disc"
+    logTemplate: "{player} dropped a disc in column {column}"
+  when:
+    - condition: player.isActor
+    # Column capacity validation will be handled by placeWithGravity verb
+  with:
+    zone: "/zones/board"
+    column: "{targetColumn}"
+    entity: "disc_{player}"
+  then:
+    - action: checkWin
+    - action: advanceTurn
+
+# Check for winning condition after each move
+- id: checkWin
+  uses: grid.lineOfMarks
+  auto: true
+  with:
+    zone: "zones/board"
+    entity: "disc_{player}"
+    lineLength: 4
+    directions: ["horizontal", "vertical", "diagonal"]
+
+# Advance to next player's turn
+- id: advanceTurn
+  uses: nextTurn
+  auto: true

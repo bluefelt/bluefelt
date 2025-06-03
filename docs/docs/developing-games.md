@@ -2,6 +2,8 @@
 
 Bluefelt is a platform for creating turn-based multiplayer games using declarative YAML files. This guide covers everything you need to know about designing, implementing, and deploying games on the Bluefelt platform.
 
+> **📘 Implementation Guide**: For a detailed step-by-step process on implementing new games, see the [Game Implementation Guide](./game-implementation-guide.md).
+
 ## Overview
 
 Games in Bluefelt are defined using a collection of YAML files that describe:

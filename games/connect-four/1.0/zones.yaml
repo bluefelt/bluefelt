@@ -1,0 +1,7 @@
+# Main game board - 7 columns x 6 rows
+- id: board
+  type: grid
+  gridProps:
+    rows: 6
+    cols: 7
+  contents: empty  # All cells start empty

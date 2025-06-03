@@ -1,0 +1,48 @@
+[
+  {
+    "id": "dropDisc",
+    "then": [
+      {
+        "action": "checkWin"
+      },
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Click a column to drop your disc",
+      "logTemplate": "{player} dropped a disc in column {column}"
+    },
+    "uses": "placeWithGravity",
+    "when": [
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "column": "{targetColumn}",
+      "entity": "disc_{player}",
+      "zone": "/zones/board"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkWin",
+    "uses": "grid.lineOfMarks",
+    "with": {
+      "directions": [
+        "horizontal",
+        "vertical",
+        "diagonal"
+      ],
+      "entity": "disc_{player}",
+      "lineLength": 4,
+      "zone": "zones/board"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "uses": "nextTurn"
+  }
+]

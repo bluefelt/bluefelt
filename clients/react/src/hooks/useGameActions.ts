@@ -7,14 +7,35 @@ interface GameActionHookProps {
 }
 
 export function useGameActions({ isYourTurn, lobbyState, sendMessage }: GameActionHookProps) {
-  // Handle board cell clicks
+  // Handle board cell clicks (and column clicks)
   const handleCellClick = useCallback((row: number, col: number) => {
     if (!isYourTurn || !lobbyState.you) {
       return;
     }
     
-    // Check if there's an action at this location
     const playerActions = lobbyState.ui?.actionMap?.[lobbyState.you] || {};
+    
+    // Check if this is a column action (row === -1)
+    if (row === -1) {
+      const columnLocation = `/zones/board/columns/${col}`;
+      const columnAction = playerActions[columnLocation];
+      
+      if (columnAction) {
+        // This is a column-based action (like placeWithGravity)
+        const message = JSON.stringify({
+          action: columnAction.action,
+          args: {
+            zone: "/zones/board",
+            column: col,
+            entity: `disc_${lobbyState.you}` // For Connect 4
+          }
+        });
+        sendMessage(message);
+      }
+      return;
+    }
+    
+    // Standard cell action
     const location = `/zones/board/cells/${row}/${col}`;
     const action = playerActions[location];
     

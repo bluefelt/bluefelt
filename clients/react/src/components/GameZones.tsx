@@ -35,6 +35,23 @@ function GameZones({
   
   if (!zones) return null;
 
+  // Helper function to render board zones
+  const renderBoard = (boardZones: any, key?: string) => {
+    return (
+      <Board
+        key={key}
+        zones={boardZones}
+        entityDefinitions={entityDefinitions}
+        onCellClick={onCellClick}
+        isMyTurn={isMyTurn}
+        zoneMetadata={zoneMetadata}
+        playerNames={playerNames}
+        actionMap={actionMap}
+        selection={selection}
+      />
+    );
+  };
+
 
   // Separate zones by type
   const gridZones: any = {};
@@ -233,19 +250,7 @@ function GameZones({
             {group.zones.map(zoneId => {
               if (gridZones[zoneId]) {
                 // This is a grid zone in the group
-                return (
-                  <Board
-                    key={zoneId}
-                    zones={{ [zoneId]: gridZones[zoneId] }}
-                    entityDefinitions={entityDefinitions}
-                    onCellClick={onCellClick}
-                    isMyTurn={isMyTurn}
-                    zoneMetadata={zoneMetadata}
-                    playerNames={playerNames}
-                    actionMap={actionMap}
-                    selection={selection}
-                  />
-                );
+                return renderBoard({ [zoneId]: gridZones[zoneId] }, zoneId);
               } else if (cardZones[zoneId]) {
                 // This is a card zone in the group
                 return renderCardZone(zoneId, cardZones[zoneId]);
@@ -257,18 +262,9 @@ function GameZones({
       ))}
 
       {/* Render ungrouped grid zones */}
-      {Object.keys(ungroupedGridZones).length > 0 && (
-        <Board
-          zones={ungroupedGridZones}
-          entityDefinitions={entityDefinitions}
-          onCellClick={onCellClick}
-          isMyTurn={isMyTurn}
-          zoneMetadata={zoneMetadata}
-          playerNames={playerNames}
-          actionMap={actionMap}
-          selection={selection}
-        />
-      )}
+      {Object.keys(ungroupedGridZones).length > 0 && 
+        renderBoard(ungroupedGridZones)
+      }
       
       {/* Render ungrouped card zones */}
       {Object.entries(ungroupedCardZones).map(([zoneId, cards]) => 

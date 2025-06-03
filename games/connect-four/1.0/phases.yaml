@@ -1,0 +1,16 @@
+# Simple phase structure for Connect 4
+- id: game
+  phases:
+    - id: setup
+      initial: true
+      enterActions:
+        - transitionToPhase: game.play
+    
+    - id: play
+      possibleActions: [dropDisc]
+      ui:
+        display: "{actor}'s turn"
+        
+    - id: end
+      ui:
+        display: "Game Over"
