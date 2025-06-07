@@ -8,6 +8,7 @@ interface BoardProps {
   zoneMetadata?: any[];
   playerNames?: string[];
   actionMap?: Record<string, any>;
+  currentPlayerActionMap?: Record<string, any>;
   selection?: any;
 }
 
@@ -19,8 +20,16 @@ export default function Board({
   zoneMetadata,
   playerNames,
   actionMap,
+  currentPlayerActionMap,
   selection
 }: BoardProps) {
+  console.log('[Board] Component props:', {
+    zones: zones ? Object.keys(zones) : 'null',
+    zoneMetadata,
+    isMyTurn,
+    actionMap: actionMap ? Object.keys(actionMap).length : 0
+  });
+  
   if (!zones) {
     return null;
   }
@@ -29,7 +38,7 @@ export default function Board({
   const handleCellClick = (zoneKey: string, row: number, col: number) => {
     // Check if there's a column-based action for this column
     const columnPath = `/zones/${zoneKey}/columns/${col}`;
-    const columnAction = actionMap?.[columnPath];
+    const columnAction = currentPlayerActionMap?.[columnPath] || actionMap?.[columnPath];
     
     if (columnAction) {
       // This is a column-based action (like gravity) - trigger the column action
@@ -58,12 +67,17 @@ export default function Board({
     }
   });
   
+  console.log('[Board] Grid zones found:', gridZones.map(gz => ({ key: gz.key, rows: gz.data.length, cols: gz.data[0]?.length })));
+  
   if (gridZones.length === 0) {
+    console.log('[Board] No grid zones found, returning null');
     return null;
   }
 
+  console.log('[Board] Rendering board with zones:', gridZones.map(gz => gz.key));
+
   return (
-    <div className={`w-full ${gridZones.length > 1 ? 'grid gap-6 lg:grid-cols-2' : ''}`}>
+    <div className={`w-full ${gridZones.length > 1 ? 'grid gap-6 lg:grid-cols-2' : ''}`} data-testid="board-container">
       {gridZones.map(({ key: zoneId, data: boardData }) => (
         <BoardZone
           key={zoneId}
@@ -75,7 +89,7 @@ export default function Board({
           zoneMetadata={zoneMetadata}
           isSingleZone={gridZones.length === 1}
           playerNames={playerNames}
-          actionMap={actionMap}
+          actionMap={currentPlayerActionMap || actionMap}
           selection={selection}
         />
       ))}

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "deck_{player}",
+    "owner": "{player}",
+    "shape": "stack",
+    "visibility": "private"
+  },
+  {
+    "id": "battle_{player}",
+    "owner": "{player}",
+    "shape": "list",
+    "visibility": "public"
+  },
+  {
+    "id": "war_pile_{player}",
+    "owner": "{player}",
+    "shape": "list",
+    "visibility": "private"
+  }
+]

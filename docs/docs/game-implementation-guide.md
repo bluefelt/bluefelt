@@ -1,10 +1,23 @@
 # Game Implementation Guide
 
-This is the comprehensive reference for implementing games on the Bluefelt platform. For a quick overview of the workflow, see the [Game Implementation Workflow](./game-implementation-workflow.md).
+This is the comprehensive reference for implementing games on the Bluefelt platform.
+
+## Quick Reference Workflow
+
+Every game implementation follows these 8 steps:
+
+1. **Document Rules** → Create RULES.md
+2. **Analyze Requirements** → Map game mechanics to engine capabilities  
+3. **Identify Gaps** → Find what the engine can't do yet
+4. **Plan Implementation** → Design your approach
+5. **Build Game Files** → Create YAML configurations
+6. **Add Tests** → Ensure everything works
+7. **Validate & Deploy** → Build bundles and run
+8. **User Testing** → Get feedback and iterate
 
 ## Overview
 
-This guide provides detailed information about each step of the game implementation process. Each game implementation follows an 8-step process designed to ensure thorough planning, proper implementation, and comprehensive testing before release.
+This guide provides detailed information about each step of the game implementation process.
 
 ## Step 1: Document Game Rules
 
@@ -484,10 +497,120 @@ Different action types use different argument structures:
 The server automatically handles:
 - `{player}` replacement with actual player names
 - `{row}`, `{col}` extraction from direct arguments or location paths
+
+### 5.7 Critical Logging Requirements ⚠️
+
+**THIS IS THE #1 CAUSE OF POOR GAME EXPERIENCE!**
+
+Players MUST understand what the game is doing. When automatic decisions happen without explanation, players feel confused and disconnected from the game. This is especially critical for:
+- Phase transitions
+- Turn advancement  
+- Win condition checking
+- Card transfers
+- Pair/set formation
+- Resource changes
+
+#### 5.7.1 Log ALL Automatic Decisions
+Every automatic action MUST have a log entry:
+
+```yaml
+# BAD: Silent automatic action
+- id: checkForPairs
+  auto: true
+  uses: formPairs
+  
+# GOOD: Logged automatic action  
+- id: checkForPairs
+  auto: true
+  uses: formPairs
+  ui:
+    logTemplate: "{player} forms a pair of {rank}s"
+```
+
+#### 5.7.2 Player References in Logs ⚠️
+**CRITICAL**: Never use hardcoded player names in log templates! Always use player IDs (p1, p2, etc.) which the server automatically replaces with actual player names.
+
+```yaml
+# ✗ WRONG - These will show literally in logs
+logTemplate: "Player 1 draws a card"
+logTemplate: "Alice asks for cards"
+logTemplate: "The first player wins"
+
+# ✓ CORRECT - Server replaces these with player names
+logTemplate: "p1 draws a card"        # Shows: "Alice draws a card"
+logTemplate: "{player} asks for cards" # Shows: "Bob asks for cards"
+logTemplate: "p2 wins the game"       # Shows: "Charlie wins the game"
+```
+
+See [Game Log Parameters](./game-log-parameters.md#critical-player-references-in-log-templates) for complete details.
+
+**Required Logging Checklist:**
+- [ ] `nextTurn` actions - "Turn passes to {nextPlayer}"
+- [ ] Phase transitions - "Moving to {phase} phase"
+- [ ] Win checking - "Checking for winning conditions..."
+- [ ] Game end - "Game Over! {winner} wins!"
+- [ ] Automatic card draws - "{player} drew a card"
+- [ ] Automatic transfers - "{source} gives cards to {target}"
+- [ ] Score changes - "{player} scores {points} points"
+
+#### 5.7.3 Multiple Log Entries for Complex Actions
+Break down what happened step by step:
+
+```yaml
+# Example: Go Fish asking sequence
+- id: askForCards
+  ui:
+    logTemplate: "{player} asks {target} for {rank}s"
+    
+- id: giveCards
+  ui:
+    logTemplate: "{target} has {count} {rank}(s) and gives them to {player}"
+    
+- id: goFish
+  ui:
+    logTemplate: "{target} says 'Go Fish!' - {player} draws a card"
+    
+- id: drewRequestedRank
+  ui:
+    logTemplate: "{player} drew a {rank} and gets another turn!"
+```
+
+#### 5.7.3 Discrete Patches for Animation Support
+Each animatable change needs its own patch:
+
+```yaml
+# Step 1: Remove from source (patch 1)
+- uses: removeEntity
+  with:
+    from: "/zones/hand_{target}"
+    entity: "{cardId}"
+    
+# Step 2: Add to destination (patch 2)
+- uses: addEntity  
+  with:
+    to: "/zones/hand_{player}"
+    entity: "{cardId}"
+    
+# Step 3: Check consequences (patch 3)
+- uses: checkForPairs
+  with:
+    player: "{player}"
+```
+
+This allows clients to:
+- Animate card leaving opponent's hand
+- Animate card arriving in player's hand  
+- Animate pair formation separately
+
+#### 5.7.4 Variable Replacement Testing
+Always test that ALL variables are replaced:
+- Test with actual game data
+- Check edge cases (long names, special characters)
+- Verify no `{variable}` appears in production logs
 - `{column}` replacement from column arguments
 - 1-indexed display conversion (internal 0-indexed → display 1-indexed)
 
-### 5.7 Client-side Updates
+### 5.8 Client-side Updates
 If needed, update React components:
 - Check if existing components handle the game
 - Add new zone renderers if required

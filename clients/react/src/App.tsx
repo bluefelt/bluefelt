@@ -13,6 +13,11 @@ const CreateLobbyPage = lazy(() => import("./pages/CreateLobbyPage"));
 const LobbyPage = lazy(() => import("./pages/LobbyPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
+// Development-only pages
+const UITestPage = import.meta.env.DEV 
+  ? lazy(() => import("./pages/UITestPage"))
+  : null;
+
 // Loading component
 function PageLoader() {
   return (
@@ -55,6 +60,9 @@ export default function App() {
                 <Route path="lobbies" element={<LobbiesPage />} />
                 <Route path="create-lobby" element={<CreateLobbyPage />} />
                 <Route path="lobby/:lobbyId" element={<LobbyPage />} />
+                {import.meta.env.DEV && UITestPage && (
+                  <Route path="ui-test" element={<UITestPage />} />
+                )}
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
             </Routes>

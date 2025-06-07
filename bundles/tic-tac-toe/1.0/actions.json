@@ -18,17 +18,24 @@
       {
         "condition": "zone.isEmpty",
         "with": {
-          "zone": "{target}"
+          "zone": "{args.location}"
         }
       },
       {
         "condition": "player.isActor"
       }
-    ]
+    ],
+    "with": {
+      "entity": "mark_{player}",
+      "location": "{args.location}"
+    }
   },
   {
     "auto": true,
     "id": "checkWin",
+    "ui": {
+      "logTemplate": "Checking for three in a row..."
+    },
     "uses": "grid.lineOfMarks",
     "with": {
       "directions": [
@@ -44,6 +51,9 @@
   {
     "auto": true,
     "id": "advanceTurn",
+    "ui": {
+      "logTemplate": "Turn passes to {nextPlayer}"
+    },
     "uses": "nextTurn"
   }
 ]

@@ -1,0 +1,8 @@
+# Standard 52-card deck
+- id: card
+  type: card
+  template: standardDeck
+  
+# War pile markers  
+- id: war_marker
+  type: marker

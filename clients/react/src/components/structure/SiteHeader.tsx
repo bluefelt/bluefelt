@@ -14,7 +14,20 @@ export default function SiteHeader() {
 
   return (
     <nav style={styles.playerProfile}>
-      <img src="/bluefelt_logo.jpg" alt="Bluefelt Logo" style={styles.bfLogo} />
+      <a 
+        href="/"
+        onClick={(e) => {
+          e.preventDefault();
+          navigate('/');
+        }}
+        style={styles.logoLink}
+      >
+        <img 
+          src="/bluefelt_logo.jpg" 
+          alt="Bluefelt Logo" 
+          style={styles.bfLogo} 
+        />
+      </a>
       <div style={styles.colorPickerWrapper}>
         <ColorPicker />
       </div>
@@ -75,13 +88,21 @@ const styles: Record<string, React.CSSProperties> = {
     right: "10px",
     zIndex: 100,
   },
-  bfLogo: {
+  logoLink: {
+    position: "absolute",
     height: "52px",
     width: "52px",
-    position: "absolute",
-    border: "2px solid #D8B260",
     marginLeft: "10px",
     marginTop: "8px",
+    display: "block",
+    zIndex: 10,
+  },
+  bfLogo: {
+    height: "100%",
+    width: "100%",
+    border: "2px solid #D8B260",
+    cursor: "pointer",
+    display: "block",
   },
   signOutButton: {
     backgroundColor: "#D8B260",

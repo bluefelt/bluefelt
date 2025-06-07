@@ -1,0 +1,465 @@
+[
+  {
+    "auto": true,
+    "id": "dealCards",
+    "name": "Deal Cards to Players",
+    "then": [
+      {
+        "action": "dealToP2"
+      }
+    ],
+    "ui": {
+      "logTemplate": "Dealing 7 cards to {player}"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 7,
+      "from": "/zones/pool",
+      "to": "/zones/hand_p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "dealToP2",
+    "name": "Deal Cards to P2",
+    "then": [
+      {
+        "action": "beginTurns"
+      }
+    ],
+    "ui": {
+      "logTemplate": "Dealing 7 cards to {player}"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 7,
+      "from": "/zones/pool",
+      "to": "/zones/hand_p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "beginTurns",
+    "name": "Begin Game Turns",
+    "ui": {
+      "logTemplate": "Starting game - {player} goes first"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "selectingRank",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "startTurn",
+    "name": "Start Turn",
+    "uses": "setState",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "selectingRank",
+          "phaseSet": "game"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      },
+      {
+        "condition": "value.notExists",
+        "with": {
+          "path": "/selection/availableRanks"
+        }
+      }
+    ],
+    "with": {
+      "path": "/selection/availableRanks",
+      "value": [
+        "a",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "j",
+        "q",
+        "k"
+      ]
+    }
+  },
+  {
+    "id": "selectRank",
+    "name": "Select Rank",
+    "then": [
+      {
+        "action": "transitionToSelectingPlayer"
+      }
+    ],
+    "ui": {
+      "direction": "Choose a rank to ask for"
+    },
+    "uses": "setState",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "selectingRank",
+          "phaseSet": "game"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      },
+      {
+        "condition": "zone.hasMatching",
+        "with": {
+          "property": "rank",
+          "value": "{args.rank}",
+          "zone": "/zones/hand_{player}"
+        }
+      }
+    ],
+    "with": {
+      "path": "/selection/selectedRank",
+      "value": "{args.rank}"
+    }
+  },
+  {
+    "id": "selectPlayer",
+    "name": "Ask Player",
+    "then": [
+      {
+        "action": "transitionToResponding"
+      }
+    ],
+    "ui": {
+      "direction": "Choose which player to ask",
+      "logTemplate": "{player} asks for {selection.selectedRank}s"
+    },
+    "uses": "setState",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "selectingPlayer",
+          "phaseSet": "game"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      },
+      {
+        "condition": "value.notEquals",
+        "with": {
+          "value1": "{args.targetPlayer}",
+          "value2": "{player}"
+        }
+      }
+    ],
+    "with": {
+      "path": "/selection/targetPlayer",
+      "value": "{args.targetPlayer}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkPlayerCards",
+    "name": "Check Player Response",
+    "uses": "conditionalAction",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "responding",
+          "phaseSet": "game"
+        }
+      }
+    ],
+    "with": {
+      "condition": [
+        {
+          "condition": "zone.hasMatching",
+          "with": {
+            "property": "rank",
+            "value": "{selection.selectedRank}",
+            "zone": "/zones/hand_{selection.targetPlayer}"
+          }
+        }
+      ],
+      "ifFalse": [
+        {
+          "action": "transitionToFishing"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "transferCards",
+          "with": {
+            "from": "/zones/hand_{selection.targetPlayer}",
+            "property": "rank",
+            "to": "/zones/hand_{player}",
+            "value": "{selection.selectedRank}"
+          }
+        },
+        {
+          "action": "checkForBooksAfterReceiving",
+          "with": {
+            "player": "{player}",
+            "rank": "{selection.selectedRank}"
+          }
+        },
+        {
+          "action": "transitionToSelectingRank"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "goFish",
+    "name": "Go Fish!",
+    "then": [
+      {
+        "action": "checkForBooksAfterFishing",
+        "with": {
+          "player": "{player}",
+          "rank": "{selection.selectedRank}"
+        }
+      },
+      {
+        "action": "advanceTurn"
+      },
+      {
+        "action": "transitionToSelectingRank"
+      }
+    ],
+    "ui": {
+      "logTemplate": "Go Fish! {player} draws a card"
+    },
+    "uses": "draw",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "fishing",
+          "phaseSet": "game"
+        }
+      },
+      {
+        "condition": "zone.count",
+        "with": {
+          "operator": ">",
+          "value": 0,
+          "zone": "/zones/pool"
+        }
+      }
+    ],
+    "with": {
+      "count": 1,
+      "from": "/zones/pool",
+      "to": "/zones/hand_{player}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkForBooks",
+    "name": "Check for Pairs",
+    "ui": {
+      "logTemplate": "{player} checks for pairs"
+    },
+    "uses": "formPairs",
+    "with": {
+      "player": "{player}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkForBooksWithRank",
+    "name": "Check for Pairs of Specific Rank",
+    "ui": {
+      "logTemplate": ""
+    },
+    "uses": "formPairs",
+    "with": {
+      "player": "{player}",
+      "rank": "{args.rank}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkForBooksAfterReceiving",
+    "name": "Check for Pairs After Receiving Cards",
+    "ui": {
+      "logTemplate": "{args.player} forms a pair of {args.rank}s"
+    },
+    "uses": "formPairs",
+    "with": {
+      "player": "{args.player}",
+      "rank": "{args.rank}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkForBooksAfterFishing",
+    "name": "Check for Pairs After Fishing",
+    "uses": "formPairs",
+    "with": {
+      "player": "{args.player}",
+      "rank": "{args.rank}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkGameEnd",
+    "name": "Check Game End",
+    "uses": "conditionalAction",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "selectingRank",
+          "phaseSet": "game"
+        }
+      }
+    ],
+    "with": {
+      "condition": [
+        {
+          "condition": "zone.count",
+          "with": {
+            "operator": "==",
+            "value": 0,
+            "zone": "/zones/pool"
+          }
+        }
+      ],
+      "ifFalse": [],
+      "ifTrue": [
+        {
+          "action": "transitionToGameOver"
+        },
+        {
+          "action": "calculateWinner"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "calculateWinner",
+    "name": "Calculate Winner",
+    "uses": "calculateWinner",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "gameOver",
+          "phaseSet": "game"
+        }
+      }
+    ]
+  },
+  {
+    "auto": true,
+    "id": "transferCards",
+    "name": "Transfer Cards",
+    "ui": {
+      "logTemplate": "{player} receives {selection.selectedRank}s from {selection.targetPlayer}"
+    },
+    "uses": "transferMatching"
+  },
+  {
+    "auto": true,
+    "id": "transitionToSelectingPlayer",
+    "name": "Transition to Selecting Player",
+    "uses": "setPhase",
+    "with": {
+      "phase": "selectingPlayer",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "transitionToResponding",
+    "name": "Transition to Responding",
+    "uses": "setPhase",
+    "with": {
+      "phase": "responding",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "transitionToCheckingPairs",
+    "name": "Transition to Checking Pairs",
+    "uses": "setPhase",
+    "with": {
+      "phase": "checkingPairs",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "transitionToFishing",
+    "name": "Transition to Fishing",
+    "then": [],
+    "ui": {
+      "logTemplate": "{selection.targetPlayer} says 'Go Fish!'"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "fishing",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "transitionToSelectingRank",
+    "name": "Transition to Selecting Rank",
+    "uses": "setPhase",
+    "with": {
+      "phase": "selectingRank",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "transitionToGameOver",
+    "name": "Transition to Game Over",
+    "ui": {
+      "logTemplate": "Game Over! Counting pairs to determine the winner..."
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "gameOver",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "continueAfterDrawingRequestedRank",
+    "name": "Continue After Drawing Requested Rank",
+    "ui": {
+      "logTemplate": "{player} drew a {selection.selectedRank} and gets another turn!"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "selectingRank",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "name": "Advance Turn",
+    "ui": {
+      "logTemplate": ""
+    },
+    "uses": "nextTurn"
+  }
+]

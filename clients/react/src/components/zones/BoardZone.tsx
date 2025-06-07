@@ -27,6 +27,7 @@ export default function BoardZone({
   actionMap,
   selection
 }: BoardZoneProps) {
+  
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Detect if this zone has column-based actions
@@ -37,6 +38,7 @@ export default function BoardZone({
       return match ? parseInt(match[1]) : -1;
     })
     .filter(col => col >= 0);
+  
   const [cellSize, setCellSize] = useState(60);
   const lastContainerWidth = useRef<number>(0);
   const getMarkColor = useMarkColor();
@@ -194,6 +196,7 @@ export default function BoardZone({
     <div 
       ref={containerRef} 
       className="bg-gray-800 p-6 rounded-lg flex flex-col h-full min-h-[250px] w-full"
+      data-testid={`${zoneId}-zone`}
     >
       <h2 className="text-xl font-semibold mb-4 text-white">
         {zoneName}
@@ -273,10 +276,29 @@ export default function BoardZone({
                 const isEmpty = actualCell === null;
                 
                 // Check if this cell is selected
-                const isSelected = selection && 
-                  selection.zone === zoneId && 
-                  selection.row === actualRow && 
-                  selection.col === actualCol;
+                // Handle both formats: old format {zone, row, col} and new server format {player: {location, entity}}
+                let isSelected = false;
+                if (selection) {
+                  // Old format (for backwards compatibility with tests)
+                  if (selection.zone === zoneId && selection.row === actualRow && selection.col === actualCol) {
+                    isSelected = true;
+                  } else {
+                    // New server format: selection[playerId] = {location, entity}
+                    // Check all players' selections for the current cell location
+                    const currentLocation = `/zones/${zoneId}/cells/${actualRow}/${actualCol}`;
+                    const altLocation = `/zones/${zoneId}/${actualRow}/${actualCol}`;
+                    
+                    for (const [playerId, playerSelection] of Object.entries(selection)) {
+                      if (playerSelection && typeof playerSelection === 'object' && 'location' in playerSelection) {
+                        const selectionLocation = (playerSelection as any).location;
+                        if (selectionLocation === currentLocation || selectionLocation === altLocation) {
+                          isSelected = true;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
                 
                 // Check if this cell is a valid move based on actionMap
                 let isClickable = false;

@@ -1,0 +1,17 @@
+# Player decks (face down)
+- id: deck_{player}
+  shape: stack
+  owner: "{player}"
+  visibility: private
+
+# Battle area - current cards
+- id: battle_{player}
+  shape: list
+  owner: "{player}"
+  visibility: public
+
+# War pile (face down cards during war)
+- id: war_pile_{player}
+  shape: list
+  owner: "{player}"
+  visibility: private

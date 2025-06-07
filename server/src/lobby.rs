@@ -10,6 +10,9 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex as TokioMutex};
 use std::collections::HashMap;
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
+use sha2::{Sha256, Digest};
 
 pub type LobbyMap = DashMap<String, Arc<Lobby>>;
 
@@ -29,7 +32,17 @@ pub fn new_lobby(
     lobbies: Arc<LobbyMap>,
     lobby_updates: broadcast::Sender<Message>,
 ) -> Arc<Lobby> {
-    Arc::new(Lobby::new(id, bundle, lobbies, lobby_updates))
+    Arc::new(Lobby::new(id, bundle, lobbies, lobby_updates, None))
+}
+
+pub fn new_lobby_with_seed(
+    id: String,
+    bundle: Bundle,
+    lobbies: Arc<LobbyMap>,
+    lobby_updates: broadcast::Sender<Message>,
+    seed: [u8; 32],
+) -> Arc<Lobby> {
+    Arc::new(Lobby::new(id, bundle, lobbies, lobby_updates, Some(seed)))
 }
 
 pub fn current_lobbies_json(lobbies: &LobbyMap) -> serde_json::Value {
@@ -117,6 +130,15 @@ pub struct Lobby {
 
     /// Reference to lobby map for updates
     lobbies: Arc<LobbyMap>,
+    
+    /// Deterministic RNG for this lobby
+    rng: Mutex<StdRng>,
+    
+    /// RNG seed used for this lobby (for debugging/replay)
+    rng_seed: [u8; 32],
+    
+    /// RNG position counter (number of values consumed)
+    rng_position: Mutex<u64>,
 }
 
 impl Lobby {
@@ -125,8 +147,42 @@ impl Lobby {
         bundle: Bundle,
         lobbies: Arc<LobbyMap>,
         lobby_updates: broadcast::Sender<Message>,
+        explicit_seed: Option<[u8; 32]>,
     ) -> Self {
-        let initial = engine::load_initial_state(&bundle);
+        let seed = if let Some(seed) = explicit_seed {
+            println!("  Using explicit seed for lobby {}: {}", id, hex::encode(&seed));
+            seed
+        } else {
+            // Generate deterministic seed from bundle hash, lobby id, and timestamp
+            let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+            let mut hasher = Sha256::new();
+            
+            // Add bundle hash (we'll use the game_id and version as a simple hash)
+            hasher.update(bundle.game_id.as_bytes());
+            hasher.update(bundle.manifest.version.as_bytes());
+            hasher.update(b"||");
+            
+            // Add lobby id
+            hasher.update(id.as_bytes());
+            hasher.update(b"||");
+            
+            // Add timestamp
+            hasher.update(timestamp.to_le_bytes());
+            hasher.update(b"||");
+            
+            // Add salt
+            hasher.update(b"RNG");
+            
+            let seed_hash = hasher.finalize();
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(&seed_hash[..32]);
+            println!("  Generated seed for lobby {}: {}", id, hex::encode(&seed));
+            seed
+        };
+        
+        let mut rng = StdRng::from_seed(seed);
+        
+        let initial = engine::load_initial_state_with_rng(&bundle, None, &mut rng);
         let (tx, _) = broadcast::channel(64);
         Self {
             id,
@@ -140,12 +196,41 @@ impl Lobby {
             client_formats: Mutex::new(HashMap::new()),
             lobby_updates,
             lobbies,
+            rng: Mutex::new(rng),
+            rng_seed: seed,
+            rng_position: Mutex::new(0),
         }
     }
 
     fn broadcast_lobby_list(&self) {
         let list = current_lobbies_json(&self.lobbies);
         let _ = self.lobby_updates.send(Message::Text(list.to_string()));
+    }
+    
+    /// Get the next random value from the lobby's RNG
+    pub fn next_random_u32(&self) -> u32 {
+        let mut rng = self.rng.lock();
+        let mut position = self.rng_position.lock();
+        *position += 1;
+        rng.random()
+    }
+    
+    /// Get the next random value in range from the lobby's RNG
+    pub fn next_random_range(&self, min: u32, max: u32) -> u32 {
+        let mut rng = self.rng.lock();
+        let mut position = self.rng_position.lock();
+        *position += 1;
+        rng.random_range(min..max)
+    }
+    
+    /// Get current RNG position for debugging
+    pub fn get_rng_position(&self) -> u64 {
+        *self.rng_position.lock()
+    }
+    
+    /// Get the RNG seed as hex string for debugging/display
+    pub fn get_rng_seed_hex(&self) -> String {
+        hex::encode(&self.rng_seed)
     }
 
     pub fn players(&self) -> usize {
@@ -178,8 +263,8 @@ impl Lobby {
             return true;
         }
         
-        // Check if we already have 2 players (max for tic-tac-toe)
-        if players.len() < 2 {
+        // Check if we already have max players for this game
+        if players.len() < self.bundle.manifest.metadata.players.max as usize {
             println!("[Socket] Adding new player {} to the lobby", player_id);
             players.push(player_id);
             drop(players);
@@ -359,7 +444,7 @@ impl Lobby {
 
     /// Compute action map for each player based on current state
     /// Returns a map from location (e.g., "/zones/board/0/1") to available actions
-    fn compute_action_map(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
+    pub fn compute_action_map(state: &serde_json::Value, bundle: &Bundle) -> serde_json::Map<String, serde_json::Value> {
         let mut player_action_maps = serde_json::Map::new();
 
         println!("[DEBUG action_map] Checking game state - meta exists: {}, meta.gameStatus exists: {}", 
@@ -1218,6 +1303,92 @@ impl Lobby {
                                             }
                                         }
                                     }
+                                } else if action_impl == Some("setState") {
+                                    // Handle setState actions (like selectRank and selectPlayer in Go Fish)
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        println!("[DEBUG action_map] Processing setState action: {}", action_id);
+                                        
+                                        // For Go Fish's selectRank action
+                                        if action_id == "selectRank" {
+                                            println!("[DEBUG action_map] Looking for available ranks for selectRank action");
+                                            
+                                            // Check if we have available ranks stored by queryEntities
+                                            let available_ranks = state.get("selection")
+                                                .and_then(|s| s.get("availableRanks"))
+                                                .and_then(|r| r.as_array());
+                                                
+                                            if let Some(ranks) = available_ranks {
+                                                println!("[DEBUG action_map] Found {} available ranks for selectRank", ranks.len());
+                                                
+                                                // Map each rank to an action
+                                                for rank in ranks {
+                                                    if let Some(rank_str) = rank.as_str() {
+                                                        // Use choice zone format
+                                                        let location = format!("/zones/choice_{}/ranks/{}", id, rank_str);
+                                                        
+                                                        let direction = a.get("ui")
+                                                            .and_then(|ui| ui.get("direction"))
+                                                            .and_then(|d| d.as_str())
+                                                            .unwrap_or("Choose this rank");
+                                                        
+                                                        action_map.insert(location, json!({
+                                                            "action": action_id,
+                                                            "direction": direction,
+                                                            "rank": rank_str
+                                                        }));
+                                                    }
+                                                }
+                                            } else {
+                                                // If no ranks available yet, show a placeholder action
+                                                println!("[DEBUG action_map] No available ranks yet for selectRank, adding placeholder");
+                                                let location = format!("/zones/choice_{}/placeholder", id);
+                                                action_map.insert(location, json!({
+                                                    "action": action_id,
+                                                    "direction": "Loading available ranks...",
+                                                    "placeholder": true
+                                                }));
+                                            }
+                                        }
+                                        // For Go Fish's selectPlayer action  
+                                        else if action_id == "selectPlayer" {
+                                            println!("[DEBUG action_map] Processing selectPlayer action");
+                                            // Get all players except current player
+                                            if let Some(players_array) = state.get("players").and_then(|p| p.as_array()) {
+                                                println!("[DEBUG action_map] Found {} players in state", players_array.len());
+                                                println!("[DEBUG action_map] Current player ID: {}", id);
+                                                for (idx, player_data) in players_array.iter().enumerate() {
+                                                    let player_id = format!("p{}", idx + 1);
+                                                    println!("[DEBUG action_map] Checking player {} (idx: {}) vs current player {}", player_id, idx, id);
+                                                    if player_id != id {
+                                                        // Use choice zone format for player selection
+                                                        let location = format!("/zones/choice_{}/players/{}", id, player_id);
+                                                        
+                                                        let direction = a.get("ui")
+                                                            .and_then(|ui| ui.get("direction"))
+                                                            .and_then(|d| d.as_str())
+                                                            .unwrap_or("Choose this player");
+                                                        
+                                                        println!("[DEBUG action_map] Adding player selection for {} at location {}", player_id, location);
+                                                        action_map.insert(location, json!({
+                                                            "action": action_id,
+                                                            "direction": direction,
+                                                            "targetPlayer": player_id
+                                                        }));
+                                                    } else {
+                                                        println!("[DEBUG action_map] Skipping current player {}", player_id);
+                                                    }
+                                                }
+                                            } else {
+                                                println!("[DEBUG action_map] No players array found in state");
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Handle actions without specific implementation handlers
+                                    if let Some(action_id) = a["id"].as_str() {
+                                        println!("[DEBUG action_map] Checking unhandled action: {} with verb: {:?}", action_id, action_impl);
+                                        // Add any other unhandled action logic here
+                                    }
                                 }
                             } // Close phases_array check
                         }
@@ -1283,6 +1454,12 @@ impl Lobby {
                         }
                     }
                 }
+                
+                // Add RNG debug info
+                meta_obj.insert("rngDebug".to_string(), json!({
+                    "seed": self.get_rng_seed_hex(),
+                    "position": self.get_rng_position()
+                }));
             }
             
             let base_message = json!({
@@ -1310,6 +1487,12 @@ impl Lobby {
                 meta.insert("zoneGroups".to_string(), expanded_groups);
             }
             
+            // Add RNG debug info
+            meta.insert("rngDebug".to_string(), json!({
+                "seed": self.get_rng_seed_hex(),
+                "position": self.get_rng_position()
+            }));
+            
             let base_message = json!({
                 "type": "welcome",
                 "you": actor,
@@ -1325,8 +1508,46 @@ impl Lobby {
 pub fn start_game(self: Arc<Self>) {
     *self.game_started.lock() = true;
     
-    // Get current game state
-    let snapshot = { let g = self.state.lock(); g.clone() };
+    // Get current game state and adjust players array to match actual player count
+    let mut snapshot = { let g = self.state.lock(); g.clone() };
+    
+    // Adjust the players array to match the actual number of connected players
+    let actual_player_count = self.players();
+    if actual_player_count > 0 {
+        let player_names = self.player_list();
+        let mut players = Vec::new();
+        for (i, name) in player_names.iter().enumerate() {
+            players.push(json!({
+                "id": format!("p{}", i + 1),
+                "name": name
+            }));
+        }
+        snapshot["players"] = json!(players);
+        
+        // Also need to adjust any player-specific zones that were created for extra players
+        if let Some(zones) = snapshot["zones"].as_object_mut() {
+            // Remove zones for players that don't exist
+            let max_players = self.bundle.manifest.metadata.players.max as usize;
+            if actual_player_count < max_players {
+                let zones_to_remove: Vec<String> = zones.keys()
+                    .filter(|key| {
+                        // Check if this is a player-specific zone for a player that doesn't exist
+                        for i in (actual_player_count + 1)..=max_players {
+                            if key.contains(&format!("_p{}", i)) {
+                                return true;
+                            }
+                        }
+                        false
+                    })
+                    .cloned()
+                    .collect();
+                
+                for zone_key in zones_to_remove {
+                    zones.remove(&zone_key);
+                }
+            }
+        }
+    }
     
     // Don't process phases here - we'll do it after sending the initial game state
     println!("[DEBUG start_game] Will process phases after initial state is sent");
@@ -1397,12 +1618,10 @@ pub fn start_game(self: Arc<Self>) {
                 
                 println!("[DEBUG] Got {} patches from phase processing", phase_arr.len());
                 
-                // Apply patches to our state
-                for patch in &phase_arr {
-                    engine::apply_patch_to_state(&mut snapshot, patch);
-                }
+                // NOTE: We don't apply patches here because process_phases already mutated the state
+                // The patches are only for client synchronization
                 
-                // Update the lobby state
+                // Update the lobby state with the already-mutated snapshot
                 *self_clone.state.lock() = snapshot.clone();
                 
                 // After phase transition, recompute action map
@@ -1654,7 +1873,7 @@ pub fn start_game(self: Arc<Self>) {
                             let _ = self.tx.send(Message::Text(player_update.to_string()));
                         }
                     } else if json["action"] == "start_game" {
-                        if !self.is_started() && self.players() >= 2 {
+                        if !self.is_started() && self.players() >= self.bundle.manifest.metadata.players.min as usize {
                             self.clone().start_game();
                         }
                     } else if json.get("action").is_some() && self.is_started() {
@@ -1664,17 +1883,48 @@ pub fn start_game(self: Arc<Self>) {
                             .unwrap_or_else(|| "spectator".to_string());
                         
                         println!("[Socket] Processing action from {} (actor: {}): {:?}", player_id, current_actor, json);
-                        let current_turn = self.state.lock()["turn"].as_str().unwrap_or("").to_string();
+                        
+                        // Check if game has ended - reject all actions if so
+                        {
+                            let state = self.state.lock();
+                            if let Some(game_status) = state.get("gameStatus") {
+                                if game_status.get("state") == Some(&json!("ended")) {
+                                    println!("[Socket] Action rejected - game has ended: {:?}", game_status);
+                                    continue;
+                                }
+                            }
+                        }
+                        
+                        let current_turn = self.state.lock()["currentPlayer"].as_str().unwrap_or("").to_string();
                         println!("[Socket] Current turn: {}, Actor attempting move: {}", current_turn, current_actor);
                         
                         
                         // Store action info for game log generation
                         let action_id = json["action"].as_str().unwrap_or("");
-                        let args = json.get("args").cloned();
+                        
+                        // Extract args - either from "args" field or from the message itself (excluding "action")
+                        let args = if let Some(explicit_args) = json.get("args") {
+                            explicit_args.clone()
+                        } else {
+                            // Extract all fields except "action" as args
+                            let mut extracted_args = json!({}); 
+                            if let Some(obj) = json.as_object() {
+                                if let Some(extracted_obj) = extracted_args.as_object_mut() {
+                                    for (key, value) in obj {
+                                        if key != "action" {
+                                            extracted_obj.insert(key.clone(), value.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            extracted_args
+                        };
                         
                         // Find the action definition to get the verb and validate conditions
                         let mut verb = None;
                         let mut action_valid = true;
+                        let mut merged_args = args.clone();
+                        
                         if let Some(actions) = self.bundle.actions.as_array() {
                             for action in actions {
                                 if action["id"].as_str() == Some(action_id) {
@@ -1682,7 +1932,7 @@ pub fn start_game(self: Arc<Self>) {
                                     if let Some(when_conditions) = action.get("when").and_then(|w| w.as_array()) {
                                         let state = self.state.lock();
                                         for condition in when_conditions {
-                                            match evaluate_condition(condition, &state, args.as_ref().unwrap_or(&json!({})), &current_actor) {
+                                            match evaluate_condition(condition, &state, &args, &current_actor) {
                                                 Ok(true) => {
                                                     // Condition passed, continue
                                                 },
@@ -1712,6 +1962,35 @@ pub fn start_game(self: Arc<Self>) {
                                             "presets.phase.set" => "setPhase",
                                             other => other
                                         });
+                                        
+                                        // Merge 'with' parameters from action definition with client args
+                                        if let Some(with_params) = action.get("with").and_then(|w| w.as_object()) {
+                                            // Process template replacements in 'with' parameters
+                                            for (key, value) in with_params {
+                                                let processed_value = if let Some(str_val) = value.as_str() {
+                                                    // Replace {args.X} with actual arg values
+                                                    if str_val.starts_with("{args.") && str_val.ends_with("}") {
+                                                        let arg_name = &str_val[6..str_val.len()-1];
+                                                        println!("[DEBUG] Processing template: {} looking for arg: {}", str_val, arg_name);
+                                                        if let Some(arg_val) = args.get(arg_name) {
+                                                            println!("[DEBUG] Found arg value: {:?}", arg_val);
+                                                            arg_val.clone()
+                                                        } else {
+                                                            println!("[DEBUG] Arg {} not found in args: {:?}", arg_name, args);
+                                                            value.clone()
+                                                        }
+                                                    } else {
+                                                        value.clone()
+                                                    }
+                                                } else {
+                                                    value.clone()
+                                                };
+                                                
+                                                if let Some(merged_obj) = merged_args.as_object_mut() {
+                                                    merged_obj.insert(key.clone(), processed_value);
+                                                }
+                                            }
+                                        }
                                     }
                                     break;
                                 }
@@ -1729,9 +2008,10 @@ pub fn start_game(self: Arc<Self>) {
                         }
                         
                         // Create the action in the format expected by apply_action
+                        println!("[DEBUG] Creating engine action with verb: {:?}, merged_args: {:?}", verb, merged_args);
                         let engine_action = json!({
                             "verb": verb,
-                            "args": args
+                            "args": merged_args
                         });
                         
                         let diff =
@@ -1842,6 +2122,7 @@ pub fn start_game(self: Arc<Self>) {
                                                         
                                                         // Add the patches from the then action
                                                         if let Ok(then_arr) = then_diff {
+                                                            let had_patches = !then_arr.is_empty();
                                                             for op in then_arr {
                                                                 if let Some(path) = op.get("path").and_then(|p| p.as_str()) {
                                                                     let mut op_obj = op.clone();
@@ -1861,6 +2142,121 @@ pub fn start_game(self: Arc<Self>) {
                                                                     }
                                                                 } else {
                                                                     patch_ops.push(op.clone());
+                                                                }
+                                                            }
+                                                            
+                                                            // Generate log entry for automatic "then" actions
+                                                            if had_patches {
+                                                                if let Some(log_template) = then_action_def["ui"]["logTemplate"].as_str() {
+                                                                    let mut log_text = log_template.to_string();
+                                                                    
+                                                                    // Replace {player} with actual player name
+                                                                    // First try to get the name from the game state
+                                                                    let player_name = {
+                                                                        let state = self.state.lock();
+                                                                        if let Some(players) = state.get("players").and_then(|p| p.as_array()) {
+                                                                            players.iter()
+                                                                                .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(&current_actor))
+                                                                                .and_then(|p| p.get("name"))
+                                                                                .and_then(|n| n.as_str())
+                                                                                .map(|n| n.to_string())
+                                                                        } else {
+                                                                            None
+                                                                        }
+                                                                    }.unwrap_or_else(|| {
+                                                                        // Fallback to old method
+                                                                        if current_actor == "p1" && self.player_list().len() > 0 {
+                                                                            self.player_list()[0].clone()
+                                                                        } else if current_actor == "p2" && self.player_list().len() > 1 {
+                                                                            self.player_list()[1].clone()
+                                                                        } else {
+                                                                            current_actor.clone()
+                                                                        }
+                                                                    });
+                                                                    log_text = log_text.replace("{player}", &player_name);
+                                                                    
+                                                                    // Replace {nextPlayer} for nextTurn actions
+                                                                    if verb == "nextTurn" {
+                                                                        let next_player_id = if current_actor == "p1" { "p2" } else { "p1" };
+                                                                        let next_player_name = {
+                                                                            let state = self.state.lock();
+                                                                            if let Some(players) = state.get("players").and_then(|p| p.as_array()) {
+                                                                                players.iter()
+                                                                                    .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(next_player_id))
+                                                                                    .and_then(|p| p.get("name"))
+                                                                                    .and_then(|n| n.as_str())
+                                                                                    .map(|n| n.to_string())
+                                                                            } else {
+                                                                                None
+                                                                            }
+                                                                        }.unwrap_or_else(|| {
+                                                                            // Fallback to old method
+                                                                            if next_player_id == "p1" && self.player_list().len() > 0 {
+                                                                                self.player_list()[0].clone()
+                                                                            } else if next_player_id == "p2" && self.player_list().len() > 1 {
+                                                                                self.player_list()[1].clone()
+                                                                            } else {
+                                                                                next_player_id.to_string()
+                                                                            }
+                                                                        });
+                                                                        log_text = log_text.replace("{nextPlayer}", &next_player_name);
+                                                                    }
+                                                                    
+                                                                    // Replace {args.targetPlayer} with actual player name
+                                                                    if log_text.contains("{args.targetPlayer}") {
+                                                                        if let Some(target_player_id) = args["targetPlayer"].as_str() {
+                                                                            let target_name = {
+                                                                                let state = self.state.lock();
+                                                                                if let Some(players) = state.get("players").and_then(|p| p.as_array()) {
+                                                                                    players.iter()
+                                                                                        .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(target_player_id))
+                                                                                        .and_then(|p| p.get("name"))
+                                                                                        .and_then(|n| n.as_str())
+                                                                                        .map(|n| n.to_string())
+                                                                                } else {
+                                                                                    None
+                                                                                }
+                                                                            }.unwrap_or_else(|| {
+                                                                                // Fallback to old method
+                                                                                if target_player_id == "p1" && self.player_list().len() > 0 {
+                                                                                    self.player_list()[0].clone()
+                                                                                } else if target_player_id == "p2" && self.player_list().len() > 1 {
+                                                                                    self.player_list()[1].clone()
+                                                                                } else {
+                                                                                    target_player_id.to_string()
+                                                                                }
+                                                                            });
+                                                                            log_text = log_text.replace("{args.targetPlayer}", &target_name);
+                                                                        }
+                                                                    }
+                                                                    
+                                                                    // Replace any p1/p2 mentions in template
+                                                                    if self.player_list().len() > 0 {
+                                                                        log_text = log_text.replace(" p1 ", &format!(" {} ", self.player_list()[0]));
+                                                                        log_text = log_text.replace(" p1.", &format!(" {}.", self.player_list()[0]));
+                                                                        log_text = log_text.replace(" p1!", &format!(" {}!", self.player_list()[0]));
+                                                                    }
+                                                                    if self.player_list().len() > 1 {
+                                                                        log_text = log_text.replace(" p2 ", &format!(" {} ", self.player_list()[1]));
+                                                                        log_text = log_text.replace(" p2.", &format!(" {}.", self.player_list()[1]));
+                                                                        log_text = log_text.replace(" p2!", &format!(" {}!", self.player_list()[1]));
+                                                                    }
+                                                                    
+                                                                    // Create timestamp
+                                                                    let timestamp = chrono::Local::now().format("%H:%M").to_string();
+                                                                    
+                                                                    // Add log entry
+                                                                    patch_ops.push(json!({
+                                                                        "op": "add",
+                                                                        "path": "/ui/gameLog/-",
+                                                                        "value": {
+                                                                            "message": log_text,
+                                                                            "timestamp": timestamp,
+                                                                            "auto": true
+                                                                        }
+                                                                    }));
+                                                                    
+                                                                    println!("[Socket] Generated log for automatic action {}: {}", then_action_id, log_text);
                                                                 }
                                                             }
                                                         }
@@ -1910,11 +2306,77 @@ pub fn start_game(self: Arc<Self>) {
                                 }
                             }
                         } else {
-                            // Game still active, process phases first
-                            let phase_patches = engine::process_phases(&self.bundle, &mut self.state.lock());
-                            if let Ok(phase_arr) = phase_patches {
-                                patch_ops.extend(phase_arr);
+                            // Game still active, process phases in a loop until no more phase changes occur
+                            let mut max_phase_iterations = 10;
+                            let mut phase_iteration = 0;
+                            
+                            loop {
+                                phase_iteration += 1;
+                                println!("[DEBUG] Phase processing iteration {}", phase_iteration);
+                                
+                                // Get current state snapshot
+                                let mut state_snapshot = { let g = self.state.lock(); g.clone() };
+                                let phases_before = state_snapshot.get("phases").cloned();
+                                
+                                // Process phases
+                                let phase_patches = engine::process_phases(&self.bundle, &mut state_snapshot);
+                                
+                                if let Ok(phase_arr) = phase_patches {
+                                    if phase_arr.is_empty() {
+                                        println!("[DEBUG] No phase patches in this iteration");
+                                    } else {
+                                        println!("[DEBUG] Got {} patches from phase processing", phase_arr.len());
+                                        
+                                        // Add patches to our collection
+                                        for patch in &phase_arr {
+                                            if let Some(path) = patch.get("path").and_then(|p| p.as_str()) {
+                                                let mut patch_obj = patch.clone();
+                                                // Don't add /game prefix to /ui patches, they should stay at top level
+                                                if path.starts_with("/ui/") {
+                                                    // Keep /ui patches at top level
+                                                    patch_ops.push(patch_obj);
+                                                } else {
+                                                    // Add /game prefix to all other patches modifying game state
+                                                    let prefixed_path = if path.starts_with("/game") {
+                                                        path.to_string()
+                                                    } else {
+                                                        format!("/game{}", path)
+                                                    };
+                                                    patch_obj["path"] = json!(prefixed_path);
+                                                    patch_ops.push(patch_obj);
+                                                }
+                                            } else {
+                                                patch_ops.push(patch.clone());
+                                            }
+                                        }
+                                        
+                                        // Update the lobby state with the mutated snapshot
+                                        *self.state.lock() = state_snapshot;
+                                    }
+                                    
+                                    // Check if phases changed
+                                    let phases_after = { 
+                                        let g = self.state.lock(); 
+                                        g.get("phases").cloned() 
+                                    };
+                                    
+                                    if phases_before == phases_after || phase_arr.is_empty() {
+                                        println!("[DEBUG] No phase changes detected, stopping phase processing");
+                                        break;
+                                    }
+                                } else {
+                                    println!("[DEBUG] Phase processing failed, stopping");
+                                    break;
+                                }
+                                
+                                // Safety check to prevent infinite loops
+                                if phase_iteration >= max_phase_iterations {
+                                    println!("[WARN] Maximum phase iterations reached, stopping phase processing");
+                                    break;
+                                }
                             }
+                            
+                            println!("[DEBUG] Phase processing completed after {} iterations", phase_iteration);
                             
                             // Then compute action map normally
                             let current_state = { let g = self.state.lock(); g.clone() };
@@ -1956,27 +2418,134 @@ pub fn start_game(self: Arc<Self>) {
                                     // Build the log entry
                                     let mut log_text = log_template.to_string();
                                     
-                                    // Replace {player} with the player name
-                                    log_text = log_text.replace("{player}", &player_id);
+                                    // Replace {player} with the actual player name
+                                    // First try to get the name from the game state
+                                    let player_name = {
+                                        let state = self.state.lock();
+                                        if let Some(players) = state.get("players").and_then(|p| p.as_array()) {
+                                            players.iter()
+                                                .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(&player_id))
+                                                .and_then(|p| p.get("name"))
+                                                .and_then(|n| n.as_str())
+                                                .map(|n| n.to_string())
+                                        } else {
+                                            None
+                                        }
+                                    }.unwrap_or_else(|| {
+                                        // Fallback to old method
+                                        if player_id == "p1" && self.player_list().len() > 0 {
+                                            self.player_list()[0].clone()
+                                        } else if player_id == "p2" && self.player_list().len() > 1 {
+                                            self.player_list()[1].clone()
+                                        } else {
+                                            player_id.clone()
+                                        }
+                                    });
+                                    log_text = log_text.replace("{player}", &player_name);
                                     
                                     // Replace args like {row} and {col}
-                                    if let Some(args_obj) = args {
-                                        if let Some(row) = args_obj["row"].as_i64() {
-                                            log_text = log_text.replace("{row}", &(row + 1).to_string()); // 1-indexed for display
+                                    if let Some(row) = args["row"].as_i64() {
+                                        log_text = log_text.replace("{row}", &(row + 1).to_string()); // 1-indexed for display
+                                    }
+                                    if let Some(col) = args["col"].as_i64() {
+                                        log_text = log_text.replace("{col}", &(col + 1).to_string()); // 1-indexed for display
+                                    }
+                                    if let Some(column) = args["column"].as_i64() {
+                                        log_text = log_text.replace("{column}", &(column + 1).to_string()); // 1-indexed for display
+                                    }
+                                    if let Some(target_column) = args["targetColumn"].as_i64() {
+                                        log_text = log_text.replace("{targetColumn}", &(target_column + 1).to_string()); // 1-indexed for display
+                                    }
+                                    
+                                    // Replace generic args like {args.rank}, {args.targetPlayer}
+                                    // Use regex to find all {args.something} patterns
+                                    let args_pattern = regex::Regex::new(r"\{args\.(\w+)\}").unwrap();
+                                    let mut new_log_text = log_text.clone();
+                                    for cap in args_pattern.captures_iter(&log_text) {
+                                        if let Some(field_name) = cap.get(1) {
+                                            let field = field_name.as_str();
+                                            if let Some(value) = args[field].as_str() {
+                                                let pattern = format!("{{args.{}}}", field);
+                                                // Special handling for targetPlayer to use actual name
+                                                if field == "targetPlayer" {
+                                                    let target_name = {
+                                                        let state = self.state.lock();
+                                                        if let Some(players) = state.get("players").and_then(|p| p.as_array()) {
+                                                            players.iter()
+                                                                .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(value))
+                                                                .and_then(|p| p.get("name"))
+                                                                .and_then(|n| n.as_str())
+                                                                .map(|n| n.to_string())
+                                                        } else {
+                                                            None
+                                                        }
+                                                    }.unwrap_or_else(|| {
+                                                        // Fallback to old method
+                                                        if value == "p1" && self.player_list().len() > 0 {
+                                                            self.player_list()[0].clone()
+                                                        } else if value == "p2" && self.player_list().len() > 1 {
+                                                            self.player_list()[1].clone()
+                                                        } else {
+                                                            value.to_string()
+                                                        }
+                                                    });
+                                                    new_log_text = new_log_text.replace(&pattern, &target_name);
+                                                } else {
+                                                    new_log_text = new_log_text.replace(&pattern, value);
+                                                }
+                                            }
                                         }
-                                        if let Some(col) = args_obj["col"].as_i64() {
-                                            log_text = log_text.replace("{col}", &(col + 1).to_string()); // 1-indexed for display
+                                    }
+                                    log_text = new_log_text;
+                                    
+                                    // Replace selection values like {selection.selectedRank}
+                                    if let Some(selection) = self.state.lock().get("selection").and_then(|s| s.as_object()) {
+                                        let selection_pattern = regex::Regex::new(r"\{selection\.(\w+)\}").unwrap();
+                                        let mut new_log_text = log_text.clone();
+                                        for cap in selection_pattern.captures_iter(&log_text) {
+                                            if let Some(field_name) = cap.get(1) {
+                                                let field = field_name.as_str();
+                                                if let Some(value) = selection[field].as_str() {
+                                                    let pattern = format!("{{selection.{}}}", field);
+                                                    // Special handling for targetPlayer to use actual name
+                                                    if field == "targetPlayer" {
+                                                        let target_name = {
+                                                            let state = self.state.lock();
+                                                            if let Some(players) = state.get("players").and_then(|p| p.as_array()) {
+                                                                players.iter()
+                                                                    .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(value))
+                                                                    .and_then(|p| p.get("name"))
+                                                                    .and_then(|n| n.as_str())
+                                                                    .map(|n| n.to_string())
+                                                            } else {
+                                                                None
+                                                            }
+                                                        }.unwrap_or_else(|| {
+                                                            // Fallback to old method
+                                                            if value == "p1" && self.player_list().len() > 0 {
+                                                                self.player_list()[0].clone()
+                                                            } else if value == "p2" && self.player_list().len() > 1 {
+                                                                self.player_list()[1].clone()
+                                                            } else {
+                                                                value.to_string()
+                                                            }
+                                                        });
+                                                        new_log_text = new_log_text.replace(&pattern, &target_name);
+                                                    } else {
+                                                        new_log_text = new_log_text.replace(&pattern, value);
+                                                    }
+                                                }
+                                            }
                                         }
-                                        if let Some(column) = args_obj["column"].as_i64() {
-                                            log_text = log_text.replace("{column}", &(column + 1).to_string()); // 1-indexed for display
-                                        }
-                                        
-                                        // Extract row and col from location path (for tic-tac-toe style actions)
-                                        if let Some(location) = args_obj["location"].as_str() {
-                                            // Parse paths like "/zones/board/cells/1/2" to extract row=1, col=2
-                                            if let Some(captures) = regex::Regex::new(r"/zones/[^/]+/cells/(\d+)/(\d+)")
-                                                .unwrap()
-                                                .captures(location) {
+                                        log_text = new_log_text;
+                                    }
+                                    
+                                    // Extract row and col from location path (for tic-tac-toe style actions)
+                                    if let Some(location) = args["location"].as_str() {
+                                        // Parse paths like "/zones/board/cells/1/2" to extract row=1, col=2
+                                        if let Some(captures) = regex::Regex::new(r"/zones/[^/]+/cells/(\d+)/(\d+)")
+                                            .unwrap()
+                                            .captures(location) {
                                                 if let (Some(row_match), Some(col_match)) = (captures.get(1), captures.get(2)) {
                                                     if let (Ok(row), Ok(col)) = (row_match.as_str().parse::<i64>(), col_match.as_str().parse::<i64>()) {
                                                         log_text = log_text.replace("{row}", &(row + 1).to_string()); // 1-indexed for display
@@ -1985,7 +2554,21 @@ pub fn start_game(self: Arc<Self>) {
                                                 }
                                             }
                                         }
-                                    }
+                                    
+                                    // Extract row and col from target argument (for three-mens-morris style "row-col" format)
+                                    if let Some(target) = args["target"].as_str() {
+                                        // Parse "0-0" format to extract row=0, col=0
+                                        if let Some(captures) = regex::Regex::new(r"^(\d+)-(\d+)$")
+                                            .unwrap()
+                                            .captures(target) {
+                                                if let (Some(row_match), Some(col_match)) = (captures.get(1), captures.get(2)) {
+                                                    if let (Ok(row), Ok(col)) = (row_match.as_str().parse::<i64>(), col_match.as_str().parse::<i64>()) {
+                                                        log_text = log_text.replace("{row}", &(row + 1).to_string()); // 1-indexed for display
+                                                        log_text = log_text.replace("{col}", &(col + 1).to_string()); // 1-indexed for display
+                                                    }
+                                                }
+                                            }
+                                        }
                                     
                                     // Create timestamp
                                     let now = chrono::Local::now();
@@ -2011,13 +2594,27 @@ pub fn start_game(self: Arc<Self>) {
                             if let Some(end_info) = game_end_info {
                                 let log_message = if let Some(winner) = end_info.get("winner").and_then(|w| w.as_str()) {
                                     // Map actor ID to player name
-                                    let winner_name = if winner == "p1" && self.player_list().len() > 0 {
-                                        self.player_list()[0].clone()
-                                    } else if winner == "p2" && self.player_list().len() > 1 {
-                                        self.player_list()[1].clone()
-                                    } else {
-                                        winner.to_string()
-                                    };
+                                    let winner_name = {
+                                        let state = self.state.lock();
+                                        if let Some(players) = state.get("players").and_then(|p| p.as_array()) {
+                                            players.iter()
+                                                .find(|p| p.get("id").and_then(|id| id.as_str()) == Some(winner))
+                                                .and_then(|p| p.get("name"))
+                                                .and_then(|n| n.as_str())
+                                                .map(|n| n.to_string())
+                                        } else {
+                                            None
+                                        }
+                                    }.unwrap_or_else(|| {
+                                        // Fallback to old method
+                                        if winner == "p1" && self.player_list().len() > 0 {
+                                            self.player_list()[0].clone()
+                                        } else if winner == "p2" && self.player_list().len() > 1 {
+                                            self.player_list()[1].clone()
+                                        } else {
+                                            winner.to_string()
+                                        }
+                                    });
                                     format!("{} wins!", winner_name)
                                 } else {
                                     "Game ended in a tie!".to_string()

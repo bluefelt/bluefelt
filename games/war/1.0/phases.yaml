@@ -1,0 +1,35 @@
+phaseSet: game
+initial: setup
+phases:
+  - id: setup
+    enterActions:
+      - action: dealCards
+      - transitionToPhase: game.ready
+      
+  - id: ready
+    possibleActions:
+      - battleStart
+    ui:
+      display: "Click to battle!"
+      
+  - id: battle
+    enterActions:
+      - action: revealCards
+      - action: checkForWar
+      
+  - id: war
+    enterActions:
+      - action: placeWarCards
+    possibleActions:
+      - warReveal
+    ui:
+      display: "WAR! Place cards and reveal"
+      
+  - id: resolve
+    enterActions:
+      - action: awardCards
+      - action: checkGameEnd
+      
+  - id: gameOver
+    ui:
+      display: "Game Over - {winner} wins!"

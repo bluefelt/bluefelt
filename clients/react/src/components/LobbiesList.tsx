@@ -31,30 +31,36 @@ export default function LobbiesList({ onLobbySelected }: Props) {
   const { player } = usePlayer();
   const { lobbies, lobbiesWS } = useWebSocketContext();
   const [games, setGames] = useState<Record<string, Game>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Fetch initial lobbies list
-    getLobbies().then(() => {
-      // The WebSocket will handle updates
-    }).catch(error => {
-      console.error('Failed to fetch lobbies:', error);
-      // If server is not running, redirect to home
-      navigate('/');
-    });
-
-    // Fetch games
-    getGames().then(gamesList => {
+  const loadData = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Fetch initial lobbies list
+      await getLobbies();
+      
+      // Fetch games
+      const gamesList = await getGames();
       const gamesMap: Record<string, Game> = {};
       gamesList.forEach(game => {
         gamesMap[game.id] = game;
       });
       setGames(gamesMap);
-    }).catch(error => {
-      console.error('Failed to fetch games:', error);
-      // If server is not running, redirect to home
-      navigate('/');
-    });
-  }, [navigate]);
+      
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      setError('Unable to connect to server. Please check if the server is running.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   // Enhanced lobbies with game names
   const lobbiesWithDetails: LobbyWithDetails[] = lobbies.map(lobby => {
@@ -86,9 +92,12 @@ export default function LobbiesList({ onLobbySelected }: Props) {
       if (lobby.gameStatus?.tie) {
         statusText = 'Tie Game';
       } else if (lobby.gameStatus?.winner) {
-        // Map winner ID (p1/p2) to player name
-        const winnerIndex = lobby.gameStatus.winner === 'p1' ? 0 : 1;
-        const winnerName = lobby.players[winnerIndex] || lobby.gameStatus.winner;
+        // Map winner ID (p1/p2/p3/p4) to player name
+        const winnerMatch = lobby.gameStatus.winner.match(/^p(\d+)$/);
+        const winnerIndex = winnerMatch ? parseInt(winnerMatch[1]) - 1 : -1;
+        const winnerName = winnerIndex >= 0 && winnerIndex < lobby.players.length 
+          ? lobby.players[winnerIndex] 
+          : lobby.gameStatus.winner;
         statusText = `Winner: ${winnerName}`;
       } else {
         statusText = 'Finished';
@@ -142,6 +151,63 @@ export default function LobbiesList({ onLobbySelected }: Props) {
       </div>
     );
   };
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <>
+        <div>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold">Available Lobbies</h2>
+            <button
+              onClick={() => navigate('/create-lobby')}
+              className="btn btn-primary"
+              disabled
+            >
+              Create Lobby
+            </button>
+          </div>
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading lobbies...</p>
+          </div>
+        </div>
+        <WebSocketStatus connected={lobbiesWS.connected} state={lobbiesWS.state} />
+      </>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <>
+        <div>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold">Available Lobbies</h2>
+            <button
+              onClick={() => navigate('/create-lobby')}
+              className="btn btn-primary"
+              disabled
+            >
+              Create Lobby
+            </button>
+          </div>
+          <div className="text-center py-8">
+            <div className="bg-red-900 bg-opacity-50 border border-red-600 text-red-200 p-6 rounded-lg">
+              <p className="mb-4">{error}</p>
+              <button
+                onClick={loadData}
+                className="btn btn-secondary"
+              >
+                Retry Connection
+              </button>
+            </div>
+          </div>
+        </div>
+        <WebSocketStatus connected={lobbiesWS.connected} state={lobbiesWS.state} />
+      </>
+    );
+  }
 
   return (
     <>

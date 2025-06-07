@@ -1,0 +1,78 @@
+[
+  {
+    "id": "game",
+    "name": "Go Fish Game",
+    "phases": [
+      {
+        "enterActions": [
+          "dealCards"
+        ],
+        "id": "dealing",
+        "initial": true,
+        "name": "Dealing cards to players"
+      },
+      {
+        "enterActions": [
+          "startTurn"
+        ],
+        "id": "selectingRank",
+        "name": "Choose a rank to ask for",
+        "possibleActions": [
+          "selectRank"
+        ],
+        "ui": {
+          "prompt": "Choose a rank to ask for"
+        }
+      },
+      {
+        "id": "selectingPlayer",
+        "name": "Choose a player to ask",
+        "possibleActions": [
+          "selectPlayer"
+        ],
+        "ui": {
+          "prompt": "Choose which player to ask for cards"
+        }
+      },
+      {
+        "enterActions": [
+          "checkPlayerCards"
+        ],
+        "id": "responding",
+        "name": "Responding to request",
+        "possibleActions": [
+          "checkPlayerCards",
+          "goFish"
+        ]
+      },
+      {
+        "enterActions": [
+          "goFish"
+        ],
+        "id": "fishing",
+        "name": "Drawing from pool",
+        "possibleActions": [
+          "goFish"
+        ]
+      },
+      {
+        "enterActions": [
+          "checkForBooks"
+        ],
+        "id": "checkingPairs",
+        "name": "Checking for pairs",
+        "possibleActions": [
+          "checkForBooks",
+          "checkGameEnd"
+        ]
+      },
+      {
+        "id": "gameOver",
+        "name": "Game Over",
+        "possibleActions": [
+          "calculateWinner"
+        ]
+      }
+    ]
+  }
+]

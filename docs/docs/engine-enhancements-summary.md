@@ -33,39 +33,7 @@ when:
       value: 3
 ```
 
-## Proposed Enhancements
-
-### 2. Selection and Cancel Pattern
-
-**Status**: 📝 Proposed (see `selection-pattern-design.md`)
-
-Many board games require:
-1. Select a piece (non-committal)
-2. Choose an action (committal)
-3. Option to cancel selection
-
-**Required Engine Changes**:
-- Built-in selection state management
-- New verbs: `selectEntity`, `moveSelected`, `clearSelection`
-- Cancel actions that don't advance turns
-- UI support for non-spatial actions (cancel buttons)
-
-**Example Future Usage**:
-```yaml
-- id: selectPiece
-  uses: selectEntity
-  when:
-    - condition: entity.owner
-      with:
-        entity: "{entityAtLocation}"
-        owner: "{player}"
-
-- id: cancelSelection
-  uses: clearSelection
-  ui:
-    uiElement: "button"
-    direction: "Cancel"
-```
+For future enhancements and planned features, see the [Future Development Roadmap](./future-development-roadmap.md).
 
 ## Implementation Guidelines
 
@@ -91,21 +59,9 @@ The implementation of Three Men's Morris highlighted:
 - Phase-based gameplay flow
 
 **What Needs Enhancement**:
-- Selection pattern for movement phase
+- Selection pattern for movement phase (see [Future Development Roadmap](./future-development-roadmap.md))
 - Cancel mechanism for non-committal actions
 - More sophisticated piece counting for phase transitions
-
-## Future Roadmap
-
-### Near Term
-1. Implement selection pattern support
-2. Add more condition types (adjacency, path checking)
-3. Enhance UI protocol for richer interactions
-
-### Long Term
-1. Multi-step action support
-2. Animation and timing control
-3. Advanced game state queries
 
 ## Conclusion
 

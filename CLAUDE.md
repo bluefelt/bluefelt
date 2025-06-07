@@ -12,20 +12,42 @@ Bluefelt is a platform for creating and playing turn-based multiplayer games. It
 - **Rust SDK** (`sdk/rust/`) - For writing WebAssembly game hooks
 - **Documentation** (`docs/`) - Docusaurus documentation site
 
+## Claude's Responsibilities
+
+**IMPORTANT**: Claude is responsible for running both the server and client during development sessions:
+
+### Server Management
+```bash
+cd server
+cargo run            # Start server (port 8000)
+```
+
+### Client Management  
+```bash
+cd clients/react
+pnpm dev             # Start dev server (port 5173)
+```
+
+### Key Responsibilities:
+- **Always restart the server** after changes to game YAML files or server code
+- **Build games with CLI** when YAML files change: `cd cli && cargo run -- build-all`
+- **Read debug logs** directly instead of asking user to copy/paste them
+- **Start both services** before asking user to test in browser
+- **Reset services** when changes require it to be reflected in the browser
+
+The reason Claude manages the servers is to read debug logs directly and ensure the latest changes are reflected when asking users to test functionality.
+
 ## Common Commands
 
 ### Server Development
 ```bash
 cd server
 cargo build          # Build server
-cargo test           # Run tests (comprehensive test suite with 41 tests)
+cargo test           # Run comprehensive test suite
 cargo run            # Start server (port 8000)
 ```
 
-The server includes comprehensive test coverage:
-- **Unit tests** (18) - engine verbs, shorthand expansion, path navigation, grid.lineOfMarks functionality
-- **Integration tests** (8) - full game simulation, bundle loading
-- **WebSocket tests** (8) - connection handling, protocol testing
+The server includes comprehensive test coverage. See `docs/docs/testing.md` for complete testing documentation.
 
 ### Client Development
 ```bash
@@ -70,7 +92,12 @@ yarn typecheck       # TypeScript check
 
 If any changes are made to the code which will affect documentation, please make changes to the documentation when the changes are finalized. If the user ever says that something should be a standard, then make sure that is documented.
 
-**State Structure**: For the canonical documentation on how game state is structured and synchronized between client and server, see `docs/docs/state-structure.md`. This is crucial for avoiding confusion about where to find game data (e.g., `currentPlayer` is at `lobbyState.game.currentPlayer`, action maps are at `lobbyState.ui.actionMap`).
+**State Structure (CRITICAL)**: For the canonical documentation on how game state is structured and synchronized between client and server, see `docs/docs/state-structure.md`. This is **absolutely crucial** for implementing games correctly:
+- The server maintains a specific state structure that must be honored
+- All new state properties MUST be initialized in `/server/src/engine/state.rs`
+- Client and server communicate via JSON patches with specific path conventions
+- Understanding this structure prevents patch failures and state synchronization issues
+- Example: `currentPlayer` is at `lobbyState.game.currentPlayer`, action maps are at `lobbyState.ui.actionMap`
 
 ### Monorepo Commands (from root)
 ```bash
@@ -80,148 +107,120 @@ yarn nx run-many -t lint test build    # Run all targets
 
 ## Architecture Overview
 
-### Game Engine
-Games are developed using YAML files in `games/<game-name>/<version>/`:
-- `manifest.yaml` - Game metadata - **IMPORTANT: Required fields are gameId, version, specVersion, and metadata (with name, description, author, players)**
-- `entities.yaml` - Game rules including:
-  - Entities (pieces, cards, tokens)
-  - Zones (areas where entities exist)
-  - Actions (player actions)
-  - Phases (game flow)
-  - Setup (initial state)
-  - Hooks (WebAssembly functions)
+Bluefelt is a platform for turn-based multiplayer games using declarative YAML-based game definitions.
 
-**Deployment**: Games are built from YAML to optimized JSON bundles using `bluefelt-cli build-all`. The server loads from `bundles/` directory, not directly from `games/`.
+**Key Concepts**:
+- **Server**: Authoritative game engine (Rust) that loads JSON bundles and enforces rules
+- **Client**: React frontend that renders zones dynamically based on server data
+- **Games**: YAML definitions in `games/` compiled to JSON bundles in `bundles/`
+- **Real-time sync**: WebSocket with JSON Patch for state synchronization
 
-### Available Games
-The platform currently includes these games:
-- **Tic-tac-toe** - Classic 3x3 grid game with win/tie detection
-- **Checkers** - Traditional board game with piece movement
-- **Reversi** - Disc-flipping strategy game
-- **Gomoku** - Five-in-a-row stone placement game
-- **Stone Age** - Worker placement Euro game
-- **Gin Rummy** - Card melding and knocking game
-- **Crazy Eights** - Card shedding game
-- **Connect-4** - Vertical four-in-a-row game
-- **Go Fish** - Card collecting game
+**Game Development Process**:
+1. Write YAML files in `games/<game-name>/<version>/`
+2. Build bundles: `cd cli && cargo run -- build-all`
+3. Server automatically loads from `bundles/` directory
 
-### State Synchronization
-- Server maintains authoritative game state
-- Client-server communication via WebSocket (port 8000)
-- State updates sent as JSON Patches
-- Client applies patches to maintain synchronized state
-- Real-time multiplayer with deterministic replay capability
+📖 **For complete documentation see**:
+- [Game Implementation Guide](docs/docs/game-implementation-guide.md) - How to create games
+- [State Structure](docs/docs/state-structure.md) - **CRITICAL** for understanding client-server sync
+- [Server Documentation](docs/docs/bluefelt-server.md) - Server API and architecture
+- [Client Development](docs/docs/building-clients.md) - React client development
 
-### Key Technologies
-- **Server**: Rust, Axum, Tokio, Wasmtime (binary: `bluefelt-core`)
-- **Client**: React, TypeScript, Vite, TanStack Query, Zustand, Tailwind CSS
-- **Real-time**: WebSocket with JSON Patch
-- **Game Logic**: WebAssembly modules for complex rules
-- **Testing**: Comprehensive test suite with unit, integration, and WebSocket tests
+### CRITICAL ARCHITECTURAL PRINCIPLES
 
-### Interactive Zones
-- Server provides an action map that directly maps locations to available actions
-- Action map structure: `{"/zones/board/0/0": {"action": "place", "direction": "Choose a cell"}, ...}`
-- Location paths follow a consistent format:
-  - Grid zones: `/zones/{zoneId}/{row}/{col}`
-  - List/deck zones: `/zones/{zoneId}/{index}`
-  - Whole zones: `/zones/{zoneId}`
-- Client renders zones as interactive components where players can click to execute actions
-- UI directions are defined in the game's `actions.yaml` under `ui.direction`
-- Supports multiple zones and actions per game without hardcoding assumptions
+**NEVER ADD GAME-SPECIFIC UI CODE TO THE CLIENT**
 
-### Custom Hooks and Game End Detection
-- Actions can trigger other actions using the `triggers` field in `actions.yaml`
-- Custom hooks can be defined with `hook: hookName` and `auto: true` for automatic actions
-- Game end detection for tic-tac-toe checks for wins (3 in a row) and ties (board full)
-- Game status stored in `/meta/gameStatus` with fields: `state`, `winner`, `tie`
-- When game ends, turn advancement is prevented and UI shows game result
-- WebAssembly hooks can be compiled and placed as `hooks.wasm` in game directory
+The Bluefelt engine is designed to be a generalizable platform for ANY turn-based game. This means:
 
-### Built-in Verbs and Shorthand
-The engine supports built-in verbs for common game operations:
-- `draw` - Move entities from deck to hand/zone
-- `place` - Place entities on grid locations
-- `moveEntity` - Move entities between zones or locations
-- `nextTurn` - Advance turn and update game state
-- `setPhase` - Change game phase
-- `grid.lineOfMarks` - Check for winning lines on grid zones (configurable)
-- `placeWithGravity` - Place entities with gravity (Connect-4 style)
+1. **NO hardcoded game-specific UI** - The client should NEVER have code like "if gameId === 'go-fish'" or hardcoded rank selection UI
+2. **Data-driven rendering** - ALL game UI must be rendered based on data from the server (zones, action maps, entity definitions)
+3. **Generic components only** - Client components should be generic (Board, CardZone, ChoiceZone) that work for ANY game
+4. **Server defines everything** - The server sends all necessary data for the client to render the game properly
 
-The `grid.lineOfMarks` verb provides flexible line detection for multiple game types:
-- **Parameters**: `zone` (grid path), `entity` (pattern like "mark_{player}"), `lineLength` (default 3), `directions` (array: ["horizontal", "vertical", "diagonal"])
-- **Usage**: Suitable for tic-tac-toe (3-in-a-row), Connect-4 (4-in-a-row), Gomoku (5-in-a-row), etc.
-- **Actions**: Sets `gameStatus` to `{state: "ended", winner: "p1", tie: false}` on win, or `{state: "ended", winner: null, tie: true}` on tie
-- **Entity Pattern**: Use `"mark_{player}"` to match any player's entities (e.g., "mark_p1", "mark_p2")
+If you find yourself wanting to add game-specific UI code, STOP and ask:
+- What data is missing from the server?
+- How can we make the server send the right data?
+- How can we enhance our generic components to handle this case?
 
-Shorthand syntax includes:
-- `{player}` replacement in entity IDs and names
-- `standardDeck` for 52-card deck generation
-- `cards.deal` for distributing cards to players
-- `cards.reveal` for revealing cards
+Adding hardcoded UI is a shortcut that undermines the entire architecture. It's better to enhance the engine's capabilities than to add game-specific hacks.
 
-### Advanced Condition System
-The engine now supports sophisticated conditional logic in action `when` clauses:
-- `zone.isEmpty` - Check if a location is empty
-- `player.isActor` - Validate it's the player's turn
-- `zone.count` - Count entities with filtering and comparison operators
-- `entity.owner` - Check entity ownership
-- `phase.is` - Check current phase
-- `resource.value` - Compare resource values
+### Server API Reference
+**IMPORTANT**: All HTTP API routes are prefixed with `/api`
 
-Example:
-```yaml
-when:
-  - condition: zone.count
-    with:
-      zone: "/zones/board"
-      entity: "piece_{player}"
-      operator: ">="
-      value: 3
+#### Create Lobby
+```bash
+POST /api/lobbies
+Content-Type: application/json
+
+{
+  "game_id": "go-fish"  # Note: Use game_id (with underscore), not gameId
+}
+
+# Response: {"game_id": "go-fish", "id": "0c07fef62b"}
 ```
 
-### Proposed Enhancements
-See documentation for proposals on:
-- **Selection Pattern**: Two-phase selection (select piece → move it) with cancel support
-- **Enhanced UI Protocol**: Support for non-spatial UI elements like cancel buttons
-- **State Management**: Better handling of non-committal actions
+#### List Lobbies
+```bash
+GET /api/lobbies
+```
 
-## Testing Infrastructure
+#### Get Lobby Info
+```bash
+GET /api/lobbies/{lobby_id}
+```
 
-The project has comprehensive test coverage following these patterns:
-- **Pure unit tests** - Individual verb functions and parsing helpers
-- **Engine integration tests** - Complete game simulations with tic-tac-toe
-- **WebSocket harness** - Real connection testing with handshake and protocol validation
-- **Deterministic replay** - State mutations via structured verb application
-- **Error scenario coverage** - Invalid moves, malformed data, edge cases
+#### WebSocket Connection
+```
+ws://localhost:8000/api/lobbies/{lobby_id}/ws?player={player_name}&join=true
+```
 
-Run tests with: `cargo test` (all 41 tests should pass)
+#### Game Flow
+1. Create lobby via POST `/api/lobbies`
+2. Players connect via WebSocket
+3. **IMPORTANT**: Games do NOT auto-start when minimum players join
+4. To start a game, send WebSocket message: `{"action": "start_game"}`
+5. Server processes phases and sends patches to clients
 
-## Client Testing Infrastructure
+#### Common Mistakes to Avoid
+- ❌ Using `/lobbies` instead of `/api/lobbies`
+- ❌ Using `gameId` instead of `game_id` in JSON
+- ❌ Expecting games to auto-start (they require explicit start)
+- ❌ Forgetting that patches are for client sync only (state is already mutated server-side)
 
-The React client includes a focused testing suite to validate critical functionality:
+📖 **For zone implementation details see**: [Developing Games - Zones](docs/docs/developing-games-zones.md)
 
-### Test Categories
-- **Core functionality tests** - Key game logic validation
-- **WebSocket tests** - Message handling scenarios
-- **Component unit tests** - Individual component behavior
+📖 **For game development details see**:
+- [Actions](docs/docs/developing-games-actions.md) - Action definitions, verbs, and triggers
+- [Entities](docs/docs/developing-games-entities.md) - Entity configuration and shorthand
+- [Phases](docs/docs/developing-games-phases.md) - Game flow and phase transitions
+- [Conditions](docs/docs/engine-enhancements-conditions.md) - Advanced condition system
+- [Custom Hooks](docs/docs/developing-games-custom-hooks.md) - WebAssembly extensions
 
-### Key Test Files
-- `src/__tests__/TicTacToeGameFlow.simplified.test.tsx` - Core game logic validation
+### Implementing New Game Features
 
-### Critical Behaviors Validated
-- ✓ Current player detection from `lobbyState.game.currentPlayer` with proper UI/game data separation
-- ✓ JSON Patch application with partial failure handling
-- ✓ Action map path format parsing (`/zones/board/cells/{row}/{col}`)
-- ✓ Turn determination logic for different player scenarios
-- ✓ Action message construction for server communication
-- ✓ Game state updates and transitions
-- ✓ Game end detection (win/tie scenarios)
+📖 **CRITICAL**: Read [State Structure](docs/docs/state-structure.md) first to understand the state contract.
 
-### Test Setup
-Tests use Vitest with jsdom environment. The simplified test suite focuses on validating the core logic that was debugged and fixed without complex UI mocking.
+**Key Rules**:
+1. Initialize new state properties in `/server/src/engine/state.rs`
+2. Use correct patch paths: `/game/...` for game state, `/ui/...` for UI data
+3. Test patches thoroughly with both empty and populated states
 
-The test suite prioritizes testing business logic over UI interactions to maintain stability and focus on preventing regressions in the core game functionality.
+📖 **For future enhancements see**: [Future Development Roadmap](docs/docs/future-development-roadmap.md)
+
+## Testing
+
+📖 **See**: [Testing Guide](docs/docs/testing.md) for complete documentation including three-layer architecture, workflow, and debugging.
+
+**Quick Commands**:
+```bash
+# Server tests
+cd server && cargo test
+cd server && node tests/regression/run-all-tests.js  # (server must be running)
+
+# Client tests  
+cd clients/react && pnpm test
+```
+
 
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.

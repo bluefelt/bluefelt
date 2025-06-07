@@ -1,0 +1,197 @@
+# Initial setup - deal entire deck
+- id: dealCards
+  auto: true
+  uses: draw
+  with:
+    from: /zones/deck
+    to: /zones/deck_p1
+    count: 26
+  then:
+    - action: dealToP2
+    
+- id: dealToP2
+  auto: true
+  uses: draw
+  with:
+    from: /zones/deck
+    to: /zones/deck_p2
+    count: 26
+
+# Start a battle
+- id: battleStart
+  uses: setPhase
+  with:
+    phase: game.battle
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: ready
+  ui:
+    direction: "Click to flip cards!"
+    logTemplate: "Starting new battle"
+
+# Reveal top cards
+- id: revealCards
+  auto: true
+  uses: conditionalAction
+  with:
+    condition:
+      type: zone.count
+      with:
+        zone: /zones/deck_p1
+        operator: ">="
+        value: 1
+    ifTrue:
+      - action: flipP1Card
+      - action: flipP2Card
+    ifFalse:
+      - action: endGame
+
+- id: flipP1Card
+  auto: true
+  uses: draw
+  with:
+    from: /zones/deck_p1
+    to: /zones/battle_p1
+    count: 1
+
+- id: flipP2Card
+  auto: true
+  uses: draw
+  with:
+    from: /zones/deck_p2
+    to: /zones/battle_p2
+    count: 1
+
+# Check if cards match (war condition)
+- id: checkForWar
+  auto: true
+  hook: checkWarCondition
+  then:
+    - action: conditionalPhase
+
+- id: conditionalPhase
+  auto: true
+  uses: conditionalAction
+  with:
+    condition:
+      type: state.value
+      with:
+        path: /game/isWar
+        value: true
+    ifTrue:
+      - action: goToWar
+    ifFalse:
+      - action: goToResolve
+
+- id: goToWar
+  auto: true
+  uses: setPhase
+  with:
+    phase: game.war
+
+- id: goToResolve
+  auto: true
+  uses: setPhase
+  with:
+    phase: game.resolve
+
+# War - place face down cards
+- id: placeWarCards
+  auto: true
+  uses: draw
+  with:
+    from: /zones/deck_p1
+    to: /zones/war_pile_p1
+    count: 3
+  then:
+    - action: placeP2WarCards
+
+- id: placeP2WarCards
+  auto: true
+  uses: draw
+  with:
+    from: /zones/deck_p2
+    to: /zones/war_pile_p2
+    count: 3
+
+# Reveal war cards
+- id: warReveal
+  uses: setPhase
+  with:
+    phase: game.battle
+  ui:
+    direction: "Reveal war cards!"
+
+# Award all cards to winner
+- id: awardCards
+  auto: true
+  hook: determineWinner
+  then:
+    - action: moveAllCards
+
+- id: moveAllCards
+  auto: true
+  uses: conditionalAction
+  with:
+    condition:
+      type: state.value
+      with:
+        path: /game/roundWinner
+        value: p1
+    ifTrue:
+      - action: moveToP1Deck
+    ifFalse:
+      - action: moveToP2Deck
+
+- id: moveToP1Deck
+  auto: true
+  hook: collectAllCards
+  then:
+    - action: readyNext
+
+- id: moveToP2Deck
+  auto: true
+  hook: collectAllCards
+  then:
+    - action: readyNext
+
+- id: readyNext
+  auto: true
+  uses: setPhase
+  with:
+    phase: game.ready
+
+# Check for game end
+- id: checkGameEnd
+  auto: true
+  uses: conditionalAction
+  with:
+    condition:
+      type: anyTrue
+      conditions:
+        - condition: zone.count
+          with:
+            zone: /zones/deck_p1
+            operator: "=="
+            value: 0
+        - condition: zone.count
+          with:
+            zone: /zones/deck_p2
+            operator: "=="
+            value: 0
+    ifTrue:
+      - action: declareWinner
+
+- id: declareWinner
+  auto: true
+  hook: setGameWinner
+  then:
+    - action: endGame
+
+- id: endGame
+  auto: true
+  uses: setPhase
+  with:
+    phase: game.gameOver

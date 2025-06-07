@@ -47,6 +47,9 @@ fn expand_entities(entities: &mut Value, max_players: u32) {
                         }
                         expanded.push(player_entity);
                     }
+                } else if entity_id == "standardDeck" && entity.get("generate").and_then(|g| g.as_bool()) == Some(true) {
+                    // Generate standard 52-card deck for entities with id: "standardDeck" and generate: true
+                    expanded.extend(generate_standard_deck());
                 } else if let Some(entity_type) = entity.get("type").and_then(|t| t.as_str()) {
                     if entity_type == "standardDeck" {
                         // Generate standard 52-card deck
@@ -146,19 +149,21 @@ fn expand_zones(zones: &mut Value) {
             if let Some(Value::String(contents)) = zone.get("contents") {
                 if contents == "standardDeck" {
                     println!("  Expanding standardDeck for zone");
-                    // Replace with list of all card IDs
-                    let mut card_ids = Vec::new();
+                    // Replace with list of card entities (objects with entity field)
+                    let mut card_entities = Vec::new();
                     let suits = ["hearts", "diamonds", "clubs", "spades"];
-                    let ranks = ["a", "2", "3", "4", "5", "6", "7", "8", "9", "10", "j", "q", "k"];
+                    let ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
                     
                     for suit in &suits {
                         for rank in &ranks {
-                            card_ids.push(Value::String(format!("card_{}_{}", suit, rank)));
+                            card_entities.push(json!({
+                                "entity": format!("card_{}_{}", suit, rank.to_lowercase())
+                            }));
                         }
                     }
                     
-                    println!("  Generated {} card IDs", card_ids.len());
-                    zone["contents"] = Value::Array(card_ids);
+                    println!("  Generated {} card entities", card_entities.len());
+                    zone["contents"] = Value::Array(card_entities);
                 }
             }
         }
@@ -357,6 +362,33 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_entities_standard_deck_with_generate_flag() {
+        let mut entities = json!([
+            {
+                "id": "standardDeck",
+                "generate": true
+            }
+        ]);
+
+        expand_entities(&mut entities, 2);
+
+        let expanded = entities.as_array().unwrap();
+        assert_eq!(expanded.len(), 52); // Standard deck has 52 cards
+        
+        // Check first card
+        assert_eq!(expanded[0]["id"], "card_hearts_a");
+        assert_eq!(expanded[0]["props"]["suit"], "hearts");
+        assert_eq!(expanded[0]["props"]["rank"], "A");
+        assert_eq!(expanded[0]["props"]["value"], 1);
+        
+        // Check last card
+        assert_eq!(expanded[51]["id"], "card_spades_k");
+        assert_eq!(expanded[51]["props"]["suit"], "spades");
+        assert_eq!(expanded[51]["props"]["rank"], "K");
+        assert_eq!(expanded[51]["props"]["value"], 13);
+    }
+
+    #[test]
     fn test_expand_zones_standard_deck() {
         let mut zones = json!([
             {
@@ -371,8 +403,8 @@ mod tests {
         let zone = &zones[0];
         let contents = zone["contents"].as_array().unwrap();
         assert_eq!(contents.len(), 52);
-        assert_eq!(contents[0], "card_hearts_a");
-        assert_eq!(contents[51], "card_spades_k");
+        assert_eq!(contents[0]["entity"], "card_hearts_a");
+        assert_eq!(contents[51]["entity"], "card_spades_k");
     }
 
     #[test]

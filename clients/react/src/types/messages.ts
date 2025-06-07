@@ -50,6 +50,17 @@ export type StartedMessage = {
 export type GameState = {
   players?: Array<{ id: string }>;
   zones: Record<string, any>; // Can be arrays or objects with type/cells
+  currentPlayer?: string;
+  turn?: number;
+  tick?: number;
+  gameStatus?: {
+    state: 'playing' | 'ended';
+    winner?: string | null;
+    tie?: boolean;
+  };
+  phases?: any;
+  selection?: any;
+  temp?: any;
 };
 
 export type EntityDefinition = {
@@ -119,3 +130,18 @@ export type ClientAction =
   | { action: 'leave' }
   | { action: 'start_game' }
   | { action: string; args: { row: number; col: number } };
+
+// Additional types for testing
+export type Phase = any;
+export type Zone = any;
+export type Entity = any;
+
+export type LobbyState = {
+  you?: string;
+  started?: boolean;
+  game?: GameState;
+  ui?: MetaState;
+  // Legacy properties for backward compatibility
+  state?: GameState;
+  meta?: MetaState;
+};

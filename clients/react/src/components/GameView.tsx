@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
 import { useLobbyWebSocket } from '../ws/useLobbyWebSocket';
@@ -15,8 +15,11 @@ import PlayerList from './PlayerList';
 import type { GameManifest } from '../api/games';
 
 interface GameViewProps {
-  lobbyId: string;
-  onLeave: () => void;
+  lobbyId?: string;
+  onLeave?: () => void;
+  testMode?: boolean;
+  initialState?: any;
+  gameId?: string;
 }
 
 interface LogEntry {
@@ -26,7 +29,7 @@ interface LogEntry {
   isYou?: boolean;
 }
 
-export default function GameView({ lobbyId }: GameViewProps) {
+export default function GameView({ lobbyId, onLeave, testMode, initialState, gameId }: GameViewProps) {
   const navigate = useNavigate();
   const { player } = usePlayer();
   const { sendMessage, lobbyState, connectionState, joinLobby, leaveLobby, startGame, disconnect } = useLobbyWebSocket(
@@ -58,7 +61,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
   const currentPlayerName = lobbyState.ui?.players?.[currentPlayerIndex] || '';
 
   // Use game actions hook
-  const { handleCellClick, handleCardAction, handleZoneAction } = useGameActions({
+  const { handleCellClick, handleCardAction, handleZoneAction, handleChoiceSelect } = useGameActions({
     isYourTurn,
     lobbyState,
     sendMessage
@@ -126,6 +129,48 @@ export default function GameView({ lobbyId }: GameViewProps) {
     }
   }, [lobbyState.ui?.gameLog, player?.username]);
 
+  // Debug logging - track unnecessary re-renders
+  const previousLobbyStateRef = useRef();
+  const renderCountRef = useRef(0);
+  
+  useEffect(() => {
+    renderCountRef.current += 1;
+    
+    if (lobbyState.started || lobbyState.game) {
+      const prev = previousLobbyStateRef.current;
+      const hasActualChanges = !prev || 
+        prev.you !== lobbyState.you ||
+        prev.started !== lobbyState.started ||
+        JSON.stringify(prev.game?.phases) !== JSON.stringify(lobbyState.game?.phases) ||
+        JSON.stringify(prev.ui?.actionMap) !== JSON.stringify(lobbyState.ui?.actionMap) ||
+        prev.ui?.gameLog?.length !== lobbyState.ui?.gameLog?.length;
+      
+      if (hasActualChanges) {
+        console.log('🔍 Meaningful Game State Change (render #' + renderCountRef.current + '):', {
+          you: lobbyState.you,
+          currentPhase: lobbyState.game?.phases?.game,
+          actionMapSize: Object.keys(lobbyState.ui?.actionMap || {}).length,
+          gameLogLength: lobbyState.ui?.gameLog?.length || 0,
+          isYourTurn: isYourTurn
+        });
+      } else {
+        console.warn('⚠️ Unnecessary re-render detected (render #' + renderCountRef.current + ') - no meaningful state changes');
+      }
+      
+      previousLobbyStateRef.current = {
+        you: lobbyState.you,
+        started: lobbyState.started,
+        game: {
+          phases: lobbyState.game?.phases
+        },
+        ui: {
+          actionMap: lobbyState.ui?.actionMap,
+          gameLog: lobbyState.ui?.gameLog
+        }
+      };
+    }
+  }, [lobbyState, isYourTurn]);
+
   // Handle leaving the game
   const handleLeave = () => {
     if (joined) {
@@ -171,7 +216,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
     );
   }
 
-  const gameStarted = lobbyState.started || lobbyState.game;
+  const gameStarted = lobbyState.started;
   const manifest = lobbyState.ui?.manifest || lobbyInfo?.manifest;
   const canStartGame = players.length >= (manifest?.metadata?.players?.min || 2);
   const gameStatus = lobbyState.game?.gameStatus;
@@ -257,6 +302,8 @@ export default function GameView({ lobbyId }: GameViewProps) {
               </div>
             )}
 
+
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
                 <GameZones
@@ -265,6 +312,7 @@ export default function GameView({ lobbyId }: GameViewProps) {
                   onCellClick={handleCellClick}
                   onCardAction={handleCardAction}
                   onAction={handleZoneAction}
+                  onChoiceSelect={handleChoiceSelect}
                   isMyTurn={isYourTurn}
                   you={lobbyState.you}
                   zoneMetadata={lobbyState.ui?.zones}

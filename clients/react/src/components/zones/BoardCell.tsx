@@ -41,7 +41,6 @@ export default function BoardCell({
   }, [useCheckerPattern, isDarkSquare]);
 
   const handleClick = () => {
-    console.log('[CLIENT BoardCell] Click at', row, col, 'isClickable:', isClickable);
     if (isClickable) {
       onCellClick(row, col);
     }
@@ -54,6 +53,7 @@ export default function BoardCell({
     <div
       className={`relative border ${isSelected ? 'border-yellow-400 border-2' : 'border-gray-700'}`}
       style={{ width: `${cellSize}px`, height: `${cellSize}px` }}
+      data-testid={`cell-${row}-${col}`}
     >
       {isEmpty ? (
         <div 
@@ -70,6 +70,8 @@ export default function BoardCell({
               cellBgColor
           }}
           onClick={handleClick}
+          role={isClickable ? "button" : undefined}
+          tabIndex={isClickable ? 0 : undefined}
           onMouseEnter={(e) => {
             if (isClickable) {
               e.currentTarget.style.backgroundColor = 'rgba(75, 85, 99, 0.5)';
@@ -94,6 +96,8 @@ export default function BoardCell({
             backgroundSize: '10px 10px',
           }}
           onClick={handleClick}
+          role={isClickable ? "button" : undefined}
+          tabIndex={isClickable ? 0 : undefined}
         >
           {entityDisplay.type === 'token' ? (
             <TokenDisplay tokenType={entityDisplay.tokenType!} cellSize={cellSize} color={markColor} />

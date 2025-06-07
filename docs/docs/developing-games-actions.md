@@ -530,6 +530,46 @@ Automatic actions run without player input and are crucial for:
 - Resource management
 - Cleanup operations
 
+**⚠️ CRITICAL: All automatic actions MUST include log templates!**
+
+Players need to understand what the game is doing automatically. Without proper logging, the game feels opaque and confusing. Every automatic decision must be clearly communicated.
+
+```yaml
+# BAD: No logging
+- id: "checkPhaseTransition"
+  auto: true
+  uses: "setPhase"
+  with:
+    phase: "movement"
+
+# GOOD: Clear logging
+- id: "checkPhaseTransition"
+  auto: true
+  uses: "setPhase"
+  with:
+    phase: "movement"
+  ui:
+    logTemplate: "All pieces placed - entering movement phase"
+
+# Example with dynamic content
+- id: "formPairs"
+  auto: true
+  uses: "detectPairs"
+  ui:
+    logTemplate: "{player} forms a pair of {rank}s"
+```
+
+**Common Automatic Actions That Need Logging:**
+- `nextTurn` - "Turn passes to {nextPlayer}"
+- `checkWin` - "Checking for winning conditions..."
+- `setPhase` - "Moving to {phase} phase"
+- `formPairs` - "{player} forms a pair of {rank}s"
+- `calculateWinner` - "Calculating winner based on scores..."
+- `drawCard` - "{player} drew a {rank} of {suit}"
+- `transferCards` - "{source} gives {count} cards to {target}"
+
+Complete example with conditions:
+
 ```yaml
 - id: "checkPhaseTransition"
   auto: true  # Runs automatically when triggered
@@ -545,6 +585,8 @@ Automatic actions run without player input and are crucial for:
       with:
         phaseSet: "game"
         phase: "movement"
+  ui:
+    logTemplate: "All pieces placed - moving to movement phase"
 
 # Another example: refill market
 - id: "refillMarket"
@@ -558,6 +600,8 @@ Automatic actions run without player input and are crucial for:
     from: "/zones/deck"
     to: "/zones/market"
     count: 5
+  ui:
+    logTemplate: "Market refilled with {count} new cards"
 ```
 
 **Triggering Automatic Actions:**
@@ -643,9 +687,25 @@ conditions:
 
 Good game logs enhance the player experience by clearly communicating what happened.
 
+### Critical: Player References ⚠️
+
+**NEVER use hardcoded player names in log templates!** Always use `p1`, `p2`, etc. when referencing specific players. The server automatically replaces these with actual player names.
+
+```yaml
+# ✗ WRONG - Never hardcode names
+logTemplate: "Player 1 draws a card"
+logTemplate: "Alice wins the game"
+
+# ✓ CORRECT - Use player IDs
+logTemplate: "p1 draws a card"        # Shows: "Alice draws a card"
+logTemplate: "{player} wins the game" # Shows: "Bob wins the game"
+```
+
 ### Template Syntax
 
-- `{player}` - Replaced with player name
+- `{player}` - Replaced with current player name
+- `{nextPlayer}` - Replaced with next player name  
+- `p1`, `p2`, `p3`, `p4` - Replaced with specific player names
 - `{row}`, `{col}` - Grid coordinates (1-indexed for display)
 - `{column}` - Column number (1-indexed)
 - `{from}`, `{to}` - Movement locations
@@ -788,6 +848,74 @@ The server automatically extracts and formats coordinates:
        - "check_destroyed"
        - "award_experience"
    ```
+
+## Animation Support Through Discrete Patches
+
+To enable smooth client-side animations, complex actions should generate multiple patches rather than a single atomic update:
+
+### Wrong Approach (No Animation Possible) ❌
+```yaml
+# This verb does everything at once
+- id: "askForCards"
+  uses: "transferMatchingCards"  # Custom verb that does it all
+  with:
+    from: "/zones/hand_{target}"
+    to: "/zones/hand_{player}"
+    rank: "{selectedRank}"
+```
+
+### Correct Approach (Animation-Ready) ✅
+```yaml
+# Step 1: Query what cards to transfer
+- id: "findMatchingCards"
+  uses: "queryEntities"
+  with:
+    zone: "/zones/hand_{target}"
+    property: "rank"
+    value: "{selectedRank}"
+    storeAs: "cardsToTransfer"
+
+# Step 2: Remove each card (generates patch)
+- id: "takeCard"
+  uses: "removeEntity"
+  forEach: "{cardsToTransfer}"
+  with:
+    from: "/zones/hand_{target}"
+    entity: "{item}"
+  ui:
+    logTemplate: "{target} gives a {selectedRank}"
+
+# Step 3: Add to player's hand (generates patch)
+- id: "receiveCard"
+  uses: "addEntity"
+  forEach: "{cardsToTransfer}"
+  with:
+    to: "/zones/hand_{player}"
+    entity: "{item}"
+
+# Step 4: Check for pairs (generates patch if pairs form)
+- id: "checkPairs"
+  uses: "formPairs"
+  with:
+    player: "{player}"
+  ui:
+    logTemplate: "{player} forms a pair of {selectedRank}s"
+```
+
+### Benefits of Discrete Patches
+
+1. **Sequential Animation**: Client can animate each step
+2. **Visual Clarity**: Players see cards move one by one
+3. **Better Feedback**: Each action can have its own log entry
+4. **Debugging**: Easier to track what happened when
+
+### Implementation Guidelines
+
+When designing complex actions:
+1. **Break into logical steps**: Each visual change = one patch
+2. **Order matters**: Remove → Move → Add → Side effects
+3. **Test animations**: Verify client receives patches in order
+4. **Log each step**: Players should understand the sequence
 
 ## Debugging Actions
 

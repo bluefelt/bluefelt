@@ -14,7 +14,7 @@
     ],
     "ui": {
       "direction": "Place a piece on an empty intersection",
-      "logTemplate": "{player} placed a piece at ({row}, {col})"
+      "logTemplate": "{player} placed a piece"
     },
     "uses": "place",
     "when": [
@@ -43,11 +43,18 @@
           "phaseSet": "game"
         }
       }
-    ]
+    ],
+    "with": {
+      "entity": "{args.entity}",
+      "location": "{args.target}"
+    }
   },
   {
     "auto": true,
     "id": "checkPhaseTransition",
+    "ui": {
+      "logTemplate": "All pieces placed - entering movement phase"
+    },
     "uses": "setPhase",
     "when": [
       {
@@ -77,8 +84,7 @@
   {
     "id": "selectPiece",
     "ui": {
-      "direction": "Select one of your pieces to move",
-      "logTemplate": "{player} selected a piece at ({row}, {col})"
+      "direction": "Select one of your pieces to move"
     },
     "uses": "selectEntity",
     "when": [
@@ -101,8 +107,7 @@
       }
     ],
     "with": {
-      "location": "{target}",
-      "player": "{player}"
+      "location": "{args.target}"
     }
   },
   {
@@ -124,7 +129,7 @@
       {
         "condition": "zone.isEmpty",
         "with": {
-          "zone": "{target}"
+          "zone": "{args.target}"
         }
       },
       {
@@ -140,13 +145,15 @@
       {
         "condition": "entity.selected"
       }
-    ]
+    ],
+    "with": {
+      "target": "{args.target}"
+    }
   },
   {
     "id": "clearSelection",
     "ui": {
-      "direction": "Cancel piece selection",
-      "logTemplate": "{player} cancelled piece selection"
+      "direction": "Cancel piece selection"
     },
     "uses": "clearSelection",
     "when": [
@@ -180,7 +187,7 @@
       ],
       "entity": "piece_{player}",
       "lineLength": 3,
-      "zone": "zones/board"
+      "zone": "/zones/board"
     }
   },
   {

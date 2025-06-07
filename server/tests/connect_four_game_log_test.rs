@@ -20,7 +20,7 @@ fn test_connect_four_game_log_column_replacement() {
     
     // Test that the action is properly configured for column-based arguments
     let with_args = &drop_action["with"];
-    assert_eq!(with_args["column"], "{targetColumn}");
+    assert_eq!(with_args["column"], "{args.targetColumn}");
     assert_eq!(with_args["zone"], "/zones/board");
     assert_eq!(with_args["entity"], "disc_{player}");
 }

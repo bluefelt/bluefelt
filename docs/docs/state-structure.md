@@ -40,14 +40,18 @@ The game state stored on the server has this flat, clear structure:
     "game": "play",
     "round": "draw"
   },
-  "selection": {         // Optional - for games with piece selection
-    "actor": "p1",
-    "zone": "board",
-    "row": 0,
-    "col": 0
-  }
+  "selection": {}        // Always present - stores temporary selections/state
 }
 ```
+
+### Important: The Selection Object
+
+The `selection` object is **always initialized** in the game state to store temporary game data like:
+- Selected pieces or cards
+- Multi-step action state
+- Player choices during actions
+
+This object is guaranteed to exist, so verbs can safely add properties to it without worrying about patch failures.
 
 ## Client Message Structure
 
@@ -215,6 +219,49 @@ for (const patch of patches) {
 
 This ensures that successful patches still update the state even if some patches fail.
 
+## Player Count Handling
+
+The game state is initialized with the maximum number of players defined in the game manifest, but when a game starts, it adjusts to the actual number of connected players:
+
+1. **Initial Creation**: `load_initial_state` creates state for max players
+2. **Game Start**: `start_game` adjusts the state to match actual player count:
+   - Updates the `players` array to only include connected players
+   - Removes player-specific zones for non-existent players (e.g., `hand_p3`, `hand_p4`)
+3. **Dynamic Adjustment**: This ensures games work correctly whether started with minimum or maximum players
+
+### Example
+A game supporting 2-4 players:
+- Initial state creates: `p1`, `p2`, `p3`, `p4` and their zones
+- If only 2 players join and start: State is adjusted to only have `p1`, `p2`
+- Player-specific zones like `hand_p3` and `hand_p4` are removed
+
+## Adding New State Properties
+
+When implementing new game features that require state storage:
+
+1. **Always initialize in `load_initial_state`** (in `/server/src/engine/state.rs`):
+   ```rust
+   let initial_state = json!({
+       // ... existing properties ...
+       "myNewProperty": {}  // or appropriate initial value
+   });
+   ```
+
+2. **Use consistent patch paths**:
+   - Game state: `/game/myNewProperty/...`
+   - UI state: `/ui/myNewProperty/...`
+
+3. **Document the new property** in this file
+
+4. **Test patch operations** work with both empty and populated states
+
+### Example: Adding Selection Support
+
+When Go Fish needed to track selected ranks, we:
+1. Added `"selection": {}` to initial state
+2. Used the setState verb to add properties: `/selection/selectedRank`
+3. Generated patches with appropriate operations ("add" for new keys)
+
 ## Common Pitfalls
 
 1. **Mixing data sources**: Don't look for game state in `lobbyState.ui` or UI data in `lobbyState.game`
@@ -223,3 +270,4 @@ This ensures that successful patches still update the state even if some patches
 4. **Direct state mutation**: Never modify state directly, always use patches
 5. **All-or-nothing patch failures**: Apply patches individually to handle partial failures
 6. **Missing parent paths**: Ensure nested objects exist before applying patches to them
+7. **Not initializing state properties**: Always add new properties to `load_initial_state` to avoid patch failures

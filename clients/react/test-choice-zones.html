@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Choice Zone Debug</title>
+    <script>
+        // Simulate the data from your debug output
+        const gameState = {
+            zones: {
+                "choice_p1": null,
+                "choice_p2": null
+            },
+            actionMap: {
+                "p1": {
+                    "/zones/choice_p1/ranks/3": {
+                        "action": "selectRank",
+                        "direction": "Choose a rank to ask for",
+                        "rank": "3"
+                    },
+                    "/zones/choice_p1/ranks/4": {
+                        "action": "selectRank",
+                        "direction": "Choose a rank to ask for", 
+                        "rank": "4"
+                    }
+                }
+            },
+            you: "p1"
+        };
+
+        // Check if choice zones would be identified
+        const zones = gameState.zones;
+        const actionMap = gameState.actionMap.p1;
+        
+        console.log("Zones:", zones);
+        console.log("Zone entries:", Object.entries(zones));
+        console.log("Action map:", actionMap);
+        
+        // Simulate the GameZones logic
+        const choiceZones = {};
+        Object.entries(zones).forEach(([zoneId, zoneData]) => {
+            if (zoneId.startsWith('choice_')) {
+                console.log(`Found choice zone: ${zoneId} with data:`, zoneData);
+                choiceZones[zoneId] = zoneData;
+            }
+        });
+        
+        console.log("Choice zones identified:", choiceZones);
+        
+        // Check action map processing
+        Object.entries(choiceZones).forEach(([zoneId, zoneData]) => {
+            console.log(`\nProcessing choice zone: ${zoneId}`);
+            const choiceActions = [];
+            
+            Object.entries(actionMap).forEach(([location, action]) => {
+                if (location.startsWith(`/zones/${zoneId}/`)) {
+                    console.log(`  Found action at ${location}:`, action);
+                    const parts = location.split('/');
+                    if (parts.length >= 5) {
+                        const category = parts[3];
+                        const value = parts[4];
+                        choiceActions.push({
+                            id: value,
+                            label: category === 'ranks' ? `Rank ${value}` : value,
+                            action: action
+                        });
+                    }
+                }
+            });
+            
+            console.log(`  Total actions found: ${choiceActions.length}`);
+            console.log(`  Actions:`, choiceActions);
+        });
+    </script>
+</head>
+<body>
+    <h1>Check console for debug output</h1>
+</body>
+</html>

@@ -1,9 +1,12 @@
 # Place a piece - only available when player has placed fewer than 3 pieces
 - id: placeToken
   uses: place
+  with:
+    location: "{args.target}"
+    entity: "{args.entity}"
   ui:
     direction: "Place a piece on an empty intersection"
-    logTemplate: "{player} placed a piece at ({row}, {col})"
+    logTemplate: "{player} placed a piece"
   when:
     - condition: zone.isEmpty
       with:
@@ -44,13 +47,14 @@
         entity: "piece_p2"
         operator: "=="
         value: 3
+  ui:
+    logTemplate: "All pieces placed - entering movement phase"
 
 # Select a piece to move (movement phase)
 - id: selectPiece
   uses: selectEntity
   ui:
     direction: "Select one of your pieces to move"
-    logTemplate: "{player} selected a piece at ({row}, {col})"
   when:
     - condition: player.isActor
     - condition: phase.is
@@ -62,8 +66,7 @@
         entity: "{entityAtLocation}"
         owner: "{player}"
   with:
-    location: "{target}"
-    player: "{player}"
+    location: "{args.target}"
 
 # Move selected piece to any empty location
 - id: moveSelectedPiece  
@@ -74,13 +77,15 @@
   when:
     - condition: zone.isEmpty
       with:
-        zone: "{target}"
+        zone: "{args.target}"
     - condition: player.isActor
     - condition: phase.is
       with:
         phaseSet: "game"
         phase: "movement"
     - condition: entity.selected
+  with:
+    target: "{args.target}"
   then:
     - action: checkForWin
     - action: advanceTurn
@@ -90,7 +95,6 @@
   uses: clearSelection
   ui:
     direction: "Cancel piece selection"
-    logTemplate: "{player} cancelled piece selection"
   when:
     - condition: player.isActor
     - condition: phase.is
@@ -106,7 +110,7 @@
   uses: grid.lineOfMarks
   auto: true
   with:
-    zone: "zones/board"
+    zone: "/zones/board"
     entity: "piece_{player}"
     lineLength: 3
     directions: ["horizontal", "vertical", "diagonal"]

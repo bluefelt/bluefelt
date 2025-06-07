@@ -18,11 +18,13 @@ mod message_format;
 mod http_handlers;
 mod ws_handlers;
 mod conditions;
+mod test_states;
 
 use bundle::BundleMap;
 use lobby::LobbyMap;
 use http_handlers::{create_lobby, list_lobbies, list_games, get_game, get_lobby};
 use ws_handlers::{lobbies_ws_handler, ws_handler};
+use test_states::get_test_state;
 
 const DEFAULT_PORT: u16 = 8000;
 const LOBBY_UPDATE_CHANNEL_SIZE: usize = 16;
@@ -91,6 +93,7 @@ fn build_app(
         .route("/api/lobbies/:id/ws", get(
             move |path, ws, query| ws_handler(path, ws, query, lobbies_for_ws.clone())
         ))
+        .route("/api/test-states/:test_type", post(get_test_state))
         .layer(cors)
 }
 

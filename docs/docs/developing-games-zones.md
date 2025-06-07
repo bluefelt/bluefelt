@@ -1,8 +1,26 @@
 # Developing Games: Zones
 
-Zones are the spatial containers that define where entities can exist and how they're organized within your game. This comprehensive reference covers every aspect of zone design, from simple grids to complex multi-layered game boards.
+Zones are the logical containers that define where entities can exist and how they're organized within your game. This comprehensive reference covers zone design following Bluefelt's separation of logic and presentation.
 
-## Overview
+## Architecture Overview
+
+Bluefelt uses a **presentation-separated architecture** where:
+- **Zone definitions** contain only logical properties (server-parsed)
+- **Visual presentation** is handled by optional client files (client-parsed)
+- **All clients** can fallback to generic rendering without presentation data
+
+### File Structure
+
+```
+game-name/
+├── zones.yaml           # Logic only (server reads)
+├── ui/
+│   └── skins.yaml       # Presentation hints (client reads)
+└── assets/
+    └── board.png        # Art assets (client loads)
+```
+
+## Zone Logic vs. Presentation
 
 Zones in Bluefelt represent:
 - **Game Boards** - Chess boards, tic-tac-toe grids, hex maps
@@ -11,54 +29,56 @@ Zones in Bluefelt represent:
 - **Storage Areas** - Supply pools, banks, reserves
 - **Virtual Spaces** - Score tracks, turn order, game phases
 
-Each zone has a specific type, size, and behavior that determines how entities can be placed, moved, and interacted with.
+Each zone has logical properties (shape, size, behavior) that determine gameplay rules, while visual properties are handled separately.
 
 ## Zone Structure
 
-### Minimal Zone
+### Minimal Zone (Logic Only)
 
 ```yaml
 - id: "board"
-  type: "grid"
-  rows: 3
-  cols: 3
+  shape: "grid"
+  shapeMeta:
+    rows: 3
+    cols: 3
 ```
 
-### Complete Zone Structure
+### Complete Zone with Logical Properties
 
 ```yaml
-- id: "advanced_board"
-  type: "grid"
-  rows: 8
-  cols: 8
+- id: "board"
+  shape: "grid"
+  shapeMeta:
+    rows: 8
+    cols: 8
   contents: 
     entity: "chess_piece"
     pattern: "chess_starting"
-  ui:
-    name: "Chess Board"
-    description: "8x8 grid for chess pieces"
-    theme: "checkered"
-    cellSize: 64
-    backgroundColor: "#f0d9b5"
-    borderColor: "#b58863"
-    gridLines: true
-    coordinates: true
-    highlightValidMoves: true
+  visibility: "public"
+  owner: null
   behavior:
     allowedEntities: ["chess_piece", "marker"]
     maxEntitiesPerCell: 1
     entityFilter: "owned_by_current_player"
-    sortOrder: "none"
-    autoOrganize: false
-  rules:
-    placement: "any_empty"
-    movement: "standard_chess"
-    capture: "replace"
-    restrictions: ["no_friendly_fire"]
-  metadata:
-    category: "game_board"
-    complexity: "high"
-    playerSpecific: false
+```
+
+### Optional Presentation (ui/skins.yaml)
+
+```yaml
+skins:
+  board:
+    # Visual styling hints for clients that support them
+    style:
+      cellSize: 64
+      gridLines: true
+      coordinates: true
+      theme: "checkered"
+    # Optional: atlas-based rendering
+    atlas: "chess/board.png"
+    rect: { x: 0, y: 0, w: 512, h: 512 }
+    mapping:
+      "grid(0,0)": { u: 32, v: 32 }
+      "grid(7,7)": { u: 480, v: 480 }
 ```
 
 ## Core Properties
@@ -81,21 +101,21 @@ Unique identifier for the zone.
 - Include location/purpose in name
 - Use `{player}` for player-specific zones
 
-#### `type` (string, required)
+#### `shape` (string, required)
 Defines the zone's spatial organization and behavior.
 
 ```yaml
 # Grid-based zones (2D arrays)
-type: "grid"          # Chess board, tic-tac-toe, tile grids
+shape: "grid"         # Chess board, tic-tac-toe, tile grids
 
 # Linear zones (1D arrays)  
-type: "list"          # Player hands, sequences, rows
-type: "deck"          # Shuffleable stacks, draw piles
+shape: "list"         # Player hands, sequences, rows
+shape: "stack"        # Shuffleable stacks, draw piles
 
 # Special zones
-type: "pool"          # Unordered collections, supply areas
-type: "track"         # Scoring tracks, turn order
-type: "single"        # Single entity containers
+shape: "pool"         # Unordered collections, supply areas
+shape: "track"        # Scoring tracks, turn order
+shape: "choice"       # Choice/selection zones
 ```
 
 ### Type-Specific Required Fields
@@ -104,29 +124,29 @@ type: "single"        # Single entity containers
 
 ```yaml
 - id: "game_board"
-  type: "grid"
-  rows: 8           # Number of rows (required)
-  cols: 8           # Number of columns (required)
+  shape: "grid"
+  shapeMeta:
+    rows: 8         # Number of rows (required)
+    cols: 8         # Number of columns (required)
 ```
 
 #### List Zones
 
 ```yaml
 - id: "player_hand"
-  type: "list"
+  shape: "list"
   maxSize: 7        # Maximum entities (optional)
   # No rows/cols needed
 ```
 
-#### Deck Zones
+#### Stack Zones (formerly "deck")
 
 ```yaml
 - id: "draw_pile"
-  type: "deck"
-  # Inherits list properties
-  deckProps:
+  shape: "stack"
+  shapeMeta:
     shuffle: true   # Auto-shuffle when needed
-    faceDown: true  # Entities hidden
+  visibility: "count"  # Show count but not contents
 ```
 
 ### Optional Core Fields

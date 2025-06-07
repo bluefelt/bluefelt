@@ -1,20 +1,12 @@
-# Tic-Tac-Toe Client Test Suite
+# Bluefelt Client Test Suite
 
-This comprehensive test suite ensures the client-side handling of tic-tac-toe games is bulletproof. The tests cover all critical scenarios that could cause issues like the turn switching bug we encountered.
+This comprehensive test suite ensures the client-side handling of all Bluefelt games is robust and reliable. The tests cover critical scenarios for state synchronization, WebSocket communication, and game-specific behaviors.
 
-## Test Files Overview
+## Test Structure Overview
 
-### 1. `TicTacToeGameFlow.simplified.test.tsx` (7 tests)
-**Purpose**: Core functionality validation
-- State structure handling (`game` vs `ui` data separation)
-- JSON patch application with partial failures
-- Action map path format parsing
-- Turn determination logic
-- Message construction for server communication
-- Game state updates and transitions
-- Game end detection
+### Core Test Files
 
-### 2. `WebSocketMessageHandling.test.tsx` (10 tests)
+#### 1. `WebSocketMessageHandling.test.tsx`
 **Purpose**: WebSocket communication reliability
 - **Message Type Processing**: Welcome, diff, playerUpdate message handling
 - **Patch Application Edge Cases**: Missing parent paths, out-of-order patches, invalid operations
@@ -27,48 +19,55 @@ This comprehensive test suite ensures the client-side handling of tic-tac-toe ga
 - Patch application failures that don't crash the client
 - Out-of-order message delivery
 
-### 3. `TicTacToeUIState.test.tsx` (13 tests)
-**Purpose**: UI state synchronization
-- **Turn Detection**: Whose turn it is, turn transitions, spectator mode
-- **Action Map Processing**: Clickable cells, empty action maps, cell location formatting
-- **Board State Updates**: Reflecting changes, different entity formats
-- **Game End Detection**: Win conditions, tie games, UI updates after game end
-- **Player Entity Display**: Entity identification, player name mapping
-- **Error State Handling**: Missing/corrupt state, sensible defaults
+#### 2. `ServerClientIntegration.test.tsx`
+**Purpose**: Server-client protocol validation
+- Message construction and formatting
+- Action request/response cycles
+- State update propagation
+- Error handling and recovery
 
-**Key Scenarios Tested**:
-- Correct identification of current player's turn
-- Action map determines which cells are clickable
-- Board state reflects all moves correctly
-- Game end states disable further actions
+#### 3. `StateSynchronization.test.tsx`
+**Purpose**: Client state management
+- JSON Patch application
+- State consistency across updates
+- Handling partial state updates
+- Recovery from corrupted state
 
-### 4. `TicTacToeActionHandling.test.tsx` (11 tests)
-**Purpose**: Action handling and edge cases
-- **Click Handling Logic**: Valid clicks, invalid clicks, occupied cells
-- **Message Construction**: Well-formed messages, serialization edge cases
-- **WebSocket Communication**: Correct message sending, rejection of invalid actions
-- **State Validation**: Pre-action validation, malformed data handling
-- **Performance**: Large action maps, memory leak prevention
+#### 4. `UIAffordances.test.tsx`
+**Purpose**: User interface interaction testing
+- Visual feedback for valid actions
+- Disabled state handling
+- Touch and click event processing
+- Responsive design behaviors
 
-**Key Scenarios Tested**:
-- Only valid moves are sent to server
-- Occupied cells are not clickable
-- Non-turn players cannot send actions
-- Message format matches server expectations
+#### 5. `ClientRequestGeneration.test.tsx`
+**Purpose**: Action message generation
+- Correct message formatting for different action types
+- Parameter validation and serialization
+- Edge case handling in message construction
 
-### 5. `TicTacToeIntegration.test.tsx` (10 tests)
-**Purpose**: Complete game flows and complex scenarios
-- **Complete Game Flow**: Start to win, tie games
-- **Connection Scenarios**: Mid-game reconnection, out-of-order messages
-- **Error Recovery**: Partial patch failures, corrupted state
-- **Performance Under Load**: Rapid updates, large board states
-- **Multi-Player Scenarios**: Spectator mode, player disconnection
+### Game-Specific Regression Tests
 
-**Key Scenarios Tested**:
-- Full game from start to finish with proper turn switching
-- Reconnecting mid-game and continuing play
-- Handling server messages arriving out of order
-- Performance with rapid state changes
+Located in `regression/` subdirectory, organized by game:
+
+#### Tic-Tac-Toe (`regression/tic-tac-toe/`)
+- `TicTacToeComplete.test.tsx` - Full game flow testing including:
+  - Win detection (horizontal, vertical, diagonal)
+  - Tie game scenarios
+  - Turn switching
+  - Invalid move prevention
+
+#### Connect Four (`regression/connect-four/`)
+- `ConnectFourActions.test.tsx` - Column-based action handling
+- `ConnectFourUISync.test.tsx` - UI state synchronization for gravity mechanics
+
+#### Go Fish (`regression/go-fish/`)
+- `GoFishCardHandling.test.tsx` - Card selection and transfer mechanics
+- `GoFishUISync.test.tsx` - Hand display and update synchronization
+
+#### Three Men's Morris (`regression/three-mens-morris/`)
+- `ThreeMensMorrisPhases.test.tsx` - Phase transition handling
+- `ThreeMensMorrisUISync.test.tsx` - Selection state and movement display
 
 ## What These Tests Catch
 
@@ -109,18 +108,27 @@ This comprehensive test suite ensures the client-side handling of tic-tac-toe ga
 ## Running the Tests
 
 ```bash
-# Run all tic-tac-toe tests
-pnpm test TicTacToe
+# Run all tests
+pnpm test
 
-# Or use the provided script
-./test-tic-tac-toe.sh
-
-# Run specific test file
-pnpm test TicTacToeGameFlow
+# Run core test suites
 pnpm test WebSocketMessageHandling
-pnpm test TicTacToeUIState
-pnpm test TicTacToeActionHandling
-pnpm test TicTacToeIntegration
+pnpm test ServerClientIntegration
+pnpm test StateSynchronization
+pnpm test UIAffordances
+pnpm test ClientRequestGeneration
+
+# Run game-specific regression tests
+pnpm test TicTacToeComplete
+pnpm test ConnectFourActions
+pnpm test GoFishCardHandling
+pnpm test ThreeMensMorrisPhases
+
+# Run tests with coverage
+pnpm test:coverage
+
+# Run tests in watch mode
+pnpm test --watch
 ```
 
 ## Benefits for Other Games
@@ -143,10 +151,11 @@ These tests should be run:
 
 ## Test Coverage
 
-- **41 total tests** covering all critical client-side scenarios
-- **100% coverage** of the turn switching bug scenario that was fixed
-- **Comprehensive edge case coverage** for robust error handling
-- **Performance testing** to ensure scalability
-- **Integration testing** for complete game flows
+The test suite provides comprehensive coverage across:
+- **Core functionality**: WebSocket handling, state synchronization, UI interactions
+- **Game-specific behaviors**: Each game has dedicated regression tests
+- **Edge cases**: Error handling, network issues, invalid states
+- **Performance**: Rapid updates, large state changes
+- **Integration**: Complete game flows from start to finish
 
-This test suite ensures that client-side handling of tic-tac-toe (and by extension, other games) is reliable, performant, and bulletproof against the types of issues we encountered.
+This test suite ensures that client-side handling of all Bluefelt games is reliable, performant, and resilient against various failure scenarios.

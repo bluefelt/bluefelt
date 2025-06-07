@@ -1,4 +1,51 @@
-use serde_json::Value;
+use serde_json::{json, Value};
+
+// Replace template variables in condition parameters
+fn replace_condition_templates(value: &Value, state: &Value, current_actor: &str, args: &Value) -> Value {
+    match value {
+        Value::String(s) => {
+            let mut result = s.clone();
+            
+            // Replace {player} with current actor
+            if result.contains("{player}") {
+                result = result.replace("{player}", current_actor);
+            }
+            
+            // Replace {actor} with current actor
+            if result.contains("{actor}") {
+                result = result.replace("{actor}", current_actor);
+            }
+            
+            // Replace {args.*} with values from args
+            if result.contains("{args.") {
+                // Find all {args.X} patterns
+                let re = regex::Regex::new(r"\{args\.([^}]+)\}").unwrap();
+                for cap in re.captures_iter(&result.clone()) {
+                    if let Some(arg_name) = cap.get(1) {
+                        if let Some(arg_value) = args.get(arg_name.as_str()) {
+                            if let Some(val_str) = arg_value.as_str() {
+                                result = result.replace(&cap[0], val_str);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Value::String(result)
+        }
+        Value::Object(obj) => {
+            let mut new_obj = serde_json::Map::new();
+            for (k, v) in obj {
+                new_obj.insert(k.clone(), replace_condition_templates(v, state, current_actor, args));
+            }
+            Value::Object(new_obj)
+        }
+        Value::Array(arr) => {
+            Value::Array(arr.iter().map(|v| replace_condition_templates(v, state, current_actor, args)).collect())
+        }
+        _ => value.clone()
+    }
+}
 
 // Helper function to get a value at a specific path in the JSON state
 fn get_value_at_path<'a>(state: &'a Value, path: &str) -> Option<&'a Value> {
@@ -37,7 +84,10 @@ pub fn evaluate_condition(
         .as_str()
         .ok_or("Missing condition type")?;
     
-    let with_obj = condition.get("with").and_then(|w| w.as_object());
+    // Replace templates in the 'with' object
+    let with_value = condition.get("with").cloned().unwrap_or(json!({}));
+    let processed_with = replace_condition_templates(&with_value, state, current_actor, args);
+    let with_obj = processed_with.as_object();
     
     match condition_type {
         "zone.isEmpty" => evaluate_zone_is_empty(with_obj, state, args),
@@ -47,6 +97,10 @@ pub fn evaluate_condition(
         "phase.is" => evaluate_phase_is(with_obj, state),
         "resource.value" => evaluate_resource_value(with_obj, state, current_actor),
         "entity.selected" => evaluate_entity_selected(with_obj, state, args, current_actor),
+        "zone.hasMatching" => evaluate_zone_has_matching(with_obj, state, current_actor),
+        "zone.countWhere" => evaluate_zone_count_where(with_obj, state, current_actor),
+        "game.notEnded" => evaluate_game_not_ended(state),
+        "value.notEquals" => evaluate_value_not_equals(with_obj, args, current_actor),
         _ => Err(format!("Unknown condition type: {}", condition_type)),
     }
 }
@@ -215,7 +269,11 @@ fn evaluate_entity_owner(
             }
         } else if entity_template == "{entityAtLocation}" {
             // Look up the entity at the provided location
-            if let Some(location) = args.get("location").and_then(|l| l.as_str()) {
+            // Try both "location" and "target" fields since some actions use different field names
+            let location = args.get("location").and_then(|l| l.as_str())
+                .or_else(|| args.get("target").and_then(|t| t.as_str()));
+                
+            if let Some(location) = location {
                 println!("[DEBUG entity.owner] Looking for entity at location: {}", location);
                 
                 // Parse the location path to get zone and coordinates
@@ -251,7 +309,7 @@ fn evaluate_entity_owner(
                     return Err("Invalid location format".to_string());
                 }
             } else {
-                return Err("Missing location in args".to_string());
+                return Err("Missing location or target in args".to_string());
             }
         } else {
             entity_template.to_string()
@@ -555,6 +613,49 @@ mod tests {
     }
 
     #[test]
+    fn test_entity_owner_at_location() {
+        let state = json!({
+            "zones": {
+                "board": {
+                    "cells": [
+                        [{"entity": "piece_p1"}, {"entity": "piece_p2"}, null],
+                        [null, null, null],
+                        [null, null, null]
+                    ]
+                }
+            }
+        });
+
+        let condition = json!({
+            "condition": "entity.owner",
+            "with": {
+                "entity": "{entityAtLocation}",
+                "owner": "{player}"
+            }
+        });
+
+        // Test with location field
+        let args_with_location = json!({
+            "location": "/zones/board/cells/0/0"
+        });
+        assert_eq!(evaluate_condition(&condition, &state, &args_with_location, "p1").unwrap(), true);
+        assert_eq!(evaluate_condition(&condition, &state, &args_with_location, "p2").unwrap(), false);
+
+        // Test with target field (should work as fallback)
+        let args_with_target = json!({
+            "target": "/zones/board/cells/0/1"
+        });
+        assert_eq!(evaluate_condition(&condition, &state, &args_with_target, "p1").unwrap(), false);
+        assert_eq!(evaluate_condition(&condition, &state, &args_with_target, "p2").unwrap(), true);
+
+        // Test with empty cell
+        let args_empty = json!({
+            "target": "/zones/board/cells/0/2"
+        });
+        assert!(evaluate_condition(&condition, &state, &args_empty, "p1").is_err());
+    }
+
+    #[test]
     fn test_phase_is() {
         let state = json!({
             "phases": {
@@ -633,4 +734,179 @@ mod tests {
         assert_eq!(evaluate_condition(&condition, &state, &json!({}), "p1").unwrap(), true);
         assert_eq!(evaluate_condition(&condition, &state, &json!({}), "p2").unwrap(), true);
     }
+}
+
+fn evaluate_zone_has_matching(
+    with_obj: Option<&serde_json::Map<String, Value>>,
+    state: &Value,
+    current_actor: &str,
+) -> Result<bool, String> {
+    let with_obj = with_obj.ok_or("Missing 'with' object for zone.hasMatching")?;
+    let zone_path = with_obj.get("zone")
+        .and_then(|z| z.as_str())
+        .ok_or("Missing zone in condition")?;
+    let property = with_obj.get("property")
+        .and_then(|p| p.as_str())
+        .ok_or("Missing property in condition")?;
+    let value = with_obj.get("value")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing value in condition")?;
+    
+    // Replace {player} with current actor
+    let zone_path_processed = zone_path.replace("{player}", current_actor);
+    
+    // Get zone from state
+    let zone_value = get_value_at_path(state, &zone_path_processed)
+        .ok_or_else(|| format!("Zone not found: {}", zone_path_processed))?;
+    
+    // Check if zone has any items matching the property value
+    if let Some(items) = zone_value.get("items").and_then(|i| i.as_array()) {
+        for item in items {
+            if let Some(entity_id) = item.get("entity").and_then(|e| e.as_str()) {
+                // For card entities, extract property from entity ID
+                if entity_id.starts_with("card_") {
+                    let parts: Vec<&str> = entity_id.split('_').collect();
+                    if parts.len() >= 3 {
+                        let entity_value = match property {
+                            "rank" => parts[2],  // rank is the third part: card_suit_rank
+                            "suit" => parts[1],  // suit is the second part: card_suit_rank
+                            _ => continue,
+                        };
+                        if entity_value == value {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(false)
+}
+
+fn evaluate_zone_count_where(
+    with_obj: Option<&serde_json::Map<String, Value>>,
+    state: &Value,
+    current_actor: &str,
+) -> Result<bool, String> {
+    let with_obj = with_obj.ok_or("Missing 'with' object for zone.countWhere")?;
+    let zone_path = with_obj.get("zone")
+        .and_then(|z| z.as_str())
+        .ok_or("Missing zone in condition")?;
+    let property = with_obj.get("property")
+        .and_then(|p| p.as_str())
+        .ok_or("Missing property in condition")?;
+    let value = with_obj.get("value")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing value in condition")?;
+    let operator = with_obj.get("operator")
+        .and_then(|o| o.as_str())
+        .ok_or("Missing operator in condition")?;
+    let count_value = with_obj.get("count")
+        .and_then(|c| c.as_u64())
+        .ok_or("Missing count in condition")? as usize;
+    
+    // Replace {player} with current actor
+    let zone_path_processed = zone_path.replace("{player}", current_actor);
+    
+    // Get zone from state
+    let zone_value = get_value_at_path(state, &zone_path_processed)
+        .ok_or_else(|| format!("Zone not found: {}", zone_path_processed))?;
+    
+    // Count items matching the property value
+    let mut count = 0;
+    if let Some(items) = zone_value.get("items").and_then(|i| i.as_array()) {
+        for item in items {
+            if let Some(entity_id) = item.get("entity").and_then(|e| e.as_str()) {
+                // For card entities, extract property from entity ID
+                if entity_id.starts_with("card_") {
+                    let parts: Vec<&str> = entity_id.split('_').collect();
+                    if parts.len() >= 3 {
+                        let entity_value = match property {
+                            "rank" => parts[2],  // rank is the third part: card_suit_rank
+                            "suit" => parts[1],  // suit is the second part: card_suit_rank
+                            _ => continue,
+                        };
+                        if entity_value.to_lowercase() == value.to_lowercase() {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Apply operator
+    let result = match operator {
+        "==" => count == count_value,
+        "!=" => count != count_value,
+        ">" => count > count_value,
+        "<" => count < count_value,
+        ">=" => count >= count_value,
+        "<=" => count <= count_value,
+        _ => return Err(format!("Unknown operator: {}", operator)),
+    };
+    
+    Ok(result)
+}
+
+fn evaluate_game_not_ended(state: &Value) -> Result<bool, String> {
+    // Check if gameStatus exists and if state is "ended"
+    if let Some(game_status) = state.get("gameStatus") {
+        if let Some(status_state) = game_status.get("state").and_then(|s| s.as_str()) {
+            // Return true if game is NOT ended (i.e., still playable)
+            Ok(status_state != "ended")
+        } else {
+            // If state field doesn't exist, game is not ended
+            Ok(true)
+        }
+    } else {
+        // If gameStatus doesn't exist, game is not ended
+        Ok(true)
+    }
+}
+
+fn evaluate_value_not_equals(
+    with_obj: Option<&serde_json::Map<String, Value>>,
+    args: &Value,
+    current_actor: &str,
+) -> Result<bool, String> {
+    let with_obj = with_obj.ok_or("Missing 'with' object for value.notEquals")?;
+    
+    // Get the first value (which might be from args)
+    let value1 = if let Some(arg_path) = with_obj.get("value1").and_then(|v| v.as_str()) {
+        // If it starts with {args., extract from args
+        if arg_path.starts_with("{args.") && arg_path.ends_with("}") {
+            let key = &arg_path[6..arg_path.len()-1];
+            args.get(key).cloned().unwrap_or(Value::Null)
+        } else {
+            Value::String(arg_path.to_string())
+        }
+    } else {
+        return Err("Missing value1 in value.notEquals condition".to_string());
+    };
+    
+    // Get the second value
+    let value2 = if let Some(val) = with_obj.get("value2") {
+        // If it's {player}, replace with current actor
+        if let Some(str_val) = val.as_str() {
+            if str_val == "{player}" {
+                Value::String(current_actor.to_string())
+            } else {
+                val.clone()
+            }
+        } else {
+            val.clone()
+        }
+    } else {
+        return Err("Missing value2 in value.notEquals condition".to_string());
+    };
+    
+    println!("[DEBUG value.notEquals] Comparing value1: {:?} with value2: {:?}", value1, value2);
+    
+    // Compare the values
+    let result = value1 != value2;
+    println!("[DEBUG value.notEquals] Result: {}", result);
+    
+    Ok(result)
 }

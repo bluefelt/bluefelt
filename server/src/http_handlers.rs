@@ -5,7 +5,7 @@ use axum::extract::ws::Message;
 use uuid::Uuid;
 
 use crate::bundle::BundleMap;
-use crate::lobby::{LobbyMap, new_lobby, current_lobbies_json};
+use crate::lobby::{LobbyMap, new_lobby, new_lobby_with_seed, current_lobbies_json};
 use crate::utils::error_response;
 
 /// Generate a 10-character lobby ID using UUID
@@ -35,7 +35,32 @@ pub async fn create_lobby(
     let id = generate_lobby_id();
     println!("[HTTP] Creating new lobby: {} for game: {}", id, game_id);
     
-    lobbies.insert(id.clone(), new_lobby(id.clone(), bundle, lobbies.clone(), lobby_updates.clone()));
+    // Check if a seed was provided in the request
+    let lobby = if let Some(seed_str) = req["seed"].as_str() {
+        // Parse hex string to bytes
+        if seed_str.len() != 64 {
+            return error_response("Seed must be 64 hex characters (32 bytes)");
+        }
+        
+        let mut seed = [0u8; 32];
+        for (i, chunk) in seed_str.as_bytes().chunks(2).enumerate() {
+            if i >= 32 {
+                return error_response("Seed too long");
+            }
+            let hex_str = std::str::from_utf8(chunk).unwrap_or("");
+            match u8::from_str_radix(hex_str, 16) {
+                Ok(byte) => seed[i] = byte,
+                Err(_) => return error_response("Invalid hex character in seed"),
+            }
+        }
+        
+        println!("[HTTP] Using provided seed: {}", seed_str);
+        new_lobby_with_seed(id.clone(), bundle, lobbies.clone(), lobby_updates.clone(), seed)
+    } else {
+        new_lobby(id.clone(), bundle, lobbies.clone(), lobby_updates.clone())
+    };
+    
+    lobbies.insert(id.clone(), lobby);
 
     // broadcast updated lobby list
     let list = current_lobbies_json(&lobbies);

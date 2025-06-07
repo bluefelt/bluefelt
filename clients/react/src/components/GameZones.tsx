@@ -1,6 +1,7 @@
 import React from 'react';
 import Board from './zones/Board';
 import CardZone from './CardZone';
+import { ChoiceZone } from './zones/ChoiceZone';
 import { usePlayer } from '../context/PlayerContext';
 import type { ZoneGroup } from '../types/messages';
 
@@ -9,6 +10,7 @@ interface GameZonesProps {
   entityDefinitions?: any[];
   onCellClick?: (row: number, col: number) => void;
   onCardAction?: (zoneId: string, cardIndex: number) => void;
+  onChoiceSelect?: (zoneId: string, choice: string) => void;
   isMyTurn?: boolean;
   zoneMetadata?: any[];
   playerNames?: string[];
@@ -23,6 +25,7 @@ function GameZones({
   entityDefinitions,
   onCellClick,
   onCardAction,
+  onChoiceSelect,
   isMyTurn = false,
   zoneMetadata,
   playerNames,
@@ -32,6 +35,15 @@ function GameZones({
   zoneGroups
 }: GameZonesProps) {
   const { player } = usePlayer();
+  
+  console.log('[GameZones] Component props:', {
+    zones: Object.keys(zones || {}),
+    zoneMetadata: zoneMetadata?.map(z => ({ id: z.id, type: z.type })),
+    actionMap: Object.keys(actionMap),
+    you,
+    isMyTurn,
+    zoneData: zones
+  });
   
   if (!zones) return null;
 
@@ -47,22 +59,106 @@ function GameZones({
         zoneMetadata={zoneMetadata}
         playerNames={playerNames}
         actionMap={actionMap}
+        currentPlayerActionMap={actionMap}
         selection={selection}
       />
     );
   };
 
+  // Helper function to render choice zones
+  const renderChoiceZone = (zoneId: string, zoneData: any) => {
+    const zoneMeta = zoneMetadata?.find(z => z.id === zoneId);
+    if (!zoneMeta) {
+      console.warn('[GameZones] No metadata found for choice zone:', zoneId);
+      return null;
+    }
+    
+    // Check if this choice zone is for the current player
+    const isForCurrentPlayer = zoneId.includes(you || '') || zoneMeta.visibility === 'owner';
+    
+    // Get items from zone data or convert from action map
+    let items = zoneData?.items || [];
+    let prompt = zoneData?.prompt || zoneMeta?.name || 'Make a choice';
+    
+    // If no items, try to build from action map
+    if (items.length === 0 && isForCurrentPlayer) {
+      const choiceActions: Array<{ id: string; label: string; action: any }> = [];
+      
+      // Look for actions in the action map for this choice zone
+      Object.entries(actionMap).forEach(([location, action]) => {
+        // Match patterns like /zones/choice_p1/ranks/2 or /zones/choice_p1/players/p2
+        if (location.startsWith(`/zones/${zoneId}/`)) {
+          const parts = location.split('/');
+          if (parts.length >= 5) {
+            const category = parts[3]; // 'ranks' or 'players'
+            const value = parts[4]; // '2' or 'p2'
+            
+            // Extract direction/prompt from the first action we find
+            if (choiceActions.length === 0 && (action as any).direction) {
+              prompt = (action as any).direction;
+            }
+            
+            // Create a choice item
+            choiceActions.push({
+              id: value,
+              label: category === 'ranks' ? `Rank ${value}` : value,
+              action: action
+            });
+          }
+        }
+      });
+      
+      // Convert to the format expected by ChoiceZone
+      items = choiceActions.map(({ id, label }) => ({ id, label }));
+    }
+    
+    console.log(`[GameZones] Rendering choice zone ${zoneId}:`, {
+      isForCurrentPlayer,
+      isMyTurn,
+      items,
+      prompt,
+      visibility: zoneMeta?.visibility
+    });
+    
+    // Don't render if no items or not for current player
+    if (items.length === 0 && !isForCurrentPlayer) {
+      return null;
+    }
+    
+    return (
+      <ChoiceZone
+        key={zoneId}
+        zone={{
+          id: zoneId,
+          type: 'choice',
+          items: items,
+          prompt: prompt,
+          visibility: zoneMeta?.visibility
+        }}
+        onSelect={(choice: string) => {
+          if (onChoiceSelect) {
+            onChoiceSelect(zoneId, choice);
+          }
+        }}
+        isActive={isForCurrentPlayer && isMyTurn}
+        className="mb-4"
+      />
+    );
+  };
 
   // Separate zones by type
   const gridZones: any = {};
   const cardZones: any = {};
+  const choiceZones: any = {};
   
   // Look at zone metadata to determine zone types
   
   Object.entries(zones).forEach(([zoneId, zoneData]) => {
     const zoneMeta = zoneMetadata?.find(z => z.id === zoneId);
-    
-    if (zoneMeta?.shape === 'stack' || zoneMeta?.shape === 'list' || zoneMeta?.shape === 'deck' || zoneMeta?.shape === 'single' ||
+    if (zoneMeta?.type === 'choice' || zoneMeta?.shape === 'choice') {
+      // This is a choice zone
+      choiceZones[zoneId] = zoneData;
+    } else if (zoneMeta?.shape === 'stack' || zoneMeta?.shape === 'list' || zoneMeta?.shape === 'deck' || zoneMeta?.shape === 'single' ||
         zoneMeta?.type === 'stack' || zoneMeta?.type === 'list' || zoneMeta?.type === 'deck' || zoneMeta?.type === 'single') {
       // This is explicitly a card/entity zone
       // Extract items array if it exists (server sends {items: [...]})
@@ -93,6 +189,15 @@ function GameZones({
         // This is a regular grid zone
         gridZones[zoneId] = zoneData;
       }
+    }
+  });
+  
+  // Also check metadata for zones that might not have data (like choice zones)
+  zoneMetadata?.forEach(zoneMeta => {
+    if ((zoneMeta.type === 'choice' || zoneMeta.shape === 'choice') && !choiceZones[zoneMeta.id]) {
+      // This is a choice zone that doesn't have data in the game state
+      console.log(`[GameZones] Found choice zone in metadata without data: ${zoneMeta.id}`);
+      choiceZones[zoneMeta.id] = {}; // Empty data, will be populated from action map
     }
   });
 
@@ -148,8 +253,10 @@ function GameZones({
         zoneId={zoneId}
         zoneName={zoneMeta?.name || zoneId}
         cards={cardArray
-          .filter((cardId: string) => cardId !== null)
-          .map((cardId: string) => {
+          .filter((card: any) => card !== null)
+          .map((card: any) => {
+            // Handle both string IDs and objects with entity property
+            const cardId = typeof card === 'string' ? card : card?.entity;
             const entity = entityDefinitions?.find(e => e.id === cardId);
             return entity || { id: cardId };
           })}
@@ -221,12 +328,18 @@ function GameZones({
   
   // Track which zones are in groups
   reorderedGroups.forEach(group => {
-    group.zones.forEach(zoneId => zonesInGroups.add(zoneId));
+    group.zones.forEach(zoneId => {
+      // Don't add choice zones to the "in groups" set - we want them to always render as ungrouped
+      if (!choiceZones.hasOwnProperty(zoneId)) {
+        zonesInGroups.add(zoneId);
+      }
+    });
   });
 
   // Get ungrouped zones
   const ungroupedGridZones: any = {};
   const ungroupedCardZones: any = {};
+  const ungroupedChoiceZones: any = {};
   
   Object.entries(gridZones).forEach(([zoneId, zoneData]) => {
     if (!zonesInGroups.has(zoneId)) {
@@ -239,6 +352,36 @@ function GameZones({
       ungroupedCardZones[zoneId] = cards;
     }
   });
+  
+  Object.entries(choiceZones).forEach(([zoneId, zoneData]) => {
+    if (!zonesInGroups.has(zoneId)) {
+      ungroupedChoiceZones[zoneId] = zoneData;
+    }
+  });
+  
+  // CRITICAL: Also check zone metadata for zones that don't have data (like choice zones)
+  if (zoneMetadata) {
+    zoneMetadata.forEach(zoneMeta => {
+      const zoneId = zoneMeta.id;
+      // If this zone isn't already in our zones object but is a choice zone in metadata
+      if (!zones[zoneId] && zoneMeta.type === 'choice') {
+        choiceZones[zoneId] = null; // Choice zones don't have data
+        if (!zonesInGroups.has(zoneId)) {
+          ungroupedChoiceZones[zoneId] = null;
+        }
+      }
+    });
+  }
+  
+  console.log('[GameZones] Zone categorization summary:', {
+    gridZones: Object.keys(gridZones),
+    cardZones: Object.keys(cardZones),
+    choiceZones: Object.keys(choiceZones),
+    ungroupedChoiceZones: Object.keys(ungroupedChoiceZones),
+    ungroupedGridZones: Object.keys(ungroupedGridZones),
+    ungroupedCardZones: Object.keys(ungroupedCardZones)
+  });
+  
 
   return (
     <div className="w-full">
@@ -254,6 +397,9 @@ function GameZones({
               } else if (cardZones[zoneId]) {
                 // This is a card zone in the group
                 return renderCardZone(zoneId, cardZones[zoneId]);
+              } else if (choiceZones[zoneId]) {
+                // This is a choice zone in the group
+                return renderChoiceZone(zoneId, choiceZones[zoneId]);
               }
               return null;
             })}
@@ -270,6 +416,12 @@ function GameZones({
       {Object.entries(ungroupedCardZones).map(([zoneId, cards]) => 
         renderCardZone(zoneId, cards)
       )}
+      
+      {/* Render ungrouped choice zones */}
+      {Object.entries(ungroupedChoiceZones).map(([zoneId, zoneData]) => 
+        renderChoiceZone(zoneId, zoneData)
+      )}
+      
     </div>
   );
 }

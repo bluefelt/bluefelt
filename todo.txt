@@ -1,0 +1,149 @@
+In future, we'll have to know which version of the spec certain games were made with. We need to continue to evaluate that v1 of a game works on v1 of the spec, and v2 of the game works on v2 of the spec etc.
+
+does that mean multiple engines need to run at the same time? need to think through archtitecture
+
+
+
+There is another new case in the game Three Men's Morris, which is the pattern of first selecting an entity and then moving it. I want to use phases to handle this. One phase in a set could have the prompt to "select a token" and then the affordances would appear around the selectable tokens. Then that would transition to a new phase where the prompt is "place the piece". Now the affordances show spaces the piece could be placed. I think we'll have a lot of situations like this in future games, so building in proper handling would be time well spent. The other aspect is that it should be possible to "cancel" after you select a piece. This sort of action is not a commitment, meaning you should be able to select a piece, change your mind, then select another piece. Only placing the piece is a commitment. So we need to find a way in the UI to allow a user to cancel if they decide not to move a certain piece.
+
+
+Do you think we can enhance Connect 4 to automatically end when a tie becomes inevitable?
+
+
+
+When you are done with that, I have some more instructions for you.
+Now that we have implemented one card game, I would like you to implement more card
+games. Please perform the steps defined in testing.md to implement the following:
+- Contract Rummy
+- Gin Rummy
+- Crazy Eights
+- Old Maid
+- War
+- Oh Hell (Up and Down the River)
+- GOPS (Game Of Pure Strategy)
+- Cheat (I Doubt It)
+- Hearts
+Please perform step 1 for all games first, and before you actually start to implement
+games I want you to consider whether there are good opportunities for built-in
+functionality that can be reused across games.
+After that, perform step 2 for all games, and then step 3 for all games,
+and finally step 4 for all games.
+At the end, we should run regression tests on all games, both client and server side.
+
+Refactor the server.
+We're starting to have a lot of code in these functions, and I think we'll want
+to be able to separate things like distinct verbs into a single file, which can be
+organized into a larger folder.
+
+Do you think we need to make special test cases which just focuses particular zones?
+We can make sure that action selection zones appear correctly in all their possible
+variability, and do the same with card zones, and so on.
+
+So how should we structure our tests? I like the client-server E2E tests, but if
+there is a problem we introduce then lower level tests should be able to catch it.
+I want to set up a clear criteria for when we should write a test, and what the
+game-specific tests should look like. The goal is to have complete coverage with
+unit tests, distinct tests on the server and client, E2E tests that will catch any
+remaining issues with the UI, and perhaps client tests that focus on individual
+UI zones. Hmm, I wonder if we could even create some sort of test area on the
+client where we could just test the appearance of zones and affordances? For example,
+we could request that the server send us game details about a particular state so
+that the client forces the UI to render a zone type. That would allow us to fine-tune
+how that UI appears, and we could change the parameters so that we can test situations
+at the extreme. Otherwise, we'll only notice problems with the zone rendering when
+we play a game that introduces some strange situation. I'd rather be sure that we can
+stress test our UI handling by forcing it to render all possible situations.
+What do you think? We're spending some time thinking about how to really lock down
+the basic functionality of the game engine right now, so every option is on the table.
+This would also help us to be clear about what properties of a zone are parameterized.
+
+We're going to hold off on adding any new features for now. We have four games
+that work and we need to make sure that the engine is solid before we add more
+games. Please take this time to take a deeper look at the following:
+- The server code: I've observed a few issues that I want to improve.
+  1. There are a lot of ".log" files that I think were made for debugging
+  purposes but we don't need to keep them around. We should remove them.
+  2. There are some tests outside of the "tests" folder. They are .js files
+  which are a bit confusing to me since the server is writtin in Rust. If they're
+  useful, please find a good place for them. Otherwise delete them.
+  3. Files are getting pretty long. I really want to see us start to break these
+  files up into smaller files that are easier to read and maintain.
+  For example, whenever we have a new engine feature (supporting a new predefined
+  action, or a new type of zone) we should create a new file for that feature.
+  Please look at the current server code and look for opportunities to refactor it
+  into smaller files, and put those smaller files into folders that make sense.
+  4. Please just look at the current state of the server code and make any improvements
+  that make sense to you in order to make future development easier. You can look ahead
+  through the future-development-roadmap.md file to see what we have planned. While
+  I don't want you to implement those features yet, you can look ahead to what sort
+  of changes would make sense to make now in order to make those features easier to
+  implement.
+- The client code: I think this code is in better shape, but I still want you to take
+  the opportunity to look through it and make improvements to the code structure.
+  Look ahead to what we'll develop and try to structure the code so that those changes
+  will be as easy as possible.
+- The CLI code: We have a great opportunity here because we are using the CLI to build
+  the games. Remember, our goal is to make it easy for anyone to create a game using
+  yaml. And we will eventually need to have our engine interpret those yaml files, but
+  since we precompile these to json files we can take advantage of that to allow more
+  idiomatic and human-readable yaml files that will get converted to slightly more
+  rigid and verbose json files. Here's one example of an idea I had:
+
+  Write in the yaml:
+
+  condition:
+    if: "selection.postDrawCount != selection.preDrawCount"
+    then:
+      - checkForBooksWithRank
+        with:
+            player: "{player}"
+            rank: "{selection.selectedRank}
+      - continueAfterDrawingRequestedRank
+    else:
+        - checkForBooksWithRank
+            with:
+                player: "{player}"
+                rank: "{selection.selectedRank}"
+      - advanceTurn
+      - transitionToSelectingRank
+
+    The CLI expands this out to the full syntax:
+
+    condition:
+    - condition: value.notEquals
+      with:
+        value1: "{selection.postDrawCount}"
+        value2: "{selection.preDrawCount}"
+    ifTrue:
+    - action: checkForBooksWithRank
+      with:
+        player: "{player}"
+        rank: "{selection.selectedRank}"
+    - action: continueAfterDrawingRequestedRank
+    ifFalse:
+    - action: checkForBooksWithRank
+      with:
+        player: "{player}"
+        rank: "{selection.selectedRank}"
+    - action: advanceTurn
+    - action: transitionToSelectingRank
+
+The point is, we can make the yaml files as human-readable as possible,
+and the CLI can be in charge of converting them into something that is easier
+for the engine to interpret. In this way we can get really creative with the
+yaml's syntax. Let's find some other ideas like this that will make the yaml
+super readable and also cut down on boilerplate. I have a vision that a game like
+Go Fish should be able to be written in less than 100 lines of yaml.
+
+Also on this topic, the CLI should build a single json file that contains all the
+game data for a game, not a lot of smaller ones. YAML should be capable of being
+separated out into multiple files, but the resulting json file should be as small
+as possible. I think we can even minify the json file to reduce its size further.
+
+I see some loose test files and other shell scripts in the root directory.
+If we still need those, please move them to a more appropriate place. Otherwise,
+delete them.
+
+And when you're all done, let's update the documentation. As always, we want it to
+reflect the current state of the code and best practices, while also comprising as
+few files as possible while still usefully dividing them by topic.

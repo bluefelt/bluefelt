@@ -1,7 +1,7 @@
 # The game board - 3x3 grid
 - id: board
-  type: grid
-  gridProps:
+  shape: grid
+  shapeMeta:
     rows: 3
     cols: 3
   contents: empty  # All cells start empty

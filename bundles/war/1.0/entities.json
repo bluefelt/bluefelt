@@ -1,0 +1,11 @@
+[
+  {
+    "id": "card",
+    "template": "standardDeck",
+    "type": "card"
+  },
+  {
+    "id": "war_marker",
+    "type": "marker"
+  }
+]

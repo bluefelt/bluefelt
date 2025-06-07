@@ -11,7 +11,7 @@
     ],
     "ui": {
       "direction": "Click a column to drop your disc",
-      "logTemplate": "{player} dropped a disc in column {column}"
+      "logTemplate": "{player} dropped a disc in column {targetColumn}"
     },
     "uses": "placeWithGravity",
     "when": [
@@ -20,7 +20,7 @@
       }
     ],
     "with": {
-      "column": "{targetColumn}",
+      "column": "{args.targetColumn}",
       "entity": "disc_{player}",
       "zone": "/zones/board"
     }
@@ -37,7 +37,7 @@
       ],
       "entity": "disc_{player}",
       "lineLength": 4,
-      "zone": "zones/board"
+      "zone": "/zones/board"
     }
   },
   {

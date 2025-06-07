@@ -1,13 +1,16 @@
 # Main action - place a mark on the board
 - id: placeMarker
   uses: place
+  with:
+    location: "{args.location}"
+    entity: "mark_{player}"
   ui:
     direction: "Click an empty cell to place your mark"
     logTemplate: "{player} placed their mark at ({row}, {col})"
   when:
     - condition: zone.isEmpty
       with:
-        zone: "{target}"
+        zone: "{args.location}"
     - condition: player.isActor
   then:
     - action: checkWin
@@ -22,8 +25,12 @@
     entity: "mark_{player}"
     lineLength: 3
     directions: ["horizontal", "vertical", "diagonal"]
+  ui:
+    logTemplate: "Checking for three in a row..."
 
 # Advance to next player's turn
 - id: advanceTurn
   uses: nextTurn
   auto: true
+  ui:
+    logTemplate: "Turn passes to {nextPlayer}"

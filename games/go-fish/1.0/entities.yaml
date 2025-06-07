@@ -1,0 +1,11 @@
+# Go Fish Entities
+
+# Standard 52-card deck (will be expanded by server)
+- id: standardDeck
+  generate: true
+
+# Player score tracker
+- id: score_{player}
+  name: "Player {player} Score"
+  type: counter
+  value: 0

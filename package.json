@@ -4,7 +4,10 @@
   "license": "MIT",
   "scripts": {},
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "ws": "^8.18.2"
+  },
   "devDependencies": {
     "@nx/js": "21.0.3",
     "@swc-node/register": "~1.9.1",

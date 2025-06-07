@@ -1,11 +1,11 @@
 [
   {
     "contents": "empty",
-    "gridProps": {
+    "id": "board",
+    "shape": "grid",
+    "shapeMeta": {
       "cols": 3,
       "rows": 3
-    },
-    "id": "board",
-    "type": "grid"
+    }
   }
 ]

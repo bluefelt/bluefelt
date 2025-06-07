@@ -136,6 +136,23 @@ fn add_builtin_actions(action_ids: &mut HashSet<String>) {
         "deck.transfer",
         "zone.reset",
         "transitionToPhase",
+        // Built-in verbs from engine
+        "draw",
+        "moveEntity",
+        "place",
+        "placeWithGravity",
+        "nextTurn",
+        "setPhase",
+        "grid.lineOfMarks",
+        "selectEntity",
+        "moveSelected",
+        "clearSelection",
+        "queryEntities",
+        "transferMatching",
+        "presentChoice",
+        "makeSelection",
+        "setState",
+        "conditionalAction",
     ];
     
     for builtin in &builtins {

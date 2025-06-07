@@ -1,0 +1,403 @@
+# Go Fish Actions
+
+# Simplified dealing - just deal to both players in 2-player game
+- id: dealCards
+  name: "Deal Cards to Players"
+  auto: true
+  uses: draw
+  with:
+    from: "/zones/pool"
+    to: "/zones/hand_p1"
+    count: 7
+  ui:
+    logTemplate: "Dealing 7 cards to {player}"
+  then:
+    - action: dealToP2
+
+- id: dealToP2
+  name: "Deal Cards to P2"
+  auto: true
+  uses: draw
+  with:
+    from: "/zones/pool"
+    to: "/zones/hand_p2"
+    count: 7
+  ui:
+    logTemplate: "Dealing 7 cards to {player}"
+  then:
+    - action: beginTurns
+
+# Action to transition away from dealing phase
+- id: beginTurns
+  name: "Begin Game Turns"
+  auto: true
+  uses: setPhase
+  with:
+    phaseSet: "game"
+    phase: "selectingRank"
+  ui:
+    logTemplate: "Starting game - {player} goes first"
+
+# Action 1: Start turn - present all rank choices
+- id: startTurn
+  name: "Start Turn"
+  auto: true
+  uses: setState
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: selectingRank
+    - condition: player.isActor
+    # Only run if availableRanks hasn't been set yet
+    - condition: value.notExists
+      with:
+        path: "/selection/availableRanks"
+  with:
+    path: "/selection/availableRanks"
+    value: ["a", "2", "3", "4", "5", "6", "7", "8", "9", "10", "j", "q", "k"]
+
+# Action 2: Player selects a rank to ask for
+- id: selectRank
+  name: "Select Rank"
+  uses: setState
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: selectingRank
+    - condition: player.isActor
+    - condition: zone.hasMatching
+      with:
+        zone: "/zones/hand_{player}"
+        property: rank
+        value: "{args.rank}"
+  with:
+    path: "/selection/selectedRank"
+    value: "{args.rank}"
+  ui:
+    direction: "Choose a rank to ask for"
+  then:
+    # Move to selecting player phase
+    - action: transitionToSelectingPlayer
+
+# Action 3: Player selects which player to ask
+- id: selectPlayer
+  name: "Ask Player"
+  uses: setState
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: selectingPlayer
+    - condition: player.isActor
+    # Prevent players from asking themselves
+    - condition: value.notEquals
+      with:
+        value1: "{args.targetPlayer}"
+        value2: "{player}"
+  with:
+    path: "/selection/targetPlayer"
+    value: "{args.targetPlayer}"
+  ui:
+    direction: "Choose which player to ask"
+    logTemplate: "{player} asks for {selection.selectedRank}s"
+  then:
+    # Move to responding phase
+    - action: transitionToResponding
+
+# Action 4: Check if target player has the requested cards
+- id: checkPlayerCards
+  name: "Check Player Response"
+  uses: conditionalAction
+  auto: true
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: responding
+  with:
+    condition:
+      - condition: zone.hasMatching
+        with:
+          zone: "/zones/hand_{selection.targetPlayer}"
+          property: rank
+          value: "{selection.selectedRank}"
+    # If target player HAS the cards
+    ifTrue:
+      - action: transferCards
+        with:
+          from: "/zones/hand_{selection.targetPlayer}"
+          to: "/zones/hand_{player}"
+          property: rank
+          value: "{selection.selectedRank}"
+      - action: checkForBooksAfterReceiving
+        with:
+          player: "{player}"
+          rank: "{selection.selectedRank}"
+      - action: transitionToSelectingRank
+    # If target player DOESN'T have the cards
+    ifFalse:
+      - action: transitionToFishing
+
+# Store count of requested rank before drawing (disabled - not working correctly)
+# - id: storePreDrawCount
+#   name: "Store Pre-Draw Count"
+#   uses: queryEntities
+#   auto: true
+#   when:
+#     - condition: phase.is
+#       with:
+#         phaseSet: game
+#         phase: fishing
+#   with:
+#     zone: "/zones/hand_{player}"
+#     property: rank
+#     value: "{selection.selectedRank}"
+#     storePath: "/selection/preDrawCount"
+
+# Action 5: Draw from pool (go fish)
+- id: goFish
+  name: "Go Fish!"
+  uses: draw
+  auto: true
+  with:
+    from: "/zones/pool"
+    to: "/zones/hand_{player}"
+    count: 1
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: fishing
+    - condition: zone.count
+      with:
+        zone: "/zones/pool"
+        operator: ">"
+        value: 0
+  ui:
+    logTemplate: "Go Fish! {player} draws a card"
+  then:
+    # Always advance turn after fishing
+    - action: checkForBooksAfterFishing
+      with:
+        player: "{player}"
+        rank: "{selection.selectedRank}"
+    - action: advanceTurn
+    - action: transitionToSelectingRank
+
+# Action 6: Check for pairs formation
+- id: checkForBooks
+  name: "Check for Pairs"
+  auto: true
+  uses: formPairs
+  with:
+    player: "{player}"
+  ui:
+    logTemplate: "{player} checks for pairs"
+
+# Check for pairs with specific rank context
+- id: checkForBooksWithRank
+  name: "Check for Pairs of Specific Rank"
+  auto: true
+  uses: formPairs
+  with:
+    player: "{player}"
+    rank: "{args.rank}"
+  ui:
+    logTemplate: ""
+
+# Check for pairs after receiving cards from another player (with logging)
+- id: checkForBooksAfterReceiving
+  name: "Check for Pairs After Receiving Cards"
+  auto: true
+  uses: formPairs
+  with:
+    player: "{args.player}"
+    rank: "{args.rank}"
+  ui:
+    logTemplate: "{args.player} forms a pair of {args.rank}s"
+
+# Check for pairs after fishing (without logging to avoid duplication)
+- id: checkForBooksAfterFishing
+  name: "Check for Pairs After Fishing"
+  auto: true
+  uses: formPairs
+  with:
+    player: "{args.player}"
+    rank: "{args.rank}"
+
+# Action 8: Check for game end
+- id: checkGameEnd
+  name: "Check Game End"
+  auto: true
+  uses: conditionalAction
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: selectingRank
+  with:
+    condition:
+      # Game ends if pool is empty
+      - condition: zone.count
+        with:
+          zone: "/zones/pool"
+          operator: "=="
+          value: 0
+    ifTrue:
+      - action: transitionToGameOver
+      - action: calculateWinner
+    ifFalse: []
+
+# Action 9: Calculate winner
+- id: calculateWinner
+  name: "Calculate Winner"
+  auto: true
+  uses: calculateWinner
+  when:
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: gameOver
+
+# Action to transfer cards
+- id: transferCards
+  name: "Transfer Cards"
+  uses: transferMatching
+  auto: true
+  ui:
+    logTemplate: "{player} receives {selection.selectedRank}s from {selection.targetPlayer}"
+
+# Action to continue turn after getting cards from another player (not used anymore)
+# - id: checkForPairsAndContinue
+#   name: "Continue Turn After Getting Cards"
+#   auto: true
+#   uses: formPairs
+#   with:
+#     player: "{player}"
+#   ui:
+#     logTemplate: "{player} got {selection.selectedRank}s and continues their turn"
+#   then:
+#     - action: transitionToSelectingRank
+
+# Action to check for pairs after fishing (currently disabled until formPairs is implemented)
+# - id: checkForPairsAfterFishing
+#   name: "Check for Pairs After Fishing"
+#   uses: formPairs
+#   auto: true
+#   with:
+#     player: "{player}"
+
+# Check if rank count increased (disabled - queryEntities doesn't return counts)
+# - id: checkIfRankCountIncreased
+#   name: "Check If Rank Count Increased"
+#   uses: queryEntities
+#   auto: true
+#   with:
+#     zone: "/zones/hand_{player}"
+#     property: rank
+#     value: "{selection.selectedRank}"
+#     storePath: "/selection/postDrawCount"
+#   then:
+#     - action: compareCountsAndAdvance
+
+# Compare pre and post draw counts (disabled - not working correctly)
+# - id: compareCountsAndAdvance  
+#   name: "Compare Counts and Advance Turn"
+#   uses: conditionalAction
+#   auto: true
+#   with:
+#     condition:
+#       # Check if post-draw count differs from pre-draw count (meaning player drew the requested rank)
+#       - condition: value.notEquals
+#         with:
+#           value1: "{selection.postDrawCount}"
+#           value2: "{selection.preDrawCount}"
+#     # If they drew the requested rank, they get another turn
+#     ifTrue:
+#       - action: checkForBooksAfterFishing
+#         with:
+#           player: "{player}"
+#           rank: "{selection.selectedRank}"
+#       - action: continueAfterDrawingRequestedRank
+#     # Otherwise, advance to next player
+#     ifFalse:
+#       - action: checkForBooksAfterFishing
+#         with:
+#           player: "{player}"
+#           rank: "{selection.selectedRank}"
+#       - action: advanceTurn
+#       - action: transitionToSelectingRank
+
+# Phase transition actions
+- id: transitionToSelectingPlayer
+  name: "Transition to Selecting Player"
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: selectingPlayer
+
+- id: transitionToResponding
+  name: "Transition to Responding"
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: responding
+
+- id: transitionToCheckingPairs
+  name: "Transition to Checking Pairs"
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: checkingPairs
+
+- id: transitionToFishing
+  name: "Transition to Fishing"
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: fishing
+  ui:
+    logTemplate: "{selection.targetPlayer} says 'Go Fish!'"
+  then: []
+
+- id: transitionToSelectingRank
+  name: "Transition to Selecting Rank"
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: selectingRank
+
+- id: transitionToGameOver
+  name: "Transition to Game Over"
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: gameOver
+  ui:
+    logTemplate: "Game Over! Counting pairs to determine the winner..."
+
+# Add action for continuing after drawing requested rank
+- id: continueAfterDrawingRequestedRank
+  name: "Continue After Drawing Requested Rank"
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: selectingRank
+  ui:
+    logTemplate: "{player} drew a {selection.selectedRank} and gets another turn!"
+
+- id: advanceTurn
+  name: "Advance Turn"
+  uses: nextTurn
+  auto: true
+  ui:
+    logTemplate: ""

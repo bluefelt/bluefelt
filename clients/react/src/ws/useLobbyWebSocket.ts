@@ -60,10 +60,17 @@ export function useLobbyWebSocket(
   // Message handlers map for better organization
   const messageHandlers = {
     welcome: (data: WelcomeMessage) => {
+      // Ensure game.selection exists if it's present in the server state
+      const gameState = data.game || data.state || {};
+      // Always initialize selection for games that need it (Go Fish, etc)
+      if (!gameState.selection) {
+        gameState.selection = {};
+      }
+      
       setLobbyState({
         you: data.you,
         ui: data.ui || data.meta, // Support both new and old formats during transition
-        game: data.game || data.state,
+        game: gameState,
         started: data.started,
       });
       if (typeof data.tick === 'number') lastTickRef.current = data.tick;
@@ -89,11 +96,32 @@ export function useLobbyWebSocket(
         }
         
         setLobbyState((prev) => {
-          // Ensure ui and game exist before applying patches
+          // Debug log to check state structure
+          if (!prev.game && prev.started) {
+            console.error('[useLobbyWebSocket] Warning: game state missing in started lobby', prev);
+          }
+          
+          // Start with the full previous state, ensuring ui and game exist
           const full = { 
+            ...prev,
             ui: prev.ui || {}, 
-            game: prev.game || {}
+            game: prev.game || {
+              // If game is missing, create minimal structure
+              zones: {},
+              selection: {},
+              currentPlayer: null,
+              turn: 0,
+              tick: 0,
+              players: [],
+              gameStatus: { state: 'playing', winner: null, tie: false },
+              phases: {}
+            }
           };
+          
+          // Ensure selection always exists in game state
+          if (full.game && !full.game.selection) {
+            full.game.selection = {};
+          }
           
           // Pre-process patches to ensure parent paths exist
           const processedPatches: PatchOperation[] = [];
@@ -123,6 +151,13 @@ export function useLobbyWebSocket(
               // Ensure phases exists
               if (!full.game.phases) {
                 full.game.phases = {};
+              }
+            }
+            
+            // Ensure selection exists for Go Fish and other games that use it
+            if (processedPatch.path.startsWith('/game/selection')) {
+              if (!full.game.selection) {
+                full.game.selection = {};
               }
             }
             
@@ -241,10 +276,16 @@ export function useLobbyWebSocket(
     },
     
     gameStarted: (data: GameStartedMessage) => {
+      // Ensure selection exists in the game state
+      const gameState = data.game || {};
+      if (!gameState.selection) {
+        gameState.selection = {};
+      }
+      
       setLobbyState((prev) => ({
         ...prev,
         you: data.you || prev.you,
-        game: data.game,
+        game: gameState,
         ui: data.ui,
         started: true,
       }));

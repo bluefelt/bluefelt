@@ -1,11 +1,7 @@
 
 type GameResultBannerProps = {
-  gameStatus?: {
-    state: string;
-    winner?: string;
-    tie?: boolean;
-  };
-  you?: string;
+  winner?: string | null;
+  tie?: boolean;
   playerNames?: string[];  // Array of usernames in order (p1, p2, etc.)
 };
 
@@ -21,36 +17,24 @@ function getPlayerName(actorId: string, playerNames?: string[]): string {
   return actorId;
 }
 
-export default function GameResultBanner({ gameStatus, you, playerNames }: GameResultBannerProps) {
-  if (!gameStatus || gameStatus.state !== 'ended') {
+export default function GameResultBanner({ winner, tie, playerNames }: GameResultBannerProps) {
+  if (!winner && !tie) {
     return null;
   }
 
-  const isWinner = gameStatus.winner === you;
-  const isTie = gameStatus.tie;
-  const winnerName = gameStatus.winner ? getPlayerName(gameStatus.winner, playerNames) : '';
+  const winnerName = winner ? getPlayerName(winner, playerNames) : '';
 
   return (
     <div className="mb-6 p-6 bg-gray-800 rounded-lg text-center">
       <div className="text-2xl font-bold mb-2">
-        {isTie ? (
+        {tie ? (
           <span className="text-yellow-400">Game Ended in a Tie!</span>
         ) : (
           <span className="text-yellow-400">
-            {winnerName} Won!
+            Player {winnerName} wins!
           </span>
         )}
       </div>
-      
-      {you !== 'spectator' && (
-        <p className="text-lg text-gray-300">
-          {isTie
-            ? "The game ended in a draw."
-            : isWinner
-            ? "Congratulations! You won this game."
-            : "Better luck next time!"}
-        </p>
-      )}
     </div>
   );
 }
