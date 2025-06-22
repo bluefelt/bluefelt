@@ -1,13 +1,20 @@
 # Bluefelt Server
 
-The Bluefelt server is the core engine that powers multiplayer turn-based games. Built in Rust using modern async technologies, it provides real-time game state management, WebSocket communication, and WebAssembly-based rule enforcement.
+The Bluefelt server is the core engine that powers multiplayer turn-based games. Built in Rust using modern async technologies, it provides real-time game state management, WebSocket communication, and comprehensive declarative rule enforcement.
+
+## Related Server Documentation
+
+- **[State Structure](./state-structure.md)** - **CRITICAL**: How game state is synchronized between client and server
+- **[Game Log Parameters](./game-log-parameters.md)** - Template system for game action logging
+
+These documents provide essential details for understanding server internals and client-server integration.
 
 ## Overview
 
 The server handles:
 - **Game State Management** - Authoritative game state with JSON Patch synchronization
 - **Real-time Communication** - WebSocket connections for instant updates
-- **Rule Enforcement** - Built-in verbs and WebAssembly hooks for game logic
+- **Rule Enforcement** - Powerful built-in verbs and declarative conditions for game logic
 - **Lobby Management** - Multi-game lobby system with player management
 - **Game Loading** - Dynamic loading of game bundles at runtime
 
@@ -23,8 +30,8 @@ The server handles:
          │                       │                       │
          ▼                       ▼                       ▼
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Lobby         │    │   Action        │    │   WASM          │
-│   Manager       │    │   Processor     │    │   Runtime       │
+│   Lobby         │    │   Action        │    │   Condition     │
+│   Manager       │    │   Processor     │    │   Engine        │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
@@ -33,7 +40,6 @@ The server handles:
 - **Rust** - Systems programming language for performance and safety
 - **Axum** - Modern async web framework
 - **Tokio** - Async runtime for handling concurrent connections
-- **Wasmtime** - WebAssembly runtime for custom game logic
 - **DashMap** - Concurrent hash map for lobby management
 - **serde_json** - JSON serialization/deserialization
 
@@ -250,35 +256,6 @@ The server automatically expands shorthand syntax:
 # ... 51 more cards
 ```
 
-## WebAssembly Integration
-
-### Custom Hooks
-
-For complex game logic, the server can execute WebAssembly modules:
-
-```rust
-// Host functions available to WASM
-pub fn get_zone_contents(zone_path: &str) -> Vec<Entity>;
-pub fn set_game_status(status: GameStatus);
-pub fn get_current_player() -> PlayerId;
-```
-
-### Hook Execution
-
-```rust
-// Execute WASM hook
-let result = wasmtime_instance.call(
-    "check_win_condition", 
-    &[state_ptr]
-)?;
-```
-
-### Safety and Sandboxing
-
-- **Memory Isolation** - WASM runs in isolated memory space
-- **Limited API** - Only specific host functions exposed
-- **Timeout Protection** - Hooks have execution time limits
-- **Resource Limits** - Memory and CPU usage controlled
 
 ## Performance Features
 
