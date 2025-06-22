@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { PlayerProvider } from "./context/PlayerContext";
+import { PlayerPreferencesProvider } from "./context/PlayerPreferencesContext";
 import { WebSocketProvider } from "./context/WebSocketContext";
+import { AnimationProvider } from "./context/AnimationContext";
 import Layout from "./layout/Layout.tsx";
 import "./index.css";
 
@@ -9,8 +11,9 @@ import "./index.css";
 const HomePage = lazy(() => import("./pages/HomePage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const LobbiesPage = lazy(() => import("./pages/LobbiesPage"));
-const CreateLobbyPage = lazy(() => import("./pages/CreateLobbyPage"));
 const LobbyPage = lazy(() => import("./pages/LobbyPage"));
+const GamePage = lazy(() => import("./pages/GamePage"));
+const LobbyWrapper = lazy(() => import("./components/LobbyWrapper"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 // Development-only pages
@@ -50,25 +53,31 @@ export default function App() {
   
   return (
     <BrowserRouter>
-      <PlayerProvider>
-        <WebSocketProvider>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              <Route path="/" element={<Layout />}>
-                <Route index element={<HomePage />} />
-                <Route path="login" element={<LoginPage />} />
-                <Route path="lobbies" element={<LobbiesPage />} />
-                <Route path="create-lobby" element={<CreateLobbyPage />} />
-                <Route path="lobby/:lobbyId" element={<LobbyPage />} />
-                {import.meta.env.DEV && UITestPage && (
-                  <Route path="ui-test" element={<UITestPage />} />
-                )}
-                <Route path="*" element={<NotFoundPage />} />
-              </Route>
-            </Routes>
-          </Suspense>
-        </WebSocketProvider>
-      </PlayerProvider>
+      <PlayerPreferencesProvider>
+        <PlayerProvider>
+          <WebSocketProvider>
+            <AnimationProvider>
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  <Route path="/" element={<Layout />}>
+                    <Route index element={<HomePage />} />
+                    <Route path="login" element={<LoginPage />} />
+                    <Route path="lobbies" element={<LobbiesPage />} />
+                    <Route path="lobby/:lobbyId" element={<LobbyWrapper />}>
+                      <Route index element={<LobbyPage />} />
+                      <Route path="table/:tableId" element={<GamePage />} />
+                    </Route>
+                    {import.meta.env.DEV && UITestPage && (
+                      <Route path="ui-test" element={<UITestPage />} />
+                    )}
+                    <Route path="*" element={<NotFoundPage />} />
+                  </Route>
+                </Routes>
+              </Suspense>
+            </AnimationProvider>
+          </WebSocketProvider>
+        </PlayerProvider>
+      </PlayerPreferencesProvider>
     </BrowserRouter>
   );
 }

@@ -1,0 +1,20 @@
+[
+  {
+    "as": "bf.placeEntity",
+    "id": "place_mark",
+    "ui": {
+      "direction": "Choose an empty hex",
+      "name": "Place Mark"
+    },
+    "when": [
+      {
+        "condition": "location.empty"
+      }
+    ],
+    "with": {
+      "entity": "mark_{currentPlayer}",
+      "source": "supply",
+      "targetLocation": "{targetLocation}"
+    }
+  }
+]

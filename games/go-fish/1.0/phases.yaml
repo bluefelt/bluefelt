@@ -1,4 +1,4 @@
-# Go Fish Game Phases
+# Go Fish Game Phases - Simplified for Multi-Step Actions
 
 - id: game
   name: "Go Fish Game"
@@ -10,49 +10,15 @@
       enterActions:
         - dealCards
         
-    # Players select which rank to ask for
+    # Main game phase - players ask for cards
     - id: selectingRank
-      name: "Choose a rank to ask for"
+      name: "Player's turn"
       enterActions:
-        - startTurn
-      possibleActions:
-        - selectRank
-      ui:
-        prompt: "Choose a rank to ask for"
-      
-    # Players select which other player to ask
-    - id: selectingPlayer
-      name: "Choose a player to ask"
-      possibleActions:
-        - selectPlayer
-      ui:
-        prompt: "Choose which player to ask for cards"
-      
-    # The asked player responds with cards or "go fish"
-    - id: responding
-      name: "Responding to request"
-      enterActions:
-        - checkPlayerCards
-      possibleActions:
-        - checkPlayerCards
-        - goFish
-      
-    # Player draws from pool if they "went fishing"
-    - id: fishing
-      name: "Drawing from pool"
-      enterActions:
-        - goFish
-      possibleActions:
-        - goFish
-      
-    # Check for automatic pair formation (simplified - skip for now)
-    - id: checkingPairs
-      name: "Checking for pairs"
-      enterActions:
-        - checkForBooks
-      possibleActions:
-        - checkForBooks
         - checkGameEnd
+      possibleActions:
+        - askForCards
+      ui:
+        prompt: "Your turn - ask another player for cards"
       
     # Game over - counting pairs
     - id: gameOver

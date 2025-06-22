@@ -1,0 +1,14 @@
+- id: deck
+  type: pile
+  face_down: true
+  
+- id: discard
+  type: pile
+  
+# Use grid shortcut
+- id: board
+  grid: 3x3
+  
+- id: hand_{player}
+  type: hand
+  owner: "{player}"

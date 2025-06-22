@@ -1,0 +1,51 @@
+[
+  {
+    "id": "deal",
+    "uses": "dealEntities",
+    "with": {
+      "count": 7,
+      "from": "deck",
+      "to": "hand_{player}"
+    }
+  },
+  {
+    "id": "next",
+    "uses": "nextTurn"
+  },
+  {
+    "id": "end",
+    "uses": "endGame"
+  },
+  {
+    "id": "place",
+    "then": [
+      {
+        "uses": "checkWin"
+      }
+    ],
+    "ui": {
+      "logTemplate": "{player} placed a piece"
+    },
+    "uses": "place",
+    "when": [
+      {
+        "condition": "zone.isEmpty"
+      },
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "main"
+        }
+      }
+    ]
+  },
+  {
+    "id": "checkWin",
+    "uses": "grid.lineOfMarks",
+    "with": {
+      "entity": "mark_{player}",
+      "lineLength": 3,
+      "zone": "/zones/board"
+    }
+  }
+]

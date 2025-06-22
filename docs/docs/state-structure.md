@@ -4,270 +4,376 @@ This document defines the canonical structure for game state in Bluefelt and how
 
 ## Overview
 
-Bluefelt uses a clear separation between:
-- **Game State**: The authoritative game data (zones, pieces, turns, etc.)
-- **UI Data**: Additional information for client interface (action maps, player names, etc.)
+Bluefelt uses a Lobby → Table → Seat architecture where:
+- **Lobbies** are persistent social spaces where players gather
+- **Tables** are created within lobbies where players can claim seats
+- **Games** start when all seated players are ready
+- **Chat** operates at both lobby and table levels
+- State synchronization uses JSON Patch for efficient updates
 
-## Canonical Game State Structure
+## Lobby → Table → Seat Architecture
 
-The game state stored on the server has this flat, clear structure:
+### Lobby Structure
+- Lobbies persist indefinitely and have invite codes
+- First player to join becomes the lobby owner
+- Owners can rename the lobby
+- Ownership transfers to earliest joined member when owner leaves
+- Lobbies become archived when all members leave (cannot be rejoined)
+- Members can create multiple tables within a lobby
+- Multiple tables can exist concurrently in one lobby
+- Members can browse tables and join available seats
+- Dual-scope chat system (lobby-wide and table-specific)
+
+### Table Structure
+- Tables are created by players with a specific game type
+- Each table has a fixed number of seats based on the game
+- Players claim seats atomically (no race conditions)
+- All seated players must mark "ready" before game starts
+- 10-second countdown begins when all players are ready
+- Tables can be in states: Open, Countdown, Playing, Finished
+
+### Identity Management
+- **In Lobby**: Users are identified by their username
+- **At Table**: Players are identified by their seat and username
+- **In Game**: Players are identified by their slot (p1, p2, etc.)
+- The `you` field indicates your player slot once game starts
+
+## State Structure
+
+### Lobby State
+```json
+{
+  "id": "lobby_xyz",
+  "name": "Friday Night Games",
+  "owner": "alice",
+  "archived": false,
+  "inviteCode": "ABCD1234",
+  "members": [
+    {
+      "id": "alice",
+      "name": "alice",
+      "connected": true,
+      "activeTables": ["table_123"]
+    }
+  ],
+  "tables": [
+    {
+      "id": "table_123",
+      "bundleId": "tic-tac-toe",
+      "owner": "alice",
+      "status": "Open",
+      "seats": [
+        { "playerId": "alice", "username": "alice" },
+        null
+      ],
+      "readyStates": [true, false],
+      "minPlayers": 2,
+      "maxPlayers": 2,
+      "countdownEndsAt": null
+    }
+  ],
+  "recentChat": [
+    {
+      "id": "msg_123",
+      "scope": "lobby",
+      "sender": "alice",
+      "message": "Anyone up for a game?",
+      "timestamp": 1703001234
+    }
+  ],
+  "settings": {
+    "maxMembers": 50,
+    "maxConcurrentTables": 10,
+    "allowObservers": true
+  }
+}
+```
+
+### Game State (unchanged)
+Once a game starts from a table, the state structure remains the same:
 
 ```json
 {
   "zones": {
     "board": {
-      "type": "grid",
       "cells": [[null, null, null], ...]
-    },
-    "hand_p1": {
-      "type": "list",
-      "items": [...]
     }
   },
   "tick": 0,
-  "turn": 0,
   "currentPlayer": "p1",
   "players": [
     {"id": "p1"},
     {"id": "p2"}
   ],
   "gameStatus": {
-    "state": "playing",  // or "ended"
-    "winner": null,      // or "p1", "p2"
+    "state": "playing",
+    "winner": null,
     "tie": false
   },
   "phases": {
-    "game": "play",
-    "round": "draw"
+    "game": "play"
   },
-  "selection": {}        // Always present - stores temporary selections/state
+  "selection": {}
 }
 ```
 
-### Important: The Selection Object
+## WebSocket Messages
 
-The `selection` object is **always initialized** in the game state to store temporary game data like:
-- Selected pieces or cards
-- Multi-step action state
-- Player choices during actions
+### Connection
+```
+ws://localhost:8000/api/lobbies/{lobbyId}/ws?player={username}&join=true
+```
 
-This object is guaranteed to exist, so verbs can safely add properties to it without worrying about patch failures.
+### LobbyJoined Message
+Sent when a member joins a lobby:
 
-## Client Message Structure
-
-When the server sends messages to clients, it wraps the game state with additional metadata:
-
-### Welcome Message
 ```json
 {
-  "type": "welcome",
-  "you": "p1",              // or "p2", "spectator"
-  "started": true,
-  "game": {                 // The canonical game state
-    "zones": { ... },
-    "currentPlayer": "p1",
-    "turn": 0,
-    "gameStatus": { ... }
-  },
-  "ui": {                   // Client interface data
-    "actionMap": {          // What actions each player can take
-      "p1": {
-        "/zones/board/cells/0/0": {
-          "action": "placeMarker",
-          "direction": "Click to place"
-        }
-      },
-      "p2": {}
-    },
-    "players": ["alice", "bob"],     // Player usernames
-    "entities": [...],               // Entity definitions
-    "zones": [...],                  // Zone metadata
-    "zoneGroups": [...],            // UI grouping hints
-    "gameLog": [...],               // Game event log
-    "currentPhasePrompt": "..."     // Optional UI prompt
-  },
-  "tick": 0
-}
-```
-
-### Diff Message (State Updates)
-```json
-{
-  "type": "diff",
-  "tick": 1,
-  "patch": [
-    {
-      "op": "replace",
-      "path": "/game/zones/board/cells/0/0",
-      "value": {"entity": "mark_p1"}
-    },
-    {
-      "op": "replace", 
-      "path": "/game/currentPlayer",
-      "value": "p2"
-    },
-    {
-      "op": "replace",
-      "path": "/game/turn",
-      "value": 1
-    },
-    {
-      "op": "replace",
-      "path": "/ui/actionMap",
-      "value": {
-        "p1": {},
-        "p2": {
-          "/zones/board/cells/0/1": {
-            "action": "placeMarker",
-            "direction": "Click to place"
-          }
-        }
-      }
-    }
-  ]
-}
-```
-
-## Patch Path Convention
-
-All patches use JSON Patch format with these clear, semantic path conventions:
-
-### Game State Patches
-Patches that modify the authoritative game state use `/game`:
-- `/game/zones/[zoneId]/...` - Zone contents
-- `/game/turn` - Turn counter
-- `/game/currentPlayer` - Current player ID
-- `/game/gameStatus` - Game end state
-- `/game/phases` - Phase states
-- `/game/selection` - Selected piece info
-
-### Client Interface Patches
-Patches that modify client interface data use `/ui`:
-- `/ui/actionMap` - Available actions
-- `/ui/gameLog` - Game event log
-- `/ui/currentPhasePrompt` - UI prompts
-
-## Accessing State in Clients
-
-### React Client Convention
-
-In the React client, state should be accessed with clear, semantic patterns:
-
-```typescript
-// Game state fields - authoritative game data
-const currentPlayer = lobbyState.game?.currentPlayer;
-const turn = lobbyState.game?.turn;
-const gameStatus = lobbyState.game?.gameStatus;
-const zones = lobbyState.game?.zones;
-const phases = lobbyState.game?.phases;
-
-// Client interface fields - UI-specific data
-const actionMap = lobbyState.ui?.actionMap;
-const playerNames = lobbyState.ui?.players;
-const entityDefs = lobbyState.ui?.entities;
-const gameLog = lobbyState.ui?.gameLog;
-
-// Connection info
-const you = lobbyState.you;  // "p1", "p2", or "spectator"
-const started = lobbyState.started;
-```
-
-### Important Notes
-
-1. **Clear separation**: Game data lives in `game`, interface data lives in `ui`. Never mix them!
-
-2. **Action maps are UI data**: The `actionMap` is computed by the server and sent as client interface data, not part of the game state.
-
-3. **Player IDs vs usernames**: 
-   - Game state uses player IDs: "p1", "p2"
-   - UI data includes usernames: ["alice", "bob"]
-
-4. **Zone data structure**: Zones can have different structures:
-   - Grid zones: `{ type: "grid", cells: [[...]] }`
-   - List zones: `{ type: "list", items: [...] }`
-   - Legacy format (arrays): `[[...]]` for grids, `[...]` for lists
-
-## State Synchronization Flow
-
-1. **Initial State**: Server sends welcome message with full state
-2. **Action Processing**: Client sends action, server validates and applies
-3. **State Update**: Server computes diff and broadcasts to all clients
-4. **Patch Application**: Clients apply patches to maintain synchronized state
-
-## Patch Application Strategy
-
-The client handles patch application robustly:
-
-### Path Preprocessing
-Before applying patches, the client ensures parent paths exist:
-- `/meta/actionMap/p2` requires `actionMap.p2` to exist
-- `/meta/phaseStates/game/current` requires `phaseStates.game` to exist
-
-### Individual Patch Application
-Patches are applied one by one to handle partial failures:
-```typescript
-for (const patch of patches) {
-  try {
-    workingState = applyPatch(workingState, [patch], true, false);
-    successfulPatches++;
-  } catch (error) {
-    console.error('Failed to apply patch:', patch, error);
-    // Continue with remaining patches
+  "type": "lobbyJoined",
+  "lobby": {
+    "id": "lobby_xyz",
+    "myId": "alice",
+    "name": "Friday Night Games",
+    "inviteCode": "ABCD1234",
+    "members": [...],
+    "tables": [...],
+    "recentChat": [...],
+    "games": [...],  // Legacy, for backward compatibility
+    "settings": {...}
   }
 }
 ```
 
-This ensures that successful patches still update the state even if some patches fail.
+### Table Messages
 
-## Player Count Handling
+#### TableCreated
+```json
+{
+  "type": "tableCreated",
+  "table": {
+    "id": "table_123",
+    "bundleId": "tic-tac-toe",
+    "owner": "alice",
+    "status": "Open",
+    "seats": [null, null],
+    "readyStates": [false, false],
+    "minPlayers": 2,
+    "maxPlayers": 2
+  }
+}
+```
 
-The game state is initialized with the maximum number of players defined in the game manifest, but when a game starts, it adjusts to the actual number of connected players:
+#### TableUpdated
+```json
+{
+  "type": "tableUpdated",
+  "tableId": "table_123",
+  "seats": [
+    { "playerId": "alice", "username": "alice" },
+    { "playerId": "bob", "username": "bob" }
+  ],
+  "readyStates": [true, true],
+  "status": "Countdown",
+  "countdownEndsAt": 1703001244
+}
+```
 
-1. **Initial Creation**: `load_initial_state` creates state for max players
-2. **Game Start**: `start_game` adjusts the state to match actual player count:
-   - Updates the `players` array to only include connected players
-   - Removes player-specific zones for non-existent players (e.g., `hand_p3`, `hand_p4`)
-3. **Dynamic Adjustment**: This ensures games work correctly whether started with minimum or maximum players
+#### CountdownStarted
+```json
+{
+  "type": "countdownStarted",
+  "tableId": "table_123",
+  "endsAt": 1703001244
+}
+```
 
-### Example
-A game supporting 2-4 players:
-- Initial state creates: `p1`, `p2`, `p3`, `p4` and their zones
-- If only 2 players join and start: State is adjusted to only have `p1`, `p2`
-- Player-specific zones like `hand_p3` and `hand_p4` are removed
+#### GameStarted (from table)
+```json
+{
+  "type": "gameStarted",
+  "tableId": "table_123",
+  "gameInstanceId": "game_abc",
+  "you": "p1",
+  "state": {...},
+  "ui": {...}
+}
+```
 
-## Adding New State Properties
+### Chat Messages
 
-When implementing new game features that require state storage:
+```json
+{
+  "type": "chatMessage",
+  "scope": "lobby",  // or "table"
+  "tableId": null,   // or "table_123" for table chat
+  "sender": "alice",
+  "message": "Good game!",
+  "timestamp": 1703001234
+}
+```
 
-1. **Always initialize in `load_initial_state`** (in `/server/src/engine/state.rs`):
-   ```rust
-   let initial_state = json!({
-       // ... existing properties ...
-       "myNewProperty": {}  // or appropriate initial value
-   });
-   ```
+### Client Actions
 
-2. **Use consistent patch paths**:
-   - Game state: `/game/myNewProperty/...`
-   - UI state: `/ui/myNewProperty/...`
+#### Table Management
+```json
+// Create table
+{
+  "action": "createTable",
+  "bundleId": "tic-tac-toe",
+  "minPlayers": 2,         // optional
+  "maxPlayers": 2          // optional
+}
 
-3. **Document the new property** in this file
+// Claim seat
+{
+  "action": "claimSeat",
+  "tableId": "table_123",
+  "seatIndex": 0
+}
 
-4. **Test patch operations** work with both empty and populated states
+// Release seat
+{
+  "action": "releaseSeat",
+  "tableId": "table_123",
+  "seatIndex": 0
+}
 
-### Example: Adding Selection Support
+// Set ready state
+{
+  "action": "setReady",
+  "tableId": "table_123",
+  "ready": true
+}
+```
 
-When Go Fish needed to track selected ranks, we:
-1. Added `"selection": {}` to initial state
-2. Used the setState verb to add properties: `/selection/selectedRank`
-3. Generated patches with appropriate operations ("add" for new keys)
+#### Chat
+```json
+{
+  "action": "sendChatMessage",
+  "message": "Hello everyone!",
+  "scope": "lobby",        // or "table"
+  "tableId": null          // or "table_123" for table chat
+}
+```
 
-## Common Pitfalls
+## State Synchronization Flow
 
-1. **Mixing data sources**: Don't look for game state in `lobbyState.ui` or UI data in `lobbyState.game`
-2. **Wrong patch prefixes**: Game state patches use `/game`, UI patches use `/ui`
-3. **Assuming state structure**: Always check if objects exist before accessing
-4. **Direct state mutation**: Never modify state directly, always use patches
-5. **All-or-nothing patch failures**: Apply patches individually to handle partial failures
-6. **Missing parent paths**: Ensure nested objects exist before applying patches to them
-7. **Not initializing state properties**: Always add new properties to `load_initial_state` to avoid patch failures
+1. **Join Lobby**: Connect and receive lobby state with tables
+2. **Browse Tables**: See all tables and their seat availability  
+3. **Claim Seat**: Atomically claim an available seat
+4. **Ready Up**: Mark yourself ready when prepared to play
+5. **Countdown**: 10-second countdown when all players ready
+6. **Game Start**: Transition from table to active game
+7. **Play Game**: Standard game flow with patches
+8. **Game End**: Table transitions to Finished state
+9. **Return to Lobby**: Can create or join new tables
+
+## Benefits of Table Architecture
+
+1. **Social Persistence**: Players stay in lobby between games
+2. **Self-Organization**: Players create and name their own tables
+3. **No Race Conditions**: Atomic seat claiming prevents conflicts
+4. **Clear Intent**: Ready system ensures all players want to start
+5. **Spectator Support**: Non-seated players can watch games
+6. **Flexible Matching**: Support for 2-8 player games at tables
+7. **Dual Chat**: Separate lobby and table conversations
+
+## Client Implementation Notes
+
+### React Client Patterns
+
+```typescript
+// Check if seated at any table
+const myTable = lobbyState.tables.find(table =>
+  table.seats.some(seat => seat?.playerId === username)
+);
+
+// Get my seat index
+const mySeatIndex = myTable?.seats.findIndex(
+  seat => seat?.playerId === username
+);
+
+// Check if ready to start
+const allReady = myTable?.seats.every((seat, idx) => 
+  seat === null || myTable.readyStates[idx]
+);
+
+// Countdown timer
+const timeLeft = myTable?.countdownEndsAt 
+  ? Math.max(0, myTable.countdownEndsAt - Date.now() / 1000)
+  : null;
+```
+
+### Managing Table State
+
+```typescript
+// Handle seat claiming with optimistic updates
+const claimSeat = async (tableId: string, seatIndex: number) => {
+  // Optimistic update
+  updateTableSeats(tableId, seatIndex, { playerId: myId, username: myName });
+  
+  // Send to server
+  socket.send({ action: 'claimSeat', tableId, seatIndex });
+  
+  // Server will send authoritative update
+};
+```
+
+## Table System Implementation Status
+
+The table system is the primary architecture with auto-seat assignment:
+
+1. **Current Standard**: Table system with `createTable`/`joinTable` is the primary API
+2. **Auto-Seat Assignment**: Players use `joinTable` for automatic seat claiming
+3. **Multiple Tables**: Lobbies support multiple concurrent tables per lobby
+4. **Production Ready**: Table system validated for production use (Phase A completed)
+
+## Common Patterns
+
+### Table Status Checks
+```typescript
+const canClaimSeat = (table, seatIndex) => {
+  return table.status === 'Open' && 
+         table.seats[seatIndex] === null &&
+         !isSeatedAtAnyTable();
+};
+
+const canStartCountdown = (table) => {
+  const seatedCount = table.seats.filter(s => s !== null).length;
+  const allReady = table.seats.every((seat, idx) => 
+    seat === null || table.readyStates[idx]
+  );
+  return seatedCount >= table.minPlayers && allReady;
+};
+```
+
+### Chat Scoping
+```typescript
+// Send to appropriate chat
+const sendChat = (message: string) => {
+  if (currentTable) {
+    socket.send({ 
+      action: 'sendChatMessage', 
+      message, 
+      scope: 'table',
+      tableId: currentTable.id 
+    });
+  } else {
+    socket.send({ 
+      action: 'sendChatMessage', 
+      message, 
+      scope: 'lobby' 
+    });
+  }
+};
+```
+
+## Error Handling
+
+Common error responses from the server:
+
+- "Seat already taken" - Another player claimed the seat first
+- "Already seated at a table" - Player can only sit at one table
+- "Cannot claim seat during countdown" - Table is about to start
+- "Table not found" - Table was deleted or doesn't exist
+- "Not seated at this table" - Trying to ready up without a seat

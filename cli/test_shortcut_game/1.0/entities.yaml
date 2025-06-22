@@ -1,0 +1,8 @@
+# This will be expanded by the shortcut processor
+# For now, just create a simple entity list
+- id: token_p1
+  type: token
+  owner: p1
+- id: token_p2  
+  type: token
+  owner: p2

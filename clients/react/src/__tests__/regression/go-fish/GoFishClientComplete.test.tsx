@@ -49,6 +49,50 @@ vi.mock('../../../context/PlayerContext', () => ({
   }),
 }));
 
+// Mock the AnimationContext
+vi.mock('../../../context/AnimationContext', () => ({
+  useAnimationsEnabled: vi.fn(() => true),
+  useAnimation: vi.fn(() => ({
+    state: { isAnimating: false, config: { enableAnimations: true } },
+    updateConfig: vi.fn(),
+    addAnimation: vi.fn(),
+    removeAnimation: vi.fn(),
+    clearQueue: vi.fn(),
+    isAnimating: false
+  }))
+}));
+
+// Mock the PlayerPreferencesContext
+vi.mock('../../../context/PlayerPreferencesContext', () => ({
+  usePlayerPreferences: vi.fn(() => ({
+    preferences: { 
+      username: 'Alice', 
+      color: '#ff0000',
+      tokenId: 'classic',
+      showOpponentTokens: true,
+      colorSchemeId: 'default',
+      cardStyleId: 'classic'
+    },
+    isLoggedIn: true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    updatePreferences: vi.fn(),
+    updateToken: vi.fn(),
+    updateColorScheme: vi.fn(),
+    updatePlayerColor: vi.fn(),
+    updateShowOpponentTokens: vi.fn(),
+    updateCardStyle: vi.fn(),
+    updateColor: vi.fn()
+  })),
+  PlayerPreferencesProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePlayer: vi.fn(() => ({
+    player: { username: 'Alice', color: '#ff0000' },
+    login: vi.fn(),
+    logout: vi.fn(),
+    updateColor: vi.fn()
+  }))
+}));
+
 /**
  * Complete E2E regression tests for Go Fish
  * Tests the full game flow including UI interactions, action processing, and game logs

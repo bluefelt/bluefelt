@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import BoardZone from '../BoardZone';
+import { AnimationProvider } from '../../../context/AnimationContext';
+import { ReactNode } from 'react';
 
 // Mock the PlayerContext
 vi.mock('../../../context/PlayerContext', () => ({
@@ -13,6 +15,19 @@ vi.mock('../../../context/PlayerContext', () => ({
 vi.mock('../../../hooks/useMarkColor', () => ({
   useMarkColor: () => () => '#ff0000'
 }));
+
+// Mock ActionIndicator hook and component
+vi.mock('../../ActionIndicator', () => ({
+  useHasAction: () => ({ hasAction: false, isMultiStepAction: false }),
+  ActionIndicator: ({ hasAction, isMultiStep }: any) => hasAction ? <div>Action Available</div> : null
+}));
+
+// Test wrapper
+const TestWrapper = ({ children }: { children: ReactNode }) => (
+  <AnimationProvider>
+    {children}
+  </AnimationProvider>
+);
 
 describe('BoardZone Selection State', () => {
   const defaultProps = {
@@ -41,7 +56,7 @@ describe('BoardZone Selection State', () => {
       col: 1
     };
 
-    render(<BoardZone {...defaultProps} selection={selection} />);
+    render(<BoardZone {...defaultProps} selection={selection} />, { wrapper: TestWrapper });
 
     // Find the cell that should be selected
     const selectedCell = screen.getByTestId('cell-1-1');
@@ -56,7 +71,7 @@ describe('BoardZone Selection State', () => {
       }
     };
 
-    render(<BoardZone {...defaultProps} selection={selection} />);
+    render(<BoardZone {...defaultProps} selection={selection} />, { wrapper: TestWrapper });
 
     // Find the cell that should be selected
     const selectedCell = screen.getByTestId('cell-1-1');
@@ -71,7 +86,7 @@ describe('BoardZone Selection State', () => {
       }
     };
 
-    render(<BoardZone {...defaultProps} selection={selection} />);
+    render(<BoardZone {...defaultProps} selection={selection} />, { wrapper: TestWrapper });
 
     // Find the cell that should be selected
     const selectedCell = screen.getByTestId('cell-1-1');
@@ -79,7 +94,7 @@ describe('BoardZone Selection State', () => {
   });
 
   it('should not highlight cells when no selection', () => {
-    render(<BoardZone {...defaultProps} selection={null} />);
+    render(<BoardZone {...defaultProps} selection={null} />, { wrapper: TestWrapper });
 
     // All cells should have normal borders
     const cells = screen.getAllByTestId(/cell-\d-\d/);
@@ -101,7 +116,7 @@ describe('BoardZone Selection State', () => {
       }
     };
 
-    render(<BoardZone {...defaultProps} selection={selection} />);
+    render(<BoardZone {...defaultProps} selection={selection} />, { wrapper: TestWrapper });
 
     // Only p1's selection should be highlighted (since we're checking all players)
     const selectedCell1 = screen.getByTestId('cell-0-0');
@@ -119,7 +134,7 @@ describe('BoardZone Selection State', () => {
       }
     };
 
-    render(<BoardZone {...defaultProps} selection={selection} />);
+    render(<BoardZone {...defaultProps} selection={selection} />, { wrapper: TestWrapper });
 
     // No cells should be highlighted
     const cells = screen.getAllByTestId(/cell-\d-\d/);

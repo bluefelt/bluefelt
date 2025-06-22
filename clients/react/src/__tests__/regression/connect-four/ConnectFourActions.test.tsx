@@ -162,7 +162,14 @@ describe('Connect Four Action Generation and Handling', () => {
         ...mockLobbyState.ui,
         actionMap: {
           p1: {
-            '/zones/board/columns/3': { action: 'dropDisc', targetColumn: 3 }
+            '/zones/board/columns/3': { 
+              action: 'dropDisc',
+              args: {
+                targetColumn: 3,
+                location: '/zones/board/columns/3',
+                player: 'p1'
+              }
+            }
           }
         }
       }
@@ -187,9 +194,9 @@ describe('Connect Four Action Generation and Handling', () => {
       JSON.stringify({
         action: 'dropDisc',
         args: {
-          zone: '/zones/board',
           targetColumn: 3,
-          entity: 'disc_p1'
+          location: '/zones/board/columns/3',
+          player: 'p1'
         }
       })
     );

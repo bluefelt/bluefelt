@@ -21,7 +21,7 @@ fn test_client_server_action_compatibility() {
         // Tic-Tac-Toe
         ClientAction {
             game: "tic-tac-toe",
-            action: "placeMarker",
+            action: "placeMark",
             args: json!({
                 "location": "/zones/board/cells/0/0",
                 "entity": "mark_p1"
@@ -33,7 +33,7 @@ fn test_client_server_action_compatibility() {
         // Connect Four
         ClientAction {
             game: "connect-four",
-            action: "dropDisc",
+            action: "dropChecker",
             args: json!({
                 "targetColumn": 1
             }),

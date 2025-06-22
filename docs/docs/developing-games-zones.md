@@ -189,6 +189,60 @@ contents:
       entity: "white_knight"
 ```
 
+## RenderType Compatibility and Server-Client Mapping
+
+**CRITICAL**: The server's zone authority system (in `zone_authority.rs`) correctly classifies zones but there can be serialization issues where `shape` values get sent as `renderType` values instead of the correct client-expected types.
+
+### Server Shape to Client RenderType Mapping
+
+| Server `shape` | Client `renderType` | Notes |
+|---------------|-------------------|-------|
+| `"grid"` | `"grid"` | Direct mapping for 2D grids |
+| `"list"` | `"card"` | Linear zones rendered as card layouts |
+| `"stack"` | `"card"` | Stacks rendered as card layouts (NOT `"stack"`) |
+| `"pool"` | `"card"` | Unordered collections as card layouts |
+| `"choice"` | `"choice"` | Direct mapping for choice zones |
+| `"hexgrid"` | `"hex"` | Hex grids with special handling |
+| `"track"` | `"view"` | Linear tracks as view zones |
+
+### Client Compatibility Requirements
+
+The client's `TieredZoneRenderer.tsx` and `GameZones.tsx` must handle legacy/alternative renderTypes:
+
+```typescript
+// TieredZoneRenderer.tsx compatibility
+switch (zone.renderType) {
+  case 'card':
+  case 'stack':  // Legacy compatibility
+    return <CardZone key={zone.id} {...props} />;
+  case 'grid':
+    return <BoardZone key={zone.id} {...props} />;
+  case 'hex':
+  case 'hexgrid':  // Legacy compatibility
+    return <HexBoard key={zone.id} {...props} />;
+  case 'choice':
+    return <ChoiceZone key={zone.id} {...props} />;
+  case 'view':
+    return <ViewZone key={zone.id} {...props} />;
+  default:
+    console.warn(`Unknown renderType: ${zone.renderType}`);
+    return <div>Unknown zone type: {zone.renderType}</div>;
+}
+```
+
+### Common Serialization Issues
+
+1. **Stack Zones**: Server may send `renderType: "stack"` but client expects `renderType: "card"`
+2. **Missing renderType**: Some zones may not have `renderType` set, requiring fallback logic
+3. **Case Sensitivity**: Ensure consistent casing between server and client
+
+### Zone Authority Implementation Notes
+
+The server's zone authority system in `server/src/engine/zone_authority.rs` should ensure:
+- Correct `renderType` is set during zone serialization
+- `shape: "stack"` zones are serialized with `renderType: "card"`
+- All zones include a valid `renderType` field for client rendering
+
 ## Zone Types Deep Dive
 
 ### Grid Zones
@@ -921,10 +975,44 @@ The gravity behavior is implemented through the `placeWithGravity` verb in actio
 - Entities "fall" to the bottom-most available position
 - Full columns are automatically invalid targets
 
+**CRITICAL: Action Map Path Format for Gravity Games**
+
+For gravity-based games like Connect Four, the action map uses special column-based paths:
+- Format: `/zones/board/columns/{n}` (where n is the column index)
+- NOT: `/zones/board/cells/0/{n}` (this is incorrect)
+
+Example action map for Connect Four:
+```json
+{
+  "p1": {
+    "/zones/board/columns/0": {
+      "action": "drop_disc",
+      "direction": "Drop disc in column 1",
+      "args": {
+        "zone": "/zones/board",
+        "column": 0,
+        "entity": "disc_p1"
+      }
+    },
+    "/zones/board/columns/1": {
+      "action": "drop_disc",
+      "direction": "Drop disc in column 2",
+      "args": {
+        "zone": "/zones/board",
+        "column": 1,
+        "entity": "disc_p1"
+      }
+    }
+    // ... etc for all non-full columns
+  }
+}
+```
+
 **Client interaction pattern:**
 - Action map generates column-based paths: `/zones/board/columns/3`
 - Visual affordances show column drop zones above the board
 - The generic client detects and renders these automatically
+- Clients should check for both path formats for compatibility
 
 ### Line Detection
 
@@ -1090,6 +1178,97 @@ While zones define structure, actions can implement complex behaviors:
     - "award_to_highest_bidder"
 ```
 
+## Zone Interactions and Action Maps
+
+### How Zones Enable Player Actions
+
+Zones work together with the action map system to enable player interactions. The server generates action maps that tell the client which zones or zone locations are clickable at any given time.
+
+### Single-Step Actions
+
+For simple actions like placing a piece, the action map contains direct zone locations:
+
+```json
+{
+  "p1": {
+    "/zones/board/cells/0/0": {
+      "action": "placeMark",
+      "direction": "Click to place your marker",
+      "args": {
+        "location": "/zones/board/cells/0/0",
+        "entity": "mark_p1"
+      }
+    },
+    "/zones/board/cells/0/1": { ... }
+  }
+}
+```
+
+### Multi-Step Actions in Zones
+
+Multi-step actions (like selecting a piece then moving it) appear as single entries in the action map:
+
+```json
+{
+  "p1": {
+    "_multiStep_movePiece": {
+      "action": "movePiece",
+      "isMultiStep": true,
+      "direction": "Select a piece to move"
+    }
+  }
+}
+```
+
+**Important**: Multi-step actions do NOT generate individual action map entries for each step. Instead:
+1. The action map contains one entry with `isMultiStep: true`
+2. When clicked, the client enters multi-step mode
+3. The server tracks the multi-step state internally
+4. Each step updates the UI dynamically
+
+### Zone-Based Multi-Step Example
+
+Three Men's Morris movement phase:
+```yaml
+# In actions.yaml
+- id: "movePiece"
+  uses: "multiStep"
+  steps:
+    - id: "selectPiece"
+      uses: "selectEntity"
+      ui:
+        direction: "Select a piece to move"
+      conditions:
+        - type: "entity_owned_by_current_player"
+    - id: "selectDestination"
+      uses: "moveEntity"
+      ui:
+        direction: "Select destination"
+      conditions:
+        - type: "cell_empty"
+        - type: "adjacent_cells"
+```
+
+The resulting action map shows only:
+```json
+{
+  "p1": {
+    "_multiStep_movePiece": {
+      "action": "movePiece",
+      "isMultiStep": true,
+      "direction": "Select a piece to move"
+    }
+  }
+}
+```
+
+### Client Implementation Notes
+
+1. **Don't hardcode zone interactions** - Always use the action map
+2. **Handle both action map formats** - Direct paths and multi-step entries  
+3. **Check for `isMultiStep` flag** - These require special UI handling
+4. **Zone clicks should check the action map** - Never assume a zone is clickable
+
 ## Best Practices
 
 ### Zone Design Guidelines
@@ -1250,4 +1429,325 @@ While zones define structure, actions can implement complex behaviors:
      warningAt: 15          # User feedback
    ```
 
-This comprehensive guide covers all aspects of zone development in Bluefelt. Use it to create well-structured, efficient game spaces that enhance gameplay while maintaining performance and usability.
+---
+
+# Hex Grid Zones
+
+Bluefelt supports hex grid zones for games like Catan, 18xx series, Ark Nova, and Cascadia. The hex grid implementation follows Bluefelt's data-driven architecture while providing powerful hex grid capabilities.
+
+## Hex Grid Zone Definition
+
+### Basic Hex Grid
+
+```yaml
+- id: "hex_board"
+  shape: "hexgrid"
+  shapeMeta:
+    layout: "flat"        # flat (⬢) or pointy (⬡)
+    size: 7               # radius for hexagonal board
+    # OR rectangular:
+    rows: 10
+    cols: 10
+```
+
+### Advanced Hex Options
+
+```yaml
+- id: "modular_board"
+  shape: "hexgrid"
+  shapeMeta:
+    layout: "flat"
+    preset: "catan"       # predefined layouts
+    coordinates: "axial"  # axial, cube, offset
+    wrapX: false          # cylindrical wrapping
+    wrapY: false
+```
+
+## Coordinate Systems
+
+Bluefelt supports three coordinate systems with automatic conversion:
+
+1. **Axial Coordinates** (q, r)
+   - Most intuitive for hex algorithms
+   - Easy neighbor calculation
+   - Default system
+
+2. **Cube Coordinates** (x, y, z) where x + y + z = 0
+   - Best for distance calculations
+   - Natural for rotations
+   - Used internally for math
+
+3. **Offset Coordinates** (col, row)
+   - Familiar grid-like addressing
+   - Good for storage/display
+   - Optional for specific games
+
+## Hex-Specific Verbs
+
+### `hex.place`
+Places entities on hex grids with adjacency rules.
+
+```yaml
+- verb: "hex.place"
+  args:
+    zone: "/zones/hex_board"
+    entity: "habitat_tile"
+    location: "{target}"
+    requireAdjacent: true
+    matchingEdges: ["forest", "river"]
+```
+
+### `hex.moveAlongPath`
+Moves entities along hex paths with distance limits.
+
+```yaml
+- verb: "hex.moveAlongPath"  
+  args:
+    from: "{source}"
+    to: "{target}"
+    maxDistance: 3
+    costProperty: "terrain_cost"
+```
+
+### `hex.checkPattern`
+Checks for hex patterns like lines or clusters.
+
+```yaml
+- verb: "hex.checkPattern"
+  args:
+    zone: "/zones/hex_board"
+    patterns:
+      - type: "line"
+        entity: "railroad_track"
+        length: 3
+      - type: "cluster"
+        entity: "city"
+        size: 4
+```
+
+### `hex.calculateTerritory`
+Calculates territory control and scoring.
+
+```yaml
+- verb: "hex.calculateTerritory"
+  args:
+    zone: "/zones/hex_board"
+    playerProperty: "owner"
+    scoreBy: "largest_region"
+```
+
+## Edge and Vertex Support
+
+### Catan-Style Placement
+
+```yaml
+# Define zones for vertices and edges
+- id: "settlements"
+  shape: "hexgrid_vertices"
+  shapeMeta:
+    parentZone: "hex_board"
+    
+- id: "roads"  
+  shape: "hexgrid_edges"
+  shapeMeta:
+    parentZone: "hex_board"
+
+# Actions for edge/vertex placement
+- id: "place_settlement"
+  uses: "hex.placeOnVertex"
+  conditions:
+    - type: "hex.vertexEmpty"
+    - type: "hex.distanceFromOtherVertices"
+      minDistance: 2
+      entity: "settlement_{player}"
+
+- id: "place_road"
+  uses: "hex.placeOnEdge"  
+  conditions:
+    - type: "hex.edgeEmpty"
+    - type: "hex.connectedToPlayerNetwork"
+      entity: "road_{player}"
+```
+
+### Path Building (18xx Style)
+
+```yaml
+# Track overlay system
+- verb: "hex.overlayTrack"
+  args:
+    hex: "{target}"
+    tile: "yellow_curve"
+    rotation: "{rotation}"
+    exits: [0, 2]  # connected edges
+    
+# Track connection validation
+- verb: "hex.validateConnections"
+  args:
+    zone: "/zones/rail_map"
+    checkContinuity: true
+    allowJunctions: true
+```
+
+## Multi-Hex Entities (Polyominoes)
+
+### Ark Nova Style Tiles
+
+```yaml
+# Define multi-hex shapes
+entities:
+  - id: "elephant_enclosure"
+    hex_shape:
+      pattern: [[1,1,1], [0,1,0]]  # T-shape
+      anchor: [1, 0]  # rotation point
+
+# Placement verb
+- verb: "hex.placePolyomino"
+  args:
+    zone: "/zones/zoo"
+    entity: "{selected_enclosure}"
+    anchor: "{target}"
+    rotation: "{rotation}"
+    requireFit: true
+    checkAdjacency: "water"
+```
+
+## Client Rendering
+
+### Generic Hex Grid Component
+
+```typescript
+// Enhanced BoardZone component handles hex grids
+interface HexGridProps {
+  layout: 'flat' | 'pointy';
+  coordinates: 'axial' | 'offset' | 'cube';
+  showCoordinates: boolean;
+  hexSize: number;
+  orientation: number; // rotation in degrees
+}
+
+// Hex grid automatically detects and renders:
+// - Hex cells with proper spacing
+// - Edge placement zones (between hexes)
+// - Vertex placement zones (hex corners)
+// - Multi-hex entity overlays
+// - Path/connection indicators
+```
+
+### Visual Configuration
+
+```yaml
+ui:
+  hexGrid:
+    # Coordinate display
+    coordinateStyle: "alphanumeric"  # A1, B2, etc.
+    showCoordinates: true
+    coordinatePosition: "center"  # or "top"
+    
+    # Hex rendering
+    hexSize: 40  # pixels from center to corner
+    hexSpacing: 2  # gap between hexes
+    
+    # Visual styles
+    hexStyle: "filled"  # filled, outline, textured
+    borderWidth: 2
+    borderColor: "#333"
+    
+    # Terrain/property visualization
+    terrainColors:
+      plains: "#90EE90"
+      forest: "#228B22"
+      mountain: "#8B7355"
+      water: "#4682B4"
+    
+    # Connection indicators
+    showConnections: true
+    connectionStyle: "track"  # track, road, path
+    connectionWidth: 4
+```
+
+## Migration from Grid to Hex
+
+Existing grid games can optionally migrate to hex grids:
+
+```yaml
+# Before (square grid)
+- id: "board"
+  shape: "grid"
+  shapeMeta:
+    rows: 10
+    cols: 10
+
+# After (hex grid)
+- id: "board"
+  shape: "hexgrid"
+  shapeMeta:
+    layout: "pointy"
+    rows: 10
+    cols: 10
+    coordinates: "offset"  # familiar row/col addressing
+```
+
+## Game Examples
+
+### Catan-Style Resource Map
+
+```yaml
+- id: "resource_map"
+  shape: "hexgrid"
+  shapeMeta:
+    layout: "flat"
+    preset: "catan_classic"
+    coordinates: "axial"
+
+- id: "settlements"
+  shape: "hexgrid_vertices"
+  shapeMeta:
+    parentZone: "resource_map"
+
+- id: "roads"
+  shape: "hexgrid_edges"
+  shapeMeta:
+    parentZone: "resource_map"
+```
+
+### 18xx Track Building
+
+```yaml
+- id: "railway_map"
+  shape: "hexgrid"
+  shapeMeta:
+    layout: "flat"
+    size: 15
+    coordinates: "axial"
+    allowOverlays: true
+
+# Track placement action
+- id: "place_track"
+  uses: "hex.overlayTrack"
+  with:
+    validateConnections: true
+    costByTerrain: true
+```
+
+### Hex Territory Control
+
+```yaml
+- id: "territory_map"
+  shape: "hexgrid"
+  shapeMeta:
+    layout: "pointy"
+    rows: 12
+    cols: 12
+
+# Territory calculation
+- id: "calculate_control"
+  uses: "hex.calculateTerritory"
+  auto: true
+  with:
+    scoreBy: "connected_regions"
+    minimumSize: 3
+```
+
+---
+
+This comprehensive guide covers all aspects of zone development in Bluefelt, including traditional grids and advanced hex grid systems. Use it to create well-structured, efficient game spaces that enhance gameplay while maintaining performance and usability.

@@ -1,0 +1,14 @@
+{
+  "gameId": "old-maid",
+  "version": "1.0",
+  "specVersion": "1.0",
+  "metadata": {
+    "name": "Old Maid",
+    "description": "Classic card matching game where players avoid the Old Maid",
+    "author": "Traditional",
+    "players": {
+      "min": 2,
+      "max": 6
+    }
+  }
+}

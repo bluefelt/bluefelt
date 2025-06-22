@@ -1,0 +1,14 @@
+{
+  "gameId": "hex-tic-tac-toe",
+  "version": "1.0",
+  "specVersion": "1.0",
+  "metadata": {
+    "name": "Hex Tic-Tac-Toe",
+    "description": "Classic three-in-a-row game on a hexagonal grid",
+    "author": "Claude",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  }
+}

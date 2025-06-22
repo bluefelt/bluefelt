@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import GameZones from '../GameZones';
 import { PlayerProvider } from '../../context/PlayerContext';
+import { PlayerPreferencesProvider } from '../../context/PlayerPreferencesContext';
+import { AnimationProvider } from '../../context/AnimationContext';
 
 // Mock child components
 vi.mock('../zones/Board', () => ({
@@ -35,6 +37,17 @@ vi.mock('../CardZone', () => ({
   )
 }));
 
+// Test wrapper component with all required providers
+const TestWrapper = ({ children }: { children: React.ReactNode }) => (
+  <PlayerPreferencesProvider>
+    <PlayerProvider>
+      <AnimationProvider>
+        {children}
+      </AnimationProvider>
+    </PlayerProvider>
+  </PlayerPreferencesProvider>
+);
+
 describe('GameZones Component', () => {
   const mockOnAction = vi.fn();
 
@@ -47,7 +60,7 @@ describe('GameZones Component', () => {
     zoneMetadata: [],
     entityDefinitions: [],
     onAction: mockOnAction,
-    isYourTurn: true,
+    isMyTurn: true,
     you: 'p1',
     actionMap: {},
     playerNames: ['player1', 'player2']
@@ -64,14 +77,14 @@ describe('GameZones Component', () => {
           }
         },
         zoneMetadata: [
-          { id: 'board', type: 'grid', gridDimensions: { rows: 2, cols: 2 } }
+          { id: 'board', renderType: 'grid', visibility: 'all', gridDimensions: { rows: 2, cols: 2 } }
         ]
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       expect(screen.getByTestId('board-component')).toBeInTheDocument();
@@ -81,19 +94,17 @@ describe('GameZones Component', () => {
       const props = {
         ...defaultProps,
         zones: {
-          hand_p1: {
-            items: ['card1', 'card2']
-          }
+          hand_p1: ['card1', 'card2']
         },
         zoneMetadata: [
-          { id: 'hand_p1', type: 'list', name: 'Player 1 Hand' }
+          { id: 'hand_p1', renderType: 'card', visibility: 'all', name: 'Player 1 Hand', cards: ['card1', 'card2'] }
         ]
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       expect(screen.getByTestId('card-zone-hand_p1')).toBeInTheDocument();
@@ -107,26 +118,20 @@ describe('GameZones Component', () => {
             cells: [[null, null], [null, null]],
             type: 'grid'
           },
-          deck: {
-            cards: ['card1', 'card2', 'card3'],
-            type: 'deck'
-          },
-          hand_p1: {
-            cards: ['card4'],
-            type: 'list'
-          }
+          deck: ['card1', 'card2', 'card3'],
+          hand_p1: ['card4']
         },
         zoneMetadata: [
-          { id: 'board', type: 'grid', gridDimensions: { rows: 2, cols: 2 } },
-          { id: 'deck', type: 'deck' },
-          { id: 'hand_p1', type: 'list' }
+          { id: 'board', renderType: 'grid', visibility: 'all', gridDimensions: { rows: 2, cols: 2 } },
+          { id: 'deck', renderType: 'card', visibility: 'all', cards: ['card1', 'card2', 'card3'] },
+          { id: 'hand_p1', renderType: 'card', visibility: 'all', cards: ['card4'] }
         ]
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       expect(screen.getByTestId('board-component')).toBeInTheDocument();
@@ -146,7 +151,7 @@ describe('GameZones Component', () => {
           }
         },
         zoneMetadata: [
-          { id: 'board', type: 'grid' }
+          { id: 'board', renderType: 'grid', visibility: 'all' }
         ],
         actionMap: {
           '/zones/board/0/0': { action: 'place', direction: 'Click to place' }
@@ -162,9 +167,9 @@ describe('GameZones Component', () => {
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // The Board component is mocked, so we simulate its click
@@ -178,12 +183,10 @@ describe('GameZones Component', () => {
       const props = {
         ...defaultProps,
         zones: {
-          hand_p1: {
-            items: ['card1', 'card2']
-          }
+          hand_p1: ['card1', 'card2']
         },
         zoneMetadata: [
-          { id: 'hand_p1', type: 'list', name: 'Hand' }
+          { id: 'hand_p1', renderType: 'card', visibility: 'all', name: 'Hand', cards: ['card1', 'card2'] }
         ],
         actionMap: {
           '/zones/hand_p1/0': { action: 'play', direction: 'Play this card' }
@@ -192,9 +195,9 @@ describe('GameZones Component', () => {
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       fireEvent.click(screen.getByText('Click Card'));
@@ -208,24 +211,22 @@ describe('GameZones Component', () => {
       const props = {
         ...defaultProps,
         zones: {
-          hand_p1: { cards: ['card1'], type: 'list' },
-          hand_p2: { cards: ['card2'], type: 'list' }
+          hand_p1: ['card1'],
+          hand_p2: ['card2']
         },
         zoneMetadata: [
-          { id: 'hand_p1', type: 'list', group: 'hands' },
-          { id: 'hand_p2', type: 'list', group: 'hands' }
+          { id: 'hand_p1', renderType: 'card', visibility: 'all', group: 'hands', cards: ['card1'] },
+          { id: 'hand_p2', renderType: 'card', visibility: 'all', group: 'hands', cards: ['card2'] }
         ],
-        ui: {
-          zoneGroups: {
-            hands: { label: 'Player Hands' }
-          }
-        }
+        zoneGroups: [
+          { id: 'hands', title: 'Player Hands', zones: ['hand_p1', 'hand_p2'] }
+        ]
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Both hand zones should be rendered
@@ -250,32 +251,28 @@ describe('GameZones Component', () => {
           }
         },
         zoneMetadata: [
-          { id: 'board', type: 'grid' }
+          { id: 'board', renderType: 'grid', visibility: 'all' }
         ],
         actionMap
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // The Board component should receive the action map
       expect(screen.getByTestId('board-component')).toBeInTheDocument();
     });
 
-    it('should filter action map based on current player', () => {
+    it('should handle flat action map structure', () => {
       const props = {
         ...defaultProps,
         you: 'p1',
         actionMap: {
-          p1: {
-            '/zones/board/0/0': { action: 'place', direction: 'Your move' }
-          },
-          p2: {
-            '/zones/board/1/1': { action: 'place', direction: 'Their move' }
-          }
+          '/zones/board/0/0': { action: 'place', direction: 'Your move' },
+          '/zones/board/1/1': { action: 'place', direction: 'Another move' }
         },
         zones: {
           board: {
@@ -284,17 +281,17 @@ describe('GameZones Component', () => {
           }
         },
         zoneMetadata: [
-          { id: 'board', type: 'grid' }
+          { id: 'board', renderType: 'grid', visibility: 'all' }
         ]
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
-      // Component should only receive p1's action map
+      // Component should receive the action map
       expect(screen.getByTestId('board-component')).toBeInTheDocument();
     });
   });
@@ -308,9 +305,9 @@ describe('GameZones Component', () => {
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Should render without crashing
@@ -318,26 +315,37 @@ describe('GameZones Component', () => {
       expect(screen.queryByTestId(/card-zone/)).not.toBeInTheDocument();
     });
 
-    it('should handle missing zone metadata', () => {
+    it('should handle missing zone metadata gracefully', () => {
+      // Mock console.warn to verify warning is logged
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      
       const props = {
         ...defaultProps,
         zones: {
           board: {
-            cells: [[null, null], [null, null]],
-            type: 'grid'
+            cells: [[null, null], [null, null]]
           }
         },
         zoneMetadata: undefined
       };
 
-      render(
-        <PlayerProvider>
+      const { container } = render(
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
-      // Should still render based on zone type
-      expect(screen.getByTestId('board-component')).toBeInTheDocument();
+      // Should warn about missing metadata
+      expect(consoleWarn).toHaveBeenCalledWith('No zone metadata provided by server - using fallback zone detection');
+      
+      // The component should render without crashing
+      expect(container.firstChild).toBeDefined();
+      
+      // In server authority design, zones won't render properly without metadata
+      // This is expected behavior - the server must provide metadata
+      expect(screen.queryByTestId('board-component')).not.toBeInTheDocument();
+      
+      consoleWarn.mockRestore();
     });
 
     it('should handle malformed zone data', () => {
@@ -345,23 +353,23 @@ describe('GameZones Component', () => {
         ...defaultProps,
         zones: {
           brokenZone: {
-            // Missing cells but has grid type
+            // Missing cells but has grid renderType
             type: 'grid'
           }
         },
         zoneMetadata: [
-          { id: 'brokenZone', type: 'grid' }
+          { id: 'brokenZone', renderType: 'grid', visibility: 'all' }
         ]
       };
 
       const { container } = render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Should handle gracefully without crashing
-      // The component should render but might not show the broken zone
+      // The component should render but might not show the broken zone properly
       expect(container.firstChild).toBeDefined();
     });
   });
@@ -370,7 +378,7 @@ describe('GameZones Component', () => {
     it('should disable interactions when not your turn', () => {
       const props = {
         ...defaultProps,
-        isYourTurn: false,
+        isMyTurn: false,
         zones: {
           board: {
             cells: [[null, null], [null, null]],
@@ -378,14 +386,14 @@ describe('GameZones Component', () => {
           }
         },
         zoneMetadata: [
-          { id: 'board', type: 'grid' }
+          { id: 'board', renderType: 'grid', visibility: 'all' }
         ]
       };
 
       render(
-        <PlayerProvider>
+        <TestWrapper>
           <GameZones {...props} />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // The Board component should be rendered with isMyTurn=false

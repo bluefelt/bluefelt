@@ -333,7 +333,7 @@ fn test_go_fish_action_map_generation() {
     apply_verb(&mut state, "setPhase", &set_phase_args, &bundle).expect("Failed to set phase");
     
     // Compute the action map
-    let action_map = Lobby::compute_action_map(&state, &bundle);
+    let action_map = bluefelt_core::lobby::action_map::compute_action_map(&state, &bundle);
     
     println!("Action map computed: {}", serde_json::to_string_pretty(&action_map).unwrap());
     

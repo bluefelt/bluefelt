@@ -1,0 +1,194 @@
+[
+  {
+    "id": "placeToken",
+    "then": [
+      {
+        "action": "checkForWin"
+      },
+      {
+        "action": "checkPhaseTransition"
+      },
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Place a piece on an empty intersection",
+      "logTemplate": "{player} placed a piece"
+    },
+    "uses": "place",
+    "when": [
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "{args.target}"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      },
+      {
+        "condition": "zone.count",
+        "with": {
+          "entity": "piece_{player}",
+          "operator": "<",
+          "value": 3,
+          "zone": "/zones/board"
+        }
+      },
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "placement",
+          "phaseSet": "game"
+        }
+      }
+    ],
+    "with": {
+      "entity": "piece_{player}",
+      "location": "{args.target}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkPhaseTransition",
+    "ui": {
+      "logTemplate": "All pieces placed - entering movement phase"
+    },
+    "uses": "setPhase",
+    "when": [
+      {
+        "condition": "zone.count",
+        "with": {
+          "entity": "piece_p1",
+          "operator": "==",
+          "value": 3,
+          "zone": "/zones/board"
+        }
+      },
+      {
+        "condition": "zone.count",
+        "with": {
+          "entity": "piece_p2",
+          "operator": "==",
+          "value": 3,
+          "zone": "/zones/board"
+        }
+      }
+    ],
+    "with": {
+      "phase": "movement",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "cancellable": true,
+    "confirmBeforeFinalizing": true,
+    "id": "movePiece",
+    "isMultiStep": true,
+    "result": {
+      "as": "moveEntity",
+      "ui": {
+        "logTemplate": "{player} moved a piece from {selectedPiece} to {destination}"
+      },
+      "with": {
+        "from": "{selectedPiece}",
+        "to": "{destination}"
+      }
+    },
+    "stateStore": [
+      "selectedPiece",
+      "destination"
+    ],
+    "steps": [
+      {
+        "as": "bf.selectEntity",
+        "id": "selectPiece",
+        "store": "selectedPiece",
+        "ui": {
+          "direction": "Select one of your pieces to move"
+        },
+        "with": {
+          "entityFilter": "piece_{player}",
+          "zone": "/zones/board"
+        }
+      },
+      {
+        "as": "bf.selectLocation",
+        "id": "selectDestination",
+        "store": "destination",
+        "ui": {
+          "direction": "Select an empty intersection to move to"
+        },
+        "with": {
+          "emptyOnly": true,
+          "zone": "/zones/board"
+        }
+      }
+    ],
+    "then": [
+      {
+        "action": "checkForWin"
+      },
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "confirmationPrompt": "Move piece to {destination}?",
+      "direction": "Move one of your pieces"
+    },
+    "when": [
+      {
+        "condition": "player.isActor"
+      },
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "movement",
+          "phaseSet": "game"
+        }
+      }
+    ]
+  },
+  {
+    "auto": true,
+    "id": "checkForWin",
+    "then": [
+      {
+        "action": "endGame"
+      }
+    ],
+    "uses": "grid.lineOfMarks",
+    "with": {
+      "directions": [
+        "horizontal",
+        "vertical",
+        "diagonal"
+      ],
+      "entity": "piece_{player}",
+      "lineLength": 3,
+      "zone": "/zones/board"
+    }
+  },
+  {
+    "auto": true,
+    "id": "endGame",
+    "ui": {
+      "logTemplate": "{player} wins with three in a row!"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "end",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "ui": {
+      "logTemplate": "Turn passes to {nextPlayer}"
+    },
+    "uses": "nextTurn"
+  }
+]

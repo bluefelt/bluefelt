@@ -1,0 +1,16 @@
+# Test different include approaches
+
+# First, we have zones directly in this file
+- id: deck
+  type: deck
+  visibility: hidden
+  
+- id: discard
+  type: list
+  visibility: public
+
+# Include more zones using string syntax
+- "!include parts/board_zones.yaml"
+- "!include parts/side_board.yaml"
+- "!include parts/hand_zones.yaml"
+- "!include parts/p2_hand.yaml"

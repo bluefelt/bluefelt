@@ -8,7 +8,7 @@ import GameView from '../../../components/GameView';
 import type { LobbyState, Phase, Zone, Entity } from '../../../types/messages';
 
 // Mock WebSocket
-let mockSendMessage = vi.fn();
+const mockSendMessage = vi.fn();
 
 // Mock useLobbyWebSocket
 const mockLobbyWebSocketReturn = {
@@ -67,6 +67,50 @@ vi.mock('../../../context/PlayerContext', () => ({
   })
 }));
 
+// Mock the AnimationContext
+vi.mock('../../../context/AnimationContext', () => ({
+  useAnimationsEnabled: vi.fn(() => true),
+  useAnimation: vi.fn(() => ({
+    state: { isAnimating: false, config: { enableAnimations: true } },
+    updateConfig: vi.fn(),
+    addAnimation: vi.fn(),
+    removeAnimation: vi.fn(),
+    clearQueue: vi.fn(),
+    isAnimating: false
+  }))
+}));
+
+// Mock the PlayerPreferencesContext
+vi.mock('../../../context/PlayerPreferencesContext', () => ({
+  usePlayerPreferences: vi.fn(() => ({
+    preferences: { 
+      username: 'Alice', 
+      color: '#ff0000',
+      tokenId: 'classic',
+      showOpponentTokens: true,
+      colorSchemeId: 'default',
+      cardStyleId: 'classic'
+    },
+    isLoggedIn: true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    updatePreferences: vi.fn(),
+    updateToken: vi.fn(),
+    updateColorScheme: vi.fn(),
+    updatePlayerColor: vi.fn(),
+    updateShowOpponentTokens: vi.fn(),
+    updateCardStyle: vi.fn(),
+    updateColor: vi.fn()
+  })),
+  PlayerPreferencesProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePlayer: vi.fn(() => ({
+    player: { username: 'Alice', color: '#ff0000' },
+    login: vi.fn(),
+    logout: vi.fn(),
+    updateColor: vi.fn()
+  }))
+}));
+
 describe('Three Mens Morris UI Synchronization', () => {
   let queryClient: QueryClient;
   let mockLobbyState: LobbyState;
@@ -113,15 +157,18 @@ describe('Three Mens Morris UI Synchronization', () => {
       },
       ui: {
         actionMap: {
-          '/zones/board/cells/0/0': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/0/1': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/0/2': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/1/0': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/1/1': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/1/2': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/2/0': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/2/1': { action: 'placeToken', direction: 'Place a piece' },
-          '/zones/board/cells/2/2': { action: 'placeToken', direction: 'Place a piece' }
+          p1: {
+            '/zones/board/cells/0/0': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/0/1': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/0/2': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/1/0': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/1/1': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/1/2': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/2/0': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/2/1': { action: 'placeToken', direction: 'Place a piece' },
+            '/zones/board/cells/2/2': { action: 'placeToken', direction: 'Place a piece' }
+          },
+          p2: {}
         },
         players: ['Alice', 'Bob'],
         entities: [
@@ -131,10 +178,10 @@ describe('Three Mens Morris UI Synchronization', () => {
         zones: [
           { 
             id: 'board', 
-            type: 'grid', 
-            name: 'Game Board', 
+            renderType: 'grid', 
+            name: 'Board', 
             visibility: 'all',
-            gridProps: { rows: 3, cols: 3 } 
+            gridDimensions: { rows: 3, cols: 3 } 
           }
         ],
         gameLog: [],
@@ -180,7 +227,7 @@ describe('Three Mens Morris UI Synchronization', () => {
 
     // Wait for the game to load and check basic structure
     await waitFor(() => {
-      expect(screen.getByText('Three Mens Morris game')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Three Mens Morris' })).toBeInTheDocument();
     });
 
     // Look for any board elements - be more flexible about test IDs
@@ -212,7 +259,7 @@ describe('Three Mens Morris UI Synchronization', () => {
 
     // Wait for game to load
     await waitFor(() => {
-      expect(screen.getByText('Three Mens Morris game')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Three Mens Morris' })).toBeInTheDocument();
     });
 
     // Verify game is interactive - look for any interactive elements
@@ -264,7 +311,7 @@ describe('Three Mens Morris UI Synchronization', () => {
 
     // Wait for game to load
     await waitFor(() => {
-      expect(screen.getByText('Three Mens Morris game')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Three Mens Morris' })).toBeInTheDocument();
     });
 
     // Verify game zones are rendered
@@ -313,7 +360,7 @@ describe('Three Mens Morris UI Synchronization', () => {
 
     // Wait for game to load
     await waitFor(() => {
-      expect(screen.getByText('Three Mens Morris game')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Three Mens Morris' })).toBeInTheDocument();
     });
 
     // Verify game zones are rendered

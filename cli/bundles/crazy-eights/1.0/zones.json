@@ -1,0 +1,30 @@
+[
+  {
+    "contents": "standardDeck",
+    "id": "drawPile",
+    "name": "Draw Pile",
+    "shape": "stack",
+    "shapeMeta": {
+      "shuffle": true
+    },
+    "visibility": "count"
+  },
+  {
+    "id": "discardPile",
+    "name": "Discard Pile",
+    "shape": "stack",
+    "visibility": "all"
+  },
+  {
+    "id": "hand_{player}",
+    "name": "{player} Hand",
+    "shape": "list",
+    "visibility": "owner"
+  },
+  {
+    "id": "suitChoice_{player}",
+    "name": "Choose Suit",
+    "shape": "choice",
+    "visibility": "owner"
+  }
+]

@@ -1,0 +1,153 @@
+[
+  {
+    "id": "place_mark",
+    "then": [
+      {
+        "action": "checkWin"
+      }
+    ],
+    "ui": {
+      "direction": "Click an empty hex to place your mark",
+      "logTemplate": "{currentPlayer} placed a mark at {args.location}"
+    },
+    "uses": "place",
+    "when": [
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "{args.location}"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      },
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "playing",
+          "phaseSet": "game"
+        }
+      }
+    ],
+    "with": {
+      "entity": "mark_{currentPlayer}",
+      "location": "{args.location}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkWin",
+    "then": [
+      {
+        "action": "conditionalAction",
+        "with": {
+          "conditions": [
+            {
+              "condition": "property.exists",
+              "with": {
+                "path": "/meta/winner"
+              }
+            }
+          ],
+          "ifFalse": [
+            {
+              "action": "checkTie"
+            }
+          ],
+          "ifTrue": [
+            {
+              "action": "declareWinner"
+            }
+          ]
+        }
+      }
+    ],
+    "uses": "checkHexWin",
+    "with": {
+      "lastMove": "{args.location}",
+      "lineLength": 3,
+      "player": "{currentPlayer}",
+      "zone": "/zones/hex_board"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkTie",
+    "uses": "conditionalAction",
+    "with": {
+      "conditions": [
+        {
+          "condition": "zone.isFull",
+          "with": {
+            "zone": "/zones/hex_board"
+          }
+        }
+      ],
+      "ifFalse": [
+        {
+          "action": "advanceTurn"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "declareTie"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "declareWinner",
+    "then": [
+      {
+        "action": "endGame"
+      }
+    ],
+    "ui": {
+      "logTemplate": "{meta.winner} wins!"
+    },
+    "uses": "setState",
+    "with": {
+      "gameStatus": {
+        "state": "ended",
+        "winner": "{meta.winner}"
+      }
+    }
+  },
+  {
+    "auto": true,
+    "id": "declareTie",
+    "then": [
+      {
+        "action": "endGame"
+      }
+    ],
+    "ui": {
+      "logTemplate": "It's a tie! The board is full."
+    },
+    "uses": "setState",
+    "with": {
+      "gameStatus": {
+        "result": "tie",
+        "state": "ended"
+      }
+    }
+  },
+  {
+    "auto": true,
+    "id": "endGame",
+    "uses": "setPhase",
+    "with": {
+      "phase": "game_over",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "ui": {
+      "logTemplate": "Turn passes to {nextPlayer}"
+    },
+    "uses": "nextTurn"
+  }
+]

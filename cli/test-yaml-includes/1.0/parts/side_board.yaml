@@ -1,0 +1,3 @@
+id: side_board
+type: grid
+shape: [[1,1], [1,1]]

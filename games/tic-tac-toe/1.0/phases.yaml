@@ -4,10 +4,10 @@
     - id: setup
       initial: true
       enterActions:
-        - transitionToPhase: game.play
+        - action: transitionToPlay
     
     - id: play
-      possibleActions: [placeMarker]
+      possibleActions: [placeMark]
       ui:
         display: "{actor}'s turn"
         

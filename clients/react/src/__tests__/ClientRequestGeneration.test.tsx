@@ -20,7 +20,14 @@ describe('Client Request Generation Tests', () => {
           ],
           actionMap: {
             p1: {
-              '/zones/board/cells/0/0': { action: 'placeMarker' },
+              '/zones/board/cells/0/0': { 
+                action: 'placeMarker',
+                args: {
+                  location: '/zones/board/cells/0/0',
+                  entity: 'mark_p1',
+                  player: 'p1'
+                }
+              },
             },
           },
         },
@@ -47,6 +54,7 @@ describe('Client Request Generation Tests', () => {
           args: {
             location: '/zones/board/cells/0/0',
             entity: 'mark_p1',
+            player: 'p1'
           },
         })
       );
@@ -89,7 +97,11 @@ describe('Client Request Generation Tests', () => {
               '/zones/choice_p1/ranks/A': {
                 action: 'selectRank',
                 direction: 'Choose a rank to ask for',
-                rank: 'A'
+                args: {
+                  rank: 'A',
+                  location: '/zones/choice_p1/ranks/A',
+                  player: 'p1'
+                }
               }
             }
           }
@@ -105,7 +117,7 @@ describe('Client Request Generation Tests', () => {
       );
 
       act(() => {
-        result.current.handleChoiceSelect('ranks', 'A');
+        result.current.handleChoiceSelect('choice_p1/ranks', 'A');
       });
 
       expect(mockSendMessage).toHaveBeenCalledWith(
@@ -113,6 +125,7 @@ describe('Client Request Generation Tests', () => {
           action: 'selectRank',
           args: {
             rank: 'A',
+            location: '/zones/choice_p1/ranks/A',
             player: 'p1',
           },
         })
@@ -132,7 +145,11 @@ describe('Client Request Generation Tests', () => {
               '/zones/choice_p1/players/p2': {
                 action: 'selectPlayer',
                 direction: 'Choose a player to ask',
-                targetPlayer: 'p2'
+                args: {
+                  targetPlayer: 'p2',
+                  location: '/zones/choice_p1/players/p2',
+                  player: 'p1'
+                }
               }
             }
           }
@@ -148,7 +165,7 @@ describe('Client Request Generation Tests', () => {
       );
 
       act(() => {
-        result.current.handleChoiceSelect('players', 'p2');
+        result.current.handleChoiceSelect('choice_p1/players', 'p2');
       });
 
       expect(mockSendMessage).toHaveBeenCalledWith(
@@ -156,6 +173,7 @@ describe('Client Request Generation Tests', () => {
           action: 'selectPlayer',
           args: {
             targetPlayer: 'p2',
+            location: '/zones/choice_p1/players/p2',
             player: 'p1',
           },
         })
@@ -170,7 +188,14 @@ describe('Client Request Generation Tests', () => {
         ui: {
           actionMap: {
             p1: {
-              '/zones/board/cells/0/0': { action: 'selectPiece' },
+              '/zones/board/cells/0/0': { 
+                action: 'selectPiece',
+                args: {
+                  target: '/zones/board/cells/0/0',
+                  location: '/zones/board/cells/0/0',
+                  player: 'p1'
+                }
+              },
             },
           },
         },
@@ -193,6 +218,7 @@ describe('Client Request Generation Tests', () => {
         JSON.stringify({
           action: 'selectPiece',
           args: {
+            target: '/zones/board/cells/0/0',
             location: '/zones/board/cells/0/0',
             player: 'p1',
           },
@@ -206,7 +232,14 @@ describe('Client Request Generation Tests', () => {
         ui: {
           actionMap: {
             p1: {
-              '/zones/board/cells/1/1': { action: 'moveSelectedPiece' },
+              '/zones/board/cells/1/1': { 
+                action: 'moveSelectedPiece',
+                args: {
+                  target: '/zones/board/cells/1/1',
+                  location: '/zones/board/cells/1/1',
+                  player: 'p1'
+                }
+              },
             },
           },
         },
@@ -233,6 +266,7 @@ describe('Client Request Generation Tests', () => {
           action: 'moveSelectedPiece',
           args: {
             target: '/zones/board/cells/1/1',
+            location: '/zones/board/cells/1/1',
             player: 'p1',
           },
         })
@@ -245,7 +279,12 @@ describe('Client Request Generation Tests', () => {
         ui: {
           actionMap: {
             p1: {
-              '/zones/board/cells/0/0': { action: 'clearSelection' },
+              '_global': { 
+                action: 'clearSelection',
+                args: {
+                  player: 'p1'
+                }
+              },
             },
           },
         },
@@ -261,7 +300,7 @@ describe('Client Request Generation Tests', () => {
       );
 
       act(() => {
-        result.current.handleCellClick(0, 0);
+        result.current.handleZoneAction('_global', 'clearSelection');
       });
 
       expect(mockSendMessage).toHaveBeenCalledWith(
@@ -286,7 +325,14 @@ describe('Client Request Generation Tests', () => {
           ],
           actionMap: {
             p1: {
-              '/zones/board/columns/3': { action: 'dropDisc', targetColumn: 3 },
+              '/zones/board/columns/3': { 
+                action: 'dropDisc', 
+                args: {
+                  targetColumn: 3,
+                  location: '/zones/board/columns/3',
+                  player: 'p1'
+                }
+              },
             },
           },
         },
@@ -310,9 +356,9 @@ describe('Client Request Generation Tests', () => {
         JSON.stringify({
           action: 'dropDisc',
           args: {
-            zone: '/zones/board',
             targetColumn: 3,
-            entity: 'disc_p1',
+            location: '/zones/board/columns/3',
+            player: 'p1',
           },
         })
       );
@@ -326,7 +372,14 @@ describe('Client Request Generation Tests', () => {
         ui: {
           actionMap: {
             p1: {
-              '/zones/deck': { action: 'drawCard' },
+              '/zones/deck': { 
+                action: 'drawCard',
+                args: {
+                  source: 'deck',
+                  location: '/zones/deck',
+                  player: 'p1'
+                }
+              },
             },
           },
         },
@@ -348,7 +401,11 @@ describe('Client Request Generation Tests', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         JSON.stringify({
           action: 'drawCard',
-          args: { location: '/zones/deck' },
+          args: { 
+            source: 'deck',
+            location: '/zones/deck',
+            player: 'p1'
+          },
         })
       );
     });
@@ -359,9 +416,13 @@ describe('Client Request Generation Tests', () => {
         ui: {
           actionMap: {
             p1: {
-              '/zones/hand_p1/2': { 
+              '/zones/hand_p1/items/2': { 
                 action: 'playCard',
-                args: { cardId: 'card_hearts_a' },
+                args: { 
+                  entity: 'card_hearts_a',
+                  location: '/zones/hand_p1/items/2',
+                  player: 'p1'
+                },
               },
             },
           },
@@ -384,7 +445,11 @@ describe('Client Request Generation Tests', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         JSON.stringify({
           action: 'playCard',
-          args: { cardId: 'card_hearts_a' },
+          args: { 
+            entity: 'card_hearts_a',
+            location: '/zones/hand_p1/items/2',
+            player: 'p1'
+          },
         })
       );
     });

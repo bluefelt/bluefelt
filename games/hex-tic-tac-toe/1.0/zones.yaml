@@ -1,0 +1,14 @@
+# Hexagonal board for tic-tac-toe
+- id: hex_board
+  type: hexgrid
+  shape: hexgrid
+  shapeMeta:
+    layout: flat
+    radius: 2
+  visibility: all
+  ui:
+    name: "Hex Board"
+    coordinateSystem: axial
+    hexSize: 50
+    hexSpacing: 2
+    showCoordinates: true

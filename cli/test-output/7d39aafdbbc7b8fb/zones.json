@@ -1,0 +1,59 @@
+[
+  {
+    "id": "deck",
+    "type": "deck",
+    "visibility": "hidden"
+  },
+  {
+    "id": "discard",
+    "type": "list",
+    "visibility": "public"
+  },
+  {
+    "id": "board",
+    "shape": [
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "type": "grid"
+  },
+  {
+    "id": "side_board",
+    "shape": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "type": "grid"
+  },
+  {
+    "id": "p1_hand",
+    "owner": 0,
+    "type": "list",
+    "visibility": "private"
+  },
+  {
+    "id": "p2_hand",
+    "owner": 1,
+    "type": "list",
+    "visibility": "private"
+  }
+]

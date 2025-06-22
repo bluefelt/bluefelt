@@ -47,6 +47,50 @@ vi.mock('../../../context/PlayerContext', () => ({
   })
 }));
 
+// Mock the AnimationContext
+vi.mock('../../../context/AnimationContext', () => ({
+  useAnimationsEnabled: vi.fn(() => true),
+  useAnimation: vi.fn(() => ({
+    state: { isAnimating: false, config: { enableAnimations: true } },
+    updateConfig: vi.fn(),
+    addAnimation: vi.fn(),
+    removeAnimation: vi.fn(),
+    clearQueue: vi.fn(),
+    isAnimating: false
+  }))
+}));
+
+// Mock the PlayerPreferencesContext
+vi.mock('../../../context/PlayerPreferencesContext', () => ({
+  usePlayerPreferences: vi.fn(() => ({
+    preferences: { 
+      username: 'Alice', 
+      color: '#ff0000',
+      tokenId: 'classic',
+      showOpponentTokens: true,
+      colorSchemeId: 'default',
+      cardStyleId: 'classic'
+    },
+    isLoggedIn: true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    updatePreferences: vi.fn(),
+    updateToken: vi.fn(),
+    updateColorScheme: vi.fn(),
+    updatePlayerColor: vi.fn(),
+    updateShowOpponentTokens: vi.fn(),
+    updateCardStyle: vi.fn(),
+    updateColor: vi.fn()
+  })),
+  PlayerPreferencesProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePlayer: vi.fn(() => ({
+    player: { username: 'Alice', color: '#ff0000' },
+    login: vi.fn(),
+    logout: vi.fn(),
+    updateColor: vi.fn()
+  }))
+}));
+
 // Mock the WebSocket hook
 const mockSendMessage = vi.fn();
 const mockLobbyWebSocketReturn = {
@@ -106,15 +150,15 @@ describe('Tic-Tac-Toe Client Regression Tests', () => {
       },
       ui: {
         actionMap: {
-          '/zones/board/cells/0/0': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/0/1': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/0/2': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/1/0': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/1/1': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/1/2': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/2/0': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/2/1': { action: 'placeMarker', direction: 'Click to place' },
-          '/zones/board/cells/2/2': { action: 'placeMarker', direction: 'Click to place' }
+          '/zones/board/cells/0/0': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/0/1': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/0/2': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/1/0': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/1/1': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/1/2': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/2/0': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/2/1': { action: 'placeMark', direction: 'Click to place' },
+          '/zones/board/cells/2/2': { action: 'placeMark', direction: 'Click to place' }
         },
         entities: [
           { id: 'mark_p1', type: 'mark', props: { owner: 'p1' } },
@@ -122,8 +166,9 @@ describe('Tic-Tac-Toe Client Regression Tests', () => {
         ],
         zones: [{ 
           id: 'board', 
-          type: 'grid', 
-          name: 'Game Board',
+          shape: 'grid',
+          renderType: 'grid',
+          name: 'Board',
           visibility: 'all',
           gridProps: { rows: 3, cols: 3 } 
         }],
@@ -167,7 +212,7 @@ describe('Tic-Tac-Toe Client Regression Tests', () => {
 
       // Wait for game to load
       await waitFor(() => {
-        expect(screen.getByText('Game Board')).toBeInTheDocument();
+        expect(screen.getByText('Board')).toBeInTheDocument();
       });
 
       // Just verify the game is rendered with board and cells
@@ -209,7 +254,7 @@ describe('Tic-Tac-Toe Client Regression Tests', () => {
 
       // Wait for game to load first
       await waitFor(() => {
-        expect(screen.getByText('Game Board')).toBeInTheDocument();
+        expect(screen.getByText('Board')).toBeInTheDocument();
       });
 
       // Try to click occupied cell (center cell at 1,1)
@@ -243,7 +288,7 @@ describe('Tic-Tac-Toe Client Regression Tests', () => {
 
       // Wait for game to load first
       await waitFor(() => {
-        expect(screen.getByText('Game Board')).toBeInTheDocument();
+        expect(screen.getByText('Board')).toBeInTheDocument();
       });
 
       const firstCell = screen.getByTestId('cell-0-0');
@@ -304,7 +349,7 @@ describe('Tic-Tac-Toe Client Regression Tests', () => {
 
       // Wait for game to load
       await waitFor(() => {
-        expect(screen.getByText('Game Board')).toBeInTheDocument();
+        expect(screen.getByText('Board')).toBeInTheDocument();
       });
 
       // Just verify the game shows the current player and player names
@@ -341,7 +386,7 @@ describe('Tic-Tac-Toe Client Regression Tests', () => {
 
       // Wait for game to load
       await waitFor(() => {
-        expect(screen.getByText('Game Board')).toBeInTheDocument();
+        expect(screen.getByText('Board')).toBeInTheDocument();
       });
 
       // Try clicking a few cells to ensure no actions are sent

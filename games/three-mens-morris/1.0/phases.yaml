@@ -14,7 +14,7 @@
         prompt: "Place a piece on an empty intersection (max 3 pieces per player)"
     
     - id: movement
-      possibleActions: [selectPiece, moveSelectedPiece, clearSelection]
+      possibleActions: [movePiece]
       ui:
         display: "Movement Phase"
         prompt: "Select one of your pieces to move, then move it to any empty location"

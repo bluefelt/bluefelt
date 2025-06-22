@@ -2,6 +2,9 @@ import { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { useMarkColor } from '../../hooks/useMarkColor';
 import BoardCell from './BoardCell';
+import { useHasAction } from '../ActionIndicator';
+import { getCellActionLocation, hasActionAtLocation } from '../../utils/actionMapUtils';
+import MultiStepSelectionOverlay from '../MultiStepSelectionOverlay';
 
 interface BoardZoneProps {
   zoneId: string;
@@ -14,6 +17,8 @@ interface BoardZoneProps {
   playerNames?: string[];
   actionMap?: Record<string, any>;
   selection?: any;
+  playerPreferences?: Record<string, any>;
+  multiStepState?: any;
 }
 
 export default function BoardZone({
@@ -25,8 +30,12 @@ export default function BoardZone({
   zoneMetadata,
   playerNames,
   actionMap,
-  selection
+  selection,
+  playerPreferences,
+  multiStepState
 }: BoardZoneProps) {
+  console.log(`[BoardZone] Rendering zone ${zoneId}, boardData:`, boardData);
+  console.log(`[BoardZone] Entity definitions:`, entityDefinitions);
   
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -150,22 +159,43 @@ export default function BoardZone({
   
   // Get glyph or token info from entity definitions
   const getEntityDisplay = (cell: any) => {
+    console.log(`[BoardZone] getEntityDisplay called with cell:`, cell);
+    
+    // Handle null cells (empty)
+    if (cell === null || cell === undefined) {
+      console.log(`[BoardZone] Cell is null/undefined, returning empty`);
+      return { type: 'glyph', glyph: '' };
+    }
+    
     let entityId: string;
     if (typeof cell === 'string') {
       entityId = cell;
+      console.log(`[BoardZone] Cell is string, using as entityId: "${entityId}"`);
     } else if (cell && typeof cell === 'object' && cell.entity) {
       entityId = cell.entity;
+      console.log(`[BoardZone] Cell is object, extracted entityId: "${entityId}"`);
     } else {
-      return { type: 'glyph', glyph: '?' };
+      console.log(`[BoardZone] Cell format not recognized, returning empty`);
+      return { type: 'glyph', glyph: '' };
     }
     
+    console.log(`[BoardZone] Looking up entity "${entityId}" in entityDefinitions:`, entityDefinitions);
+    console.log(`[BoardZone] Available entity IDs:`, entityDefinitions?.map(e => e.id));
+    
     const entity = entityDefinitions?.find(e => e.id === entityId);
+    console.log(`[BoardZone] Found entity definition:`, entity);
+    
     if (entity?.ui?.tokenType) {
+      console.log(`[BoardZone] Entity has tokenType, returning token display`);
       return { type: 'token', tokenType: entity.ui.tokenType };
     }
+    
+    const glyph = entity?.ui?.glyph || entity?.ui?.display || entity?.props?.symbol || '?';
+    console.log(`[BoardZone] Returning glyph "${glyph}" for entity "${entityId}"`);
+    
     return { 
       type: 'glyph', 
-      glyph: entity?.ui?.glyph || (entityId === 'stone_p1' ? 'X' : entityId === 'stone_p2' ? 'O' : (entityId === 'mark_p1' ? 'X' : 'O')) 
+      glyph: glyph
     };
   };
   
@@ -258,7 +288,7 @@ export default function BoardZone({
             </div>
           )}
           <div 
-            className="grid gap-0 border-2 border-white"
+            className="grid gap-0 border-2 border-white relative"
             style={{
               gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
               gridTemplateRows: `repeat(${rows}, ${cellSize}px)`,
@@ -266,6 +296,15 @@ export default function BoardZone({
               height: 'max-content'
             }}
           >
+            {/* Multi-step selection overlay */}
+            <MultiStepSelectionOverlay
+              multiStepState={multiStepState}
+              zoneId={zoneId}
+              cellSize={cellSize}
+              rows={rows}
+              cols={cols}
+            />
+            
             {boardData.map((row, rowIndex) =>
               row.map((_cell: any, colIndex: number) => {
                 // Get the actual cell data considering rotation
@@ -300,22 +339,40 @@ export default function BoardZone({
                   }
                 }
                 
-                // Check if this cell is a valid move based on actionMap
+                // Check if this cell is a valid move based on actionMap or multiStepState
                 let isClickable = false;
                 if (isMyTurn) {
+                  const location = `/zones/${zoneId}/cells/${actualRow}/${actualCol}`;
+                  const altLocation = `/zones/${zoneId}/${actualRow}/${actualCol}`;
+                  
+                  // Check regular action map
                   if (actionMap !== undefined) {
-                    const location = `/zones/${zoneId}/cells/${actualRow}/${actualCol}`;
-                    isClickable = location in actionMap;
-                    if (!isClickable) {
-                      const altLocation = `/zones/${zoneId}/${actualRow}/${actualCol}`;
-                      isClickable = altLocation in actionMap;
+                    isClickable = location in actionMap || altLocation in actionMap;
+                  }
+                  
+                  // Also check multi-step action map if in multi-step mode
+                  if (!isClickable && multiStepState?.stepActionMap) {
+                    isClickable = location in multiStepState.stepActionMap || altLocation in multiStepState.stepActionMap;
+                    if (isClickable) {
+                      console.log(`[BoardZone] Cell (${actualRow},${actualCol}) is clickable via multi-step action map`);
                     }
-                  } else if (isEmpty && (zoneId === 'board' || zoneId === 'da-board')) {
-                    isClickable = true;
+                  }
+                  
+                  if (isClickable) {
+                    console.log(`[BoardZone] Cell (${actualRow},${actualCol}) is clickable via location: ${location}`);
                   }
                 }
                 
                 const isDarkSquare = (rowIndex + colIndex) % 2 === 1;
+                
+                // Check for multi-step action
+                const cellLocation = `/zones/${zoneId}/cells/${actualRow}/${actualCol}`;
+                const { hasAction, isMultiStepAction, multiStepIndicatorState, stepNumber } = useHasAction(
+                  cellLocation,
+                  actionMap || {},
+                  Boolean(multiStepState),
+                  multiStepState
+                );
                 
                 return (
                   <BoardCell
@@ -330,7 +387,13 @@ export default function BoardZone({
                     isSelected={isSelected}
                     entityDisplay={getEntityDisplay(actualCell)}
                     markColor={getMarkColor(actualCell, playerNames)}
+                    hasAction={hasAction}
+                    isMultiStepAction={isMultiStepAction}
+                    multiStepIndicatorState={multiStepIndicatorState}
+                    stepNumber={stepNumber}
                     onCellClick={handleCellClick}
+                    zoneId={zoneId}
+                    playerPreferences={playerPreferences}
                   />
                 );
               })

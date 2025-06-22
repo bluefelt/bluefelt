@@ -9,6 +9,8 @@ use std::path::Path;
 use tracing::{debug, error, info, warn};
 
 use crate::bundle::BundleManifest;
+use crate::yaml_includes;
+use crate::yaml_shortcuts;
 
 /// Validation result
 #[derive(Debug, Default)]
@@ -174,8 +176,48 @@ fn validate_entities(game_path: &Path, result: &mut ValidationResult) {
         }
     };
 
-    match serde_yaml::from_str::<Value>(&content) {
-        Ok(Value::Sequence(entities)) => {
+    // Parse YAML with includes
+    let mut yaml: Value = match serde_yaml::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "entities.yaml".to_string(),
+                message: format!("Failed to parse: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    // Process includes
+    let mut included_files = HashSet::new();
+    yaml = match yaml_includes::process_includes(yaml, game_path, &mut included_files) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "entities.yaml".to_string(),
+                message: format!("Failed to process includes: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+    
+    // Process shortcuts
+    yaml = match crate::yaml_shortcuts::expand_shortcuts(yaml) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "entities.yaml".to_string(),
+                message: format!("Failed to expand shortcuts: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    match yaml {
+        Value::Sequence(entities) => {
             for (i, entity) in entities.iter().enumerate() {
                 if let Value::Mapping(map) = entity {
                     // Check required fields
@@ -189,17 +231,10 @@ fn validate_entities(game_path: &Path, result: &mut ValidationResult) {
                 }
             }
         }
-        Ok(_) => {
+        _ => {
             result.errors.push(ValidationError {
                 file: "entities.yaml".to_string(),
                 message: "Root must be an array".to_string(),
-                line: None,
-            });
-        }
-        Err(e) => {
-            result.errors.push(ValidationError {
-                file: "entities.yaml".to_string(),
-                message: format!("Failed to parse: {}", e),
                 line: None,
             });
         }
@@ -225,8 +260,48 @@ fn validate_zones(game_path: &Path, result: &mut ValidationResult) {
         }
     };
 
-    match serde_yaml::from_str::<Value>(&content) {
-        Ok(Value::Sequence(zones)) => {
+    // Parse YAML
+    let mut yaml: Value = match serde_yaml::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "zones.yaml".to_string(),
+                message: format!("Failed to parse: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    // Process includes
+    let mut included_files = HashSet::new();
+    yaml = match yaml_includes::process_includes(yaml, game_path, &mut included_files) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "zones.yaml".to_string(),
+                message: format!("Failed to process includes: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+    
+    // Process shortcuts
+    yaml = match yaml_shortcuts::expand_shortcuts(yaml) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "zones.yaml".to_string(),
+                message: format!("Failed to expand shortcuts: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    match yaml {
+        Value::Sequence(zones) => {
             for (i, zone) in zones.iter().enumerate() {
                 if let Value::Mapping(map) = zone {
                     // Check required fields
@@ -269,17 +344,10 @@ fn validate_zones(game_path: &Path, result: &mut ValidationResult) {
                 }
             }
         }
-        Ok(_) => {
+        _ => {
             result.errors.push(ValidationError {
                 file: "zones.yaml".to_string(),
                 message: "Root must be an array".to_string(),
-                line: None,
-            });
-        }
-        Err(e) => {
-            result.errors.push(ValidationError {
-                file: "zones.yaml".to_string(),
-                message: format!("Failed to parse: {}", e),
                 line: None,
             });
         }
@@ -305,8 +373,48 @@ fn validate_actions(game_path: &Path, result: &mut ValidationResult) {
         }
     };
 
-    match serde_yaml::from_str::<Value>(&content) {
-        Ok(Value::Sequence(actions)) => {
+    // Parse YAML
+    let mut yaml: Value = match serde_yaml::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "actions.yaml".to_string(),
+                message: format!("Failed to parse: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+    
+    // Process includes
+    let mut included_files = HashSet::new();
+    yaml = match yaml_includes::process_includes(yaml, game_path, &mut included_files) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "actions.yaml".to_string(),
+                message: format!("Failed to process includes: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+    
+    // Process shortcuts
+    yaml = match yaml_shortcuts::expand_shortcuts(yaml) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "actions.yaml".to_string(),
+                message: format!("Failed to expand shortcuts: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+    
+    match yaml {
+        Value::Sequence(actions) => {
             for (i, action) in actions.iter().enumerate() {
                 if let Value::Mapping(map) = action {
                     // Check required fields
@@ -318,32 +426,32 @@ fn validate_actions(game_path: &Path, result: &mut ValidationResult) {
                         });
                     }
 
-                    // Check for implementation
-                    let has_impl = map.contains_key(&Value::String("uses".to_string())) ||
-                                  map.contains_key(&Value::String("hook".to_string())) ||
-                                  map.contains_key(&Value::String("conditions".to_string()));
-                    
-                    if !has_impl {
-                        result.warnings.push(ValidationWarning {
-                            file: "actions.yaml".to_string(),
-                            message: format!("Action {} has no implementation", i),
-                            line: Some(i + 1),
-                        });
+                    // Check action type and validation
+                    if let Some(Value::String(action_type)) = map.get(&Value::String("type".to_string())) {
+                        if action_type == "multiStep" {
+                            validate_multi_step_action(map, i, result);
+                        }
+                    } else {
+                        // Check for implementation in single-step actions
+                        let has_impl = map.contains_key(&Value::String("uses".to_string())) ||
+                                      map.contains_key(&Value::String("hook".to_string())) ||
+                                      map.contains_key(&Value::String("conditions".to_string()));
+                        
+                        if !has_impl {
+                            result.warnings.push(ValidationWarning {
+                                file: "actions.yaml".to_string(),
+                                message: format!("Action {} has no implementation", i),
+                                line: Some(i + 1),
+                            });
+                        }
                     }
                 }
             }
         }
-        Ok(_) => {
+        _ => {
             result.errors.push(ValidationError {
                 file: "actions.yaml".to_string(),
                 message: "Root must be an array".to_string(),
-                line: None,
-            });
-        }
-        Err(e) => {
-            result.errors.push(ValidationError {
-                file: "actions.yaml".to_string(),
-                message: format!("Failed to parse: {}", e),
                 line: None,
             });
         }
@@ -369,12 +477,86 @@ fn validate_phases(game_path: &Path, result: &mut ValidationResult) {
         }
     };
 
-    match serde_yaml::from_str::<Value>(&content) {
+    // Parse YAML
+    let mut yaml_value = match serde_yaml::from_str::<Value>(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "phases.yaml".to_string(),
+                message: format!("Failed to parse YAML: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    // Process includes
+    let mut included_files = HashSet::new();
+    yaml_value = match yaml_includes::process_includes(yaml_value, game_path, &mut included_files) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "phases.yaml".to_string(),
+                message: format!("Failed to process includes: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    // Process shortcuts
+    yaml_value = match yaml_shortcuts::expand_shortcuts(yaml_value) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "phases.yaml".to_string(),
+                message: format!("Failed to expand shortcuts: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    // Convert to JSON Value for the server's validation
+    let json_value = match serde_json::to_value(&yaml_value) {
+        Ok(v) => v,
+        Err(e) => {
+            result.errors.push(ValidationError {
+                file: "phases.yaml".to_string(),
+                message: format!("Failed to convert to JSON: {}", e),
+                line: None,
+            });
+            return;
+        }
+    };
+
+    // Use the comprehensive phase validation from the server
+    let validation_result = bluefelt_core::engine::validate_phase_definitions(&json_value);
+    
+    // Convert server validation results to CLI format
+    for error in validation_result.errors {
+        result.errors.push(ValidationError {
+            file: "phases.yaml".to_string(),
+            message: error,
+            line: None,
+        });
+    }
+    
+    for warning in validation_result.warnings {
+        result.warnings.push(ValidationWarning {
+            file: "phases.yaml".to_string(),
+            message: warning,
+            line: None,
+        });
+    }
+
+    // Additional CLI-specific validation for new format
+    match yaml_value {
         // New format: Array of phase sets
-        Ok(Value::Sequence(phase_sets)) => {
+        Value::Sequence(phase_sets) => {
             for (i, phase_set) in phase_sets.iter().enumerate() {
                 if let Value::Mapping(set_map) = phase_set {
-                    // Check phase set has id
+                    // Basic structure validation
                     if !set_map.contains_key(&Value::String("id".to_string())) {
                         result.errors.push(ValidationError {
                             file: "phases.yaml".to_string(),
@@ -401,7 +583,7 @@ fn validate_phases(game_path: &Path, result: &mut ValidationResult) {
             }
         }
         // Old format: Mapping of phase sets
-        Ok(Value::Mapping(phase_sets)) => {
+        Value::Mapping(phase_sets) => {
             for (set_name, phases) in phase_sets {
                 if let (Value::String(set_name_str), Value::Sequence(phases_arr)) = (set_name, phases) {
                     for (i, phase) in phases_arr.iter().enumerate() {
@@ -419,19 +601,171 @@ fn validate_phases(game_path: &Path, result: &mut ValidationResult) {
                 }
             }
         }
-        Ok(_) => {
+        _ => {
             result.errors.push(ValidationError {
                 file: "phases.yaml".to_string(),
                 message: "Root must be an array or mapping of phase sets".to_string(),
                 line: None,
             });
         }
-        Err(e) => {
+    }
+}
+
+/// Validate a multi-step action
+fn validate_multi_step_action(action_map: &serde_yaml::Mapping, action_index: usize, result: &mut ValidationResult) {
+    // Check required fields for multi-step actions
+    
+    // Check stateStore field
+    if let Some(Value::Sequence(state_store)) = action_map.get(&Value::String("stateStore".to_string())) {
+        let stored_vars: HashSet<String> = state_store.iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_string())
+            .collect();
+        
+        // Check steps field
+        if let Some(Value::Sequence(steps)) = action_map.get(&Value::String("steps".to_string())) {
+            let mut step_stored_vars = HashSet::new();
+            
+            for (step_idx, step) in steps.iter().enumerate() {
+                if let Value::Mapping(step_map) = step {
+                    // Check required step fields
+                    if !step_map.contains_key(&Value::String("id".to_string())) {
+                        result.errors.push(ValidationError {
+                            file: "actions.yaml".to_string(),
+                            message: format!("Multi-step action {} step {} missing required field 'id'", action_index, step_idx),
+                            line: None,
+                        });
+                    }
+                    
+                    if !step_map.contains_key(&Value::String("as".to_string())) {
+                        result.errors.push(ValidationError {
+                            file: "actions.yaml".to_string(),
+                            message: format!("Multi-step action {} step {} missing required field 'as'", action_index, step_idx),
+                            line: None,
+                        });
+                    } else if let Some(Value::String(as_type)) = step_map.get(&Value::String("as".to_string())) {
+                        // Validate that 'as' field starts with 'bf.'
+                        if !as_type.starts_with("bf.") {
+                            result.errors.push(ValidationError {
+                                file: "actions.yaml".to_string(),
+                                message: format!("Multi-step action {} step {} 'as' field must start with 'bf.'", action_index, step_idx),
+                                line: None,
+                            });
+                        }
+                    }
+                    
+                    if !step_map.contains_key(&Value::String("store".to_string())) {
+                        result.errors.push(ValidationError {
+                            file: "actions.yaml".to_string(),
+                            message: format!("Multi-step action {} step {} missing required field 'store'", action_index, step_idx),
+                            line: None,
+                        });
+                    } else if let Some(Value::String(store_var)) = step_map.get(&Value::String("store".to_string())) {
+                        step_stored_vars.insert(store_var.clone());
+                        
+                        // Check that stored variable is declared in stateStore
+                        if !stored_vars.contains(store_var) {
+                            result.errors.push(ValidationError {
+                                file: "actions.yaml".to_string(),
+                                message: format!("Multi-step action {} step {} stores variable '{}' not declared in stateStore", action_index, step_idx, store_var),
+                                line: None,
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // Check that all stateStore variables are actually stored by steps
+            for declared_var in &stored_vars {
+                if !step_stored_vars.contains(declared_var) {
+                    result.errors.push(ValidationError {
+                        file: "actions.yaml".to_string(),
+                        message: format!("Multi-step action {} declares variable '{}' in stateStore but no step stores it", action_index, declared_var),
+                        line: None,
+                    });
+                }
+            }
+        } else {
             result.errors.push(ValidationError {
-                file: "phases.yaml".to_string(),
-                message: format!("Failed to parse: {}", e),
+                file: "actions.yaml".to_string(),
+                message: format!("Multi-step action {} missing required field 'steps'", action_index),
                 line: None,
             });
+        }
+        
+        // Check result field
+        if let Some(Value::Mapping(result_map)) = action_map.get(&Value::String("result".to_string())) {
+            if !result_map.contains_key(&Value::String("as".to_string())) {
+                result.errors.push(ValidationError {
+                    file: "actions.yaml".to_string(),
+                    message: format!("Multi-step action {} result missing required field 'as'", action_index),
+                    line: None,
+                });
+            } else if let Some(Value::String(as_type)) = result_map.get(&Value::String("as".to_string())) {
+                // Validate that 'as' field starts with 'bf.'
+                if !as_type.starts_with("bf.") {
+                    result.errors.push(ValidationError {
+                        file: "actions.yaml".to_string(),
+                        message: format!("Multi-step action {} result 'as' field must start with 'bf.'", action_index),
+                        line: None,
+                    });
+                }
+            }
+            
+            // Check for template variables in result
+            if let Some(Value::Mapping(with_map)) = result_map.get(&Value::String("with".to_string())) {
+                validate_template_variables(with_map, &stored_vars, action_index, "result", result);
+            }
+        } else {
+            result.errors.push(ValidationError {
+                file: "actions.yaml".to_string(),
+                message: format!("Multi-step action {} missing required field 'result'", action_index),
+                line: None,
+            });
+        }
+    } else {
+        result.errors.push(ValidationError {
+            file: "actions.yaml".to_string(),
+            message: format!("Multi-step action {} missing required field 'stateStore'", action_index),
+            line: None,
+        });
+    }
+}
+
+/// Validate template variables in multi-step action parameters
+fn validate_template_variables(
+    params: &serde_yaml::Mapping,
+    declared_vars: &HashSet<String>,
+    action_index: usize,
+    context: &str,
+    result: &mut ValidationResult,
+) {
+    for (key, value) in params {
+        if let Value::String(str_val) = value {
+            // Simple pattern matching for {variable} templates
+            let mut chars = str_val.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '{' {
+                    let mut var_name = String::new();
+                    while let Some(&next_ch) = chars.peek() {
+                        if next_ch == '}' {
+                            chars.next(); // consume the '}'
+                            
+                            // Check if this variable is declared
+                            if !declared_vars.contains(&var_name) {
+                                result.errors.push(ValidationError {
+                                    file: "actions.yaml".to_string(),
+                                    message: format!("Multi-step action {} {} uses undeclared variable '{{{}}}'", action_index, context, var_name),
+                                    line: None,
+                                });
+                            }
+                            break;
+                        } else {
+                            var_name.push(chars.next().unwrap());
+                        }
+                    }
+                }
+            }
         }
     }
 }

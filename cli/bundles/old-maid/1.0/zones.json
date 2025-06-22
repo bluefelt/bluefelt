@@ -1,0 +1,24 @@
+[
+  {
+    "contents": "standardDeck",
+    "id": "deck",
+    "name": "Deck",
+    "shape": "stack",
+    "shapeMeta": {
+      "shuffle": true
+    },
+    "visibility": "count"
+  },
+  {
+    "id": "hand_{player}",
+    "name": "Hand",
+    "shape": "stack",
+    "visibility": "count"
+  },
+  {
+    "id": "pairs_{player}",
+    "name": "Pairs",
+    "shape": "stack",
+    "visibility": "all"
+  }
+]

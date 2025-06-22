@@ -2,6 +2,16 @@
 
 Bluefelt is a platform for creating turn-based multiplayer games using declarative YAML files. This guide covers everything you need to know about designing, implementing, and deploying games on the Bluefelt platform.
 
+## Documentation Structure
+
+This overview provides a high-level introduction to game development. For detailed information on specific topics, see:
+
+- **[Actions](./developing-games-actions.md)** - Player actions, verbs, and multi-step actions
+- **[Entities](./developing-games-entities.md)** - Game pieces, cards, tokens, and components
+- **[Zones](./developing-games-zones.md)** - Game areas, including traditional grids and hex grids
+- **[Phases](./developing-games-phases.md)** - Game flow and turn structure
+- **[UI](./developing-games-ui.md)** - User interface considerations and patterns
+
 > **📘 Implementation Guide**: For a detailed step-by-step process on implementing new games, see the [Game Implementation Guide](./game-implementation-guide.md). The implementation guide is designed for AI assistants, while this guide is tailored for human developers.
 
 ## Overview
@@ -31,7 +41,6 @@ games/
         ├── events.yaml     # Triggered effects (optional)
         ├── victory.yaml    # Win conditions (optional)
         ├── computed.yaml   # Dynamic calculations (optional)
-        ├── hooks.wasm      # Custom logic (optional)
         └── variants/       # Game variants (optional)
             ├── variant-1.yaml
             └── variant-2.yaml
@@ -50,7 +59,6 @@ games/
 - **`events.yaml`** - Automatic triggers based on game state
 - **`victory.yaml`** - Win conditions and scoring rules
 - **`computed.yaml`** - Dynamic calculations and formulas
-- **`hooks.wasm`** - Custom WebAssembly logic for complex rules
 - **`variants/`** - Alternative game modes and setups
 
 ## Creating Your First Game
@@ -310,7 +318,7 @@ Actions define what players can do:
   uses: "place"
   triggers:
     - action: "checkForWin"
-      hook: "checkForWin"
+      uses: "game_logic.checkForWin"
       auto: true
 ```
 
@@ -498,13 +506,72 @@ If your game needs mechanics not covered by built-in verbs:
 1. **First check if existing verbs can work** with different parameters
 2. **Consider if the mechanic is reusable** across multiple games
 3. **Propose a new generic verb** that could benefit other developers
-4. **Only use WebAssembly hooks** as a last resort for truly unique mechanics
 
 See the Implementation Planning section for the process of proposing new verbs.
 
 ## Shorthand Syntax
 
 Bluefelt supports several shorthand features to reduce boilerplate:
+
+### Condition Shortcuts (if/then/else)
+
+Use simpler syntax for conditions:
+
+```yaml
+# Instead of verbose condition arrays:
+when:
+  - condition: zone.isEmpty
+    with:
+      zone: "{args.target}"
+  - condition: phase.is
+    with:
+      phase: main
+
+# Use the if: shorthand:
+if:
+  - "zone.isEmpty"              # Simple string condition
+  - { phase: "main" }           # Object shorthand
+  - { empty: true }             # Expands to zone.isEmpty
+  - { owner: "{player}" }       # Expands to entity.owner
+```
+
+### Standard Library Actions
+
+Use `bf.` prefix for common actions:
+
+```yaml
+# Standard library actions
+- uses: bf.nextTurn      # Advances to next player
+- uses: bf.endGame       # Ends the game
+- uses: bf.deal          # Deal cards (with smart defaults)
+- uses: bf.draw          # Draw cards
+- uses: bf.shuffle       # Shuffle a zone
+- uses: bf.place         # Place entity
+- uses: bf.move          # Move entity
+
+# Example with defaults:
+- uses: bf.deal
+  # Automatically uses:
+  # - from: "deck"
+  # - to: "hand_{player}"
+  # - count: 7
+```
+
+### Action Shortcuts
+
+Simplify common action patterns:
+
+```yaml
+# Log shorthand
+- id: my_action
+  uses: place
+  log: "{player} placed a piece"  # Expands to ui.logTemplate
+
+# Then shorthand for single actions
+- id: my_action
+  uses: place
+  then: "nextTurn"  # Expands to then: [{ uses: "nextTurn" }]
+```
 
 ### Player Replacement
 
@@ -532,25 +599,6 @@ For card games, use the built-in standard deck:
 - id: "draw_pile"
   type: "deck"
   contents: "standardDeck"  # Pre-filled with all cards
-```
-
-### Card Game Actions
-
-Built-in card game shortcuts:
-
-```yaml
-- id: "deal_cards"
-  uses: "cards.deal"
-  with:
-    count: 7
-    to: "eachPlayer"
-    from: "draw_pile"
-
-- id: "reveal_card"
-  uses: "cards.reveal"
-  with:
-    from: "draw_pile"
-    to: "discard_pile"
 ```
 
 ## Events (events.yaml)
@@ -716,23 +764,6 @@ For games with secrets or deduction:
     exists: "all"  # Everyone knows you have one
 ```
 
-### Custom Hooks (Advanced)
-
-For complex game logic, write WebAssembly hooks:
-
-```rust
-// Rust hook example
-#[no_mangle]
-pub extern "C" fn calculate_market_price(state: *const u8) -> *const u8 {
-    // Complex economic calculations
-}
-```
-
-Then reference in actions:
-```yaml
-- id: "buy_from_market"
-  hook: "calculate_market_price"
-  auto: false  # Player-triggered
 
 ## Game Examples
 
@@ -776,7 +807,7 @@ metadata:
     logTemplate: "{player} placed their mark at ({row}, {col})"
   triggers:
     - action: "checkForWin"
-      hook: "checkForWin"
+      uses: "game_logic.checkForWin"
       auto: true
 ```
 
@@ -993,13 +1024,19 @@ Once you've created your first game:
 
 1. **Deploy** - Build bundles and test on live server
 2. **Iterate** - Gather feedback and refine gameplay
-3. **Advanced Features** - Add phases, custom hooks
+3. **Advanced Features** - Add phases, complex conditions, multi-step actions
 4. **Documentation** - Write player guides and rules
 5. **Community** - Share your game with other developers
 
 The Bluefelt platform provides a powerful foundation for turn-based game development. Start with simple mechanics and gradually add complexity as you become familiar with the system.
 
-> **Need More Details?** See the [Game Implementation Guide](./game-implementation-guide.md) for step-by-step implementation instructions, or consult the individual topic guides for deep dives into specific features.
+> **Need More Details?** See the [Game Implementation Guide](./game-implementation-guide.md) for step-by-step implementation instructions, or consult the individual topic guides for deep dives into specific features:
+> - [Multi-Step Actions](./developing-games-multi-step.md) - Complex player interactions
+> - [Multi-Step Actions Library](./multi-step-actions-library.md) - Pre-built multi-step patterns
+> - [Actions](./developing-games-actions.md) - Action system details
+> - [Entities](./developing-games-entities.md) - Entity configuration
+> - [Zones](./developing-games-zones.md) - Zone types and properties
+> - [Phases](./developing-games-phases.md) - Game flow management
 
 ## Important Discovery: Conditional Logic in Actions
 
@@ -1024,3 +1061,270 @@ This pattern allows you to implement:
 - **Milestone-based progression** without hardcoding
 
 The key is thinking of actions as your game's logic engine, not just player interactions!
+
+---
+
+# YAML Design Philosophy & Best Practices
+
+## Design Philosophy
+
+Bluefelt's YAML design follows these core principles:
+
+### Core Principles
+
+1. **Explicit over Implicit**: Every line should convey meaningful information that cannot be inferred from context
+2. **Structured over Natural**: Prefer structured, parameter-based syntax over natural language
+3. **Semantic Grouping**: Use dot notation to organize related concepts (e.g., `{player}.hand.cards`)
+4. **Standard Library Clarity**: Use `bf.` prefix for built-in actions to avoid namespace collisions
+5. **Spatial Hierarchy**: All zones must be organized into four conceptual spaces that inform rendering
+
+### The Four Spatial Zones
+
+1. **Hand**: Player-owned zones, personal resources, private information
+2. **Tactical**: Shared interactive space where players physically manipulate entities
+3. **Strategic**: The "big picture" view - maps, scores, victory conditions, public state summaries
+4. **Ambient**: Non-diegetic information - turn order, phase indicators, game logs
+
+### Design Heuristics
+
+- "Can I pick it up?" → Hand or Tactical
+- "Do I physically move it?" → Tactical  
+- "Do I just need to see it?" → Strategic
+- "Is it about the game, not in the game?" → Ambient
+
+## YAML Best Practices
+
+### Zone Organization
+
+```yaml
+zones:
+  hand:
+    {player}:
+      cards: { type: cardZone, visibility: owner }
+      resources: { type: counter, visibility: all }
+      
+  tactical:
+    deck: { type: cardZone, visibility: none, shuffle: true }
+    market: { type: entityZone, layout: row }
+    
+  strategic:
+    board: { type: grid, size: 8x8 }
+    booksSummary: { type: view, display: grid }
+    
+  ambient:
+    currentPhase: { type: indicator }
+    turnOrder: { type: list }
+```
+
+### Action Syntax
+
+```yaml
+actions:
+  # Standard library action with explicit parameters
+  dealCards:
+    as: bf.deal
+    count: 7
+    from: deck
+    to: {player}.cards
+    
+  # Conditional action
+  drawIfEmpty:
+    if: {actor}.cards.isEmpty
+    then:
+      - drawCard
+    else:
+      - skipTurn
+```
+
+### View Zones
+
+```yaml
+strategic:
+  collectedPairs:
+    type: view
+    source: all({player}.books)
+    groupBy: rank
+    display: countByGroup
+    aggregate: count
+```
+
+### Phase Flow
+
+```yaml
+phases:
+  dealing:
+    enter:
+      - dealCards:
+          as: bf.deal
+          count: 7
+          from: deck
+          to: {player}.cards
+          
+  playing:
+    type: turns
+    turn:
+      phases: selectRank -> selectTarget -> resolve
+```
+
+## YAML Include System
+
+The Bluefelt CLI supports including content from other YAML files, helping you organize large games into manageable pieces.
+
+### Basic Usage
+
+In any YAML file, use the `$include` directive to merge content from other files:
+
+```yaml
+# zones.yaml
+player_zones:
+  hand_{player}:
+    type: list
+    visibility: owner
+
+# Include board zones from a separate file
+$include: zones/board.yaml
+
+# Or include multiple files
+$include:
+  - zones/board.yaml
+  - zones/special.yaml
+```
+
+### How It Works
+
+1. **Mapping Merge**: When including files that contain mappings (objects), keys are merged into the current mapping
+2. **Path Resolution**: Include paths are relative to the current file's directory
+3. **Circular Detection**: The system prevents circular includes automatically
+4. **Recursive Processing**: Included files can themselves include other files
+
+### Examples
+
+#### Organizing Actions
+```yaml
+# actions.yaml
+$include:
+  - actions/movement.yaml
+  - actions/combat.yaml
+  - actions/special.yaml
+```
+
+#### Splitting Large Zones
+```yaml
+# zones/board.yaml
+main_board:
+  type: grid
+  gridProps:
+    rows: 8
+    cols: 8
+
+side_board:
+  type: grid
+  gridProps:
+    rows: 4
+    cols: 4
+```
+
+### Current Limitations
+
+- **Arrays Not Supported**: Currently, includes only work with mappings (objects), not arrays
+- **No Partial Includes**: You cannot include specific keys from a file
+- **No Parameterization**: Included content cannot be customized during inclusion
+
+### Best Practices
+
+1. **Logical Organization**: Group related content (e.g., all combat actions in one file)
+2. **Avoid Deep Nesting**: Keep include hierarchies shallow for maintainability
+3. **Clear Naming**: Use descriptive filenames that indicate the content
+
+## CLI Implementation (Future)
+
+### File Processing
+
+1. **Multi-file Support**
+   ```bash
+   bluefelt-cli build --main game.yaml --include zones/*.yaml actions/*.yaml
+   ```
+
+2. **Single Minified Output**
+   - Combine all YAML files into one JSON bundle
+   - Minify to reduce size
+   - Include all game data in a single file
+
+### Syntax Expansion
+
+The CLI will expand shorthand syntax into engine-readable format:
+
+#### Action Expansion
+```yaml
+# Input YAML
+drawCard:
+  as: bf.draw
+  from: deck
+  to: {actor}.cards
+
+# Output JSON
+{
+  "action": "draw",
+  "with": {
+    "count": 1,
+    "from": "/zones/deck",
+    "to": "/zones/hand_p{actorId}/cards"
+  }
+}
+```
+
+#### Condition Expansion
+```yaml
+# Input YAML
+if: {actor}.cards.isEmpty
+then: drawCard
+
+# Output JSON
+{
+  "condition": {
+    "type": "zone.count",
+    "zone": "/zones/hand_p{actorId}/cards",
+    "operator": "==",
+    "value": 0
+  },
+  "ifTrue": [{"action": "drawCard"}]
+}
+```
+
+### Standard Library
+
+The CLI will include a comprehensive standard library of actions:
+
+- `bf.deal`: Distribute cards/entities to players
+- `bf.draw`: Move entities from source to destination
+- `bf.shuffle`: Randomize zone order
+- `bf.transfer`: Move matching entities between zones
+- `bf.findSets`: Identify and move matching sets
+- `bf.choice`: Present options to player
+- `bf.compareCount`: Compare quantities across players
+
+## YAML Writing Guidelines
+
+### File Organization
+
+1. **Consistent Naming** - Use clear, descriptive IDs
+2. **Logical Grouping** - Group related entities/actions
+3. **Version Control** - Use semantic versioning
+4. **Documentation** - Comment complex rules
+
+### Syntax Guidelines
+
+1. **Use explicit parameters** instead of implicit behavior
+2. **Organize zones by spatial hierarchy** (hand, tactical, strategic, ambient)
+3. **Prefer structured data** over natural language descriptions
+4. **Use standard library actions** when available
+5. **Group related concepts** using clear naming patterns
+
+### Performance Considerations
+
+1. **Efficient Zones** - Avoid overly complex zone structures
+2. **Minimal Entities** - Only define what you need
+3. **Smart Conditions** - Use efficient condition checks
+4. **Batch Actions** - Group related actions when possible
+
+---

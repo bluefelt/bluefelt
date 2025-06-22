@@ -2,307 +2,435 @@ import React, { useState, useEffect, useRef } from 'react';
 import { applyPatch } from 'fast-json-patch';
 import { useReconnectingWebSocket } from './useReconnectingWebSocket';
 import { WS_BASE_URL } from '../config';
-import type { ServerMessage, WelcomeMessage, PlayerUpdateMessage, DiffMessage, GameStartedMessage, PatchOperation } from '../types/messages';
+import type { PatchOperation } from '../types/messages';
+import { AnimationEngine, type AnimationEngineCallbacks } from '../animation/AnimationEngine';
+import { useAnimation } from '../context/AnimationContext';
 
-export type ActionOption = {
-  zone: string;
-  row?: number;
-  col?: number;
-  entity?: string;
-};
-
-export type GroupedAction = {
-  action: string;
-  direction: string;
-  validOptions: ActionOption[];
-};
-
-import type { MetaState } from '../types/messages';
-
+// State Types
 export type LobbyState = {
-  you?: string;
-  ui?: MetaState;
+  // Persistent lobby info
+  id: string;
+  name: string;
+  owner?: string | null;
+  archived?: boolean;
+  inviteCode?: string;
+  members: Array<{
+    username: string;
+    connected: boolean;
+    currentGame?: string;
+    activeTables?: string[];
+  }>;
+  games: Array<{
+    id: string;
+    type: string;
+    status: 'preparing' | 'playing' | 'ended';
+    players: Record<string, string>; // slot -> username mapping
+  }>;
+  
+  // New table system
+  tables: Array<{
+    id: string;
+    bundleId: string;
+    name?: string;
+    owner: string;
+    status: string;
+    seats: Array<{ playerId: string; username: string } | null>;
+    readyStates: boolean[];
+    minPlayers: number;
+    maxPlayers: number;
+    countdownEndsAt?: number;
+  }>;
+  
+  // Chat messages
+  recentChat: Array<{
+    id: string;
+    scope: 'lobby' | 'table';
+    tableId?: string;
+    sender: string;
+    message: string;
+    timestamp: number;
+  }>;
+  
+  // Current game state (if in a game)
   game?: {
-    turn?: number;
-    currentPlayer?: string;
-    tick?: number;
-    gameStatus?: {
-      state: string;
-      winner?: string | null;
-      tie?: boolean;
+    id: string;
+    tableId?: string; // The table this game is associated with
+    gameId?: string;  // The game type (e.g., 'tic-tac-toe')
+    state: any; // Game-specific state
+    ui: {
+      actionMap: Record<string, any>;
+      gameLog: any[];
+      zones: any[];
+      entities: any;
+      gameMetadata: any;
     };
-    players?: Array<{ id: string; mark?: string }>;
-    zones?: Record<string, unknown[][]>;
-    phases?: Record<string, { current: string; count: number; actionsProcessed: number }>;
-    selection?: any;
   };
-  started?: boolean;
+  
+  // Client state
+  you?: string;
   error?: string;
+  tableError?: string;
+  isJoined?: boolean; // Track if current user has joined the lobby
 };
 
 export function useLobbyWebSocket(
   lobbyId: string,
-  playerId: string,
-  autoJoin: boolean,
+  username: string,
 ) {
-  const [lobbyState, setLobbyState] = useState<LobbyState>({});
-  const lastTickRef = useRef<number>(
-    Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || '0'),
-  );
-  // Create URL with initial lastTick value
-  const url = React.useMemo(() => {
-    const initialTick = Number(localStorage.getItem(`lobby_${lobbyId}_lastTick`) || '0');
-    return `${WS_BASE_URL}/api/lobbies/${lobbyId}/ws?player_id=${encodeURIComponent(
-      playerId,
-    )}&join=${autoJoin ? 1 : 0}&since=${initialTick}`;
-  }, [lobbyId, playerId, autoJoin]);
-
-  // Message handlers map for better organization
-  const messageHandlers = {
-    welcome: (data: WelcomeMessage) => {
-      // Ensure game.selection exists if it's present in the server state
-      const gameState = data.game || data.state || {};
-      // Always initialize selection for games that need it (Go Fish, etc)
-      if (!gameState.selection) {
-        gameState.selection = {};
+  const [lobbyState, setLobbyState] = useState<LobbyState>({
+    id: lobbyId,
+    name: '',
+    members: [],
+    games: [],
+    tables: [],
+    recentChat: [],
+  });
+  const lobbyStateRef = useRef<LobbyState>(lobbyState);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    lobbyStateRef.current = lobbyState;
+  }, [lobbyState]);
+  
+  // Animation system integration
+  const { state: animationState, addAnimation, removeAnimation } = useAnimation();
+  const animationEngineRef = useRef<AnimationEngine | null>(null);
+  
+  // Initialize animation engine
+  useEffect(() => {
+    const callbacks: AnimationEngineCallbacks = {
+      onAnimationStart: (animation) => {
+        addAnimation(animation);
+      },
+      onAnimationComplete: (result) => {
+        removeAnimation(result.animationId);
+      },
+      onQueueEmpty: () => {
+        // Animation queue is empty
       }
+    };
+    
+    animationEngineRef.current = new AnimationEngine(callbacks);
+    animationEngineRef.current.updateAudioConfig(animationState.config);
+    
+    return () => {
+      if (animationEngineRef.current) {
+        animationEngineRef.current.cancelAllAnimations();
+      }
+    };
+  }, [addAnimation, removeAnimation]);
+  
+  // Update audio config when it changes
+  useEffect(() => {
+    if (animationEngineRef.current) {
+      animationEngineRef.current.updateAudioConfig(animationState.config);
+    }
+  }, [animationState.config]);
+
+  // Create WebSocket URL - connect without joining by default
+  const url = React.useMemo(() => {
+    return `${WS_BASE_URL}/api/lobbies/${lobbyId}/ws?player=${encodeURIComponent(username)}`;
+  }, [lobbyId, username]);
+
+  // Apply patches to state
+  const applyPatches = (patches: PatchOperation[]) => {
+    if (!patches || patches.length === 0) return;
+    
+    // Process animations BEFORE applying patches
+    if (animationEngineRef.current && animationState.config.enableAnimations && lobbyStateRef.current.game) {
+      const preUpdateState = {
+        game: lobbyStateRef.current.game.state,
+        ui: lobbyStateRef.current.game.ui,
+        you: lobbyStateRef.current.you
+      };
       
-      setLobbyState({
-        you: data.you,
-        ui: data.ui || data.meta, // Support both new and old formats during transition
-        game: gameState,
-        started: data.started,
+      const gameId = lobbyStateRef.current.game.ui.gameMetadata?.gameId;
+      
+      patches.forEach(patch => {
+        animationEngineRef.current!.processAnimatablePatch(
+          patch,
+          preUpdateState,
+          animationState.config,
+          preUpdateState.you,
+          gameId
+        ).catch(console.error);
       });
-      if (typeof data.tick === 'number') lastTickRef.current = data.tick;
-    },
+    }
     
-    playerUpdate: (data: PlayerUpdateMessage) => {
-      setLobbyState((prev) => ({
-        ...prev,
-        ui: {
-          ...prev.ui,
-          players: data.players,
-        },
-      }));
-    },
+    setLobbyState(prev => {
+      try {
+        const result = applyPatch(prev, patches, true, false);
+        return result.newDocument as LobbyState;
+      } catch (error) {
+        console.error('[WebSocket] Patch failed:', error, patches);
+        return prev;
+      }
+    });
+  };
+
+  // Handle messages
+  const handleMessage = (messageData: any) => {
+    const { type } = messageData;
     
-    diff: (data: DiffMessage) => {
-      if (Array.isArray(data.patch)) {
-        // Log all patches for debugging game end scenarios
-        const hasGameStatus = data.patch.some((p: any) => p.path === '/ui/gameStatus' || p.path === '/game/gameStatus');
-        const hasZonePatches = data.patch.some((p: any) => p.path?.startsWith('/game/zones/'));
-        if (hasGameStatus || hasZonePatches) {
-          // Special patches detected
-        }
+    switch (type) {
+      case 'lobbyView':
+        // Initial connection - viewing lobby without joining
+        setLobbyState(prev => ({
+          ...prev,
+          ...messageData.lobby,
+          tables: messageData.lobby.tables || [],
+          recentChat: messageData.lobby.recentChat || [],
+          isJoined: false,
+        }));
+        break;
         
-        setLobbyState((prev) => {
-          // Debug log to check state structure
-          if (!prev.game && prev.started) {
-            console.error('[useLobbyWebSocket] Warning: game state missing in started lobby', prev);
-          }
+      case 'lobbyJoined':
+        // User has joined the lobby
+        setLobbyState(prev => ({
+          ...prev,
+          ...messageData.lobby,
+          you: messageData.lobby.myId || prev.you,
+          tables: messageData.lobby.tables || [],
+          recentChat: messageData.lobby.recentChat || [],
+          isJoined: true,
+        }));
+        break;
+        
+      case 'lobbyState':
+        // Full lobby state update
+        setLobbyState(prev => ({
+          ...prev,
+          ...messageData.lobby,
+          you: messageData.you || prev.you,
+        }));
+        break;
+        
+      case 'gameCreated':
+        // A new game was created in the lobby
+        setLobbyState(prev => ({
+          ...prev,
+          games: [...(prev.games || []), messageData.game],
+        }));
+        break;
+        
+      case 'gameJoined':
+        // Update game player list
+        setLobbyState(prev => {
+          const games = prev.games.map(g => 
+            g.id === messageData.gameId 
+              ? { ...g, players: messageData.players }
+              : g
+          );
+          return { ...prev, games };
+        });
+        break;
+        
+      case 'gameStarted':
+        // Game has started - update state and UI
+        console.log('[WebSocket] Game started:', messageData);
+        console.log('[WebSocket] You are:', messageData.you);
+        setLobbyState(prev => {
+          // Update tables status to Playing
+          const tables = (prev.tables || []).map(t =>
+            t.id === messageData.tableId
+              ? { ...t, status: 'Playing' }
+              : t
+          );
           
-          // Start with the full previous state, ensuring ui and game exist
-          const full = { 
+          // Update legacy games for backward compatibility
+          const games = prev.games.map(g => 
+            g.id === messageData.gameInstanceId 
+              ? { ...g, status: 'playing' as const }
+              : g
+          );
+          
+          const newState = {
             ...prev,
-            ui: prev.ui || {}, 
-            game: prev.game || {
-              // If game is missing, create minimal structure
-              zones: {},
-              selection: {},
-              currentPlayer: null,
-              turn: 0,
-              tick: 0,
-              players: [],
-              gameStatus: { state: 'playing', winner: null, tie: false },
-              phases: {}
-            }
+            games,
+            tables,
+            game: {
+              id: messageData.gameInstanceId,
+              tableId: messageData.tableId,  // Store the table ID here
+              gameId: messageData.gameId,
+              state: messageData.state,
+              ui: messageData.ui || {
+                actionMap: {},
+                gameLog: [],
+                zones: [],
+                entities: {},
+                gameMetadata: {
+                  gameId: messageData.gameId
+                }
+              }
+            },
+            you: messageData.you || prev.you,
           };
           
-          // Ensure selection always exists in game state
-          if (full.game && !full.game.selection) {
-            full.game.selection = {};
-          }
-          
-          // Pre-process patches to ensure parent paths exist
-          const processedPatches: PatchOperation[] = [];
-          for (const patch of data.patch as PatchOperation[]) {
-            const processedPatch = { ...patch };
-            
-            // The full object has {ui: {...}, game: {...}}
-            // Server sends patches with /game prefix for game state and /ui for UI metadata
-            // We need to keep these as-is since they match our structure
-            
-            // Ensure actionMap exists for player-specific updates
-            if (processedPatch.path.startsWith('/ui/actionMap/')) {
-              if (!full.ui.actionMap) {
-                full.ui.actionMap = {};
-              }
-              // Extract player ID from path like /ui/actionMap/p2
-              const pathParts = processedPatch.path.split('/');
-              if (pathParts.length >= 4) {
-                const playerId = pathParts[3];
-                if (!full.ui.actionMap[playerId]) {
-                  full.ui.actionMap[playerId] = {};
-                }
-              }
-            }
-            
-            if (processedPatch.path.startsWith('/game/phases')) {
-              // Ensure phases exists
-              if (!full.game.phases) {
-                full.game.phases = {};
-              }
-            }
-            
-            // Ensure selection exists for Go Fish and other games that use it
-            if (processedPatch.path.startsWith('/game/selection')) {
-              if (!full.game.selection) {
-                full.game.selection = {};
-              }
-            }
-            
-            // Debug log for game status patches
-            if (processedPatch.path === '/ui/gameStatus' || processedPatch.path === '/game/gameStatus') {
-              // Game status patch detected
-            }
-            
-            // Debug log for zone patches
-            if (processedPatch.path?.startsWith('/game/zones/')) {
-              // Zone patch detected
-            }
-            
-            // Debug log for ui patches in development only
-            if (import.meta.env.DEV && processedPatch.path?.includes('/ui/')) {
-              // UI patch detected
-            }
-            
-            processedPatches.push(processedPatch);
-          }
-          
-          try {
-            if (import.meta.env.DEV) {
-              // Development mode
-            }
-            
-            // Apply patches one by one to handle partial failures
-            let workingState = { ...full };
-            // Track patches for debugging
-            // let successfulPatches = 0;
-            
-            for (let i = 0; i < processedPatches.length; i++) {
-              const patch = processedPatches[i];
-              try {
-                const patchResult = applyPatch(workingState, [patch], true, false);
-                workingState = patchResult.newDocument;
-                // successfulPatches++;
-                // Only log successful patches in development for debugging
-                if (import.meta.env.DEV) {
-                  // Patch applied successfully
-                }
-              } catch (patchError: any) {
-                // Special handling for operations on non-existent paths
-                if (patchError?.name === 'OPERATION_PATH_UNRESOLVABLE') {
-                  // Check if this is a legacy path that we can safely ignore
-                  const legacyPaths = ['/meta/possibleActions/', '/ui/currentPhasePrompt'];
-                  const isLegacyPath = legacyPaths.some(legacy => patch.path?.includes(legacy));
-                  
-                  if (patch.op === 'remove' || isLegacyPath) {
-                    if (import.meta.env.DEV) {
-                      // Legacy path ignored
-                    }
-                    // Count as successful since it's effectively a no-op
-                  } else {
-                    console.error(`[useLobbyWebSocket] Failed to apply patch ${i + 1}:`, patch, 'Error:', patchError);
-                  }
-                } else {
-                  console.error(`[useLobbyWebSocket] Failed to apply patch ${i + 1}:`, patch, 'Error:', patchError);
-                }
-                // Continue with other patches even if one fails
-              }
-            }
-            
-            if (import.meta.env.DEV) {
-              // Patch processing complete
-            }
-            
-            const result = { ...workingState, you: prev.you, started: prev.started };
-            
-            // Transform phase data from server format to expected client format
-            if (result.game?.phases && typeof result.game.phases === 'object') {
-              const transformedPhases: Record<string, { current: string; count: number; actionsProcessed: number }> = {};
-              for (const [key, value] of Object.entries(result.game.phases)) {
-                if (typeof value === 'string') {
-                  transformedPhases[key] = {
-                    current: value,
-                    count: 0,
-                    actionsProcessed: 0
-                  };
-                } else if (value && typeof value === 'object' && 'current' in value) {
-                  // Already in expected format
-                  transformedPhases[key] = value as { current: string; count: number; actionsProcessed: number };
-                }
-              }
-              result.game.phases = transformedPhases;
-            }
-            
-            if (import.meta.env.DEV) {
-              // State updated
-            }
-            
-            // Debug log for game status changes and board state
-            if (result.game?.gameStatus?.state === 'ended') {
-              // Game has ended
-            }
-            
-            // Debug log for any zone changes
-            const hasProcessedZonePatches = processedPatches.some((p: any) => p.path?.startsWith('/game/zones/'));
-            if (hasProcessedZonePatches) {
-              // Zone changes detected
-            }
-            
-            return result;
-          } catch (error) {
-            console.error('[useLobbyWebSocket] Critical error in patch processing:', error);
-            // Return previous state if something goes catastrophically wrong
-            return prev;
-          }
+          console.log('[WebSocket] Updated lobby state with game:', newState.game);
+          console.log('[WebSocket] Your player ID is:', newState.you);
+          return newState;
         });
-        if (typeof data.tick === 'number') lastTickRef.current = data.tick;
-      }
-    },
-    
-    started: () => {
-      setLobbyState((prev) => ({ ...prev, started: true }));
-    },
-    
-    gameStarted: (data: GameStartedMessage) => {
-      // Ensure selection exists in the game state
-      const gameState = data.game || {};
-      if (!gameState.selection) {
-        gameState.selection = {};
-      }
-      
-      setLobbyState((prev) => ({
-        ...prev,
-        you: data.you || prev.you,
-        game: gameState,
-        ui: data.ui,
-        started: true,
-      }));
-    },
-    
-    error: (data: { message: string }) => {
-      console.error('Lobby error:', data.message);
-      setLobbyState((prev) => ({ ...prev, error: data.message }));
-      // If lobby doesn't exist, don't try to reconnect
-      if (data.message === 'Lobby does not exist') {
-        // Clear the stored lastTick for this lobby
-        localStorage.removeItem(`lobby_${lobbyId}_lastTick`);
-        setShouldReconnect(false);
-        setHasReceivedError(true);
-        disconnect();
-      }
-    },
+        break;
+        
+      case 'gameUpdate':
+        // Patches for current game
+        if (messageData.patches && lobbyState.game?.id === messageData.gameId) {
+          console.log('[WebSocket] Game update patches:', messageData.patches);
+          // Apply patches to game.state
+          setLobbyState(prev => {
+            if (!prev.game || prev.game.id !== messageData.gameId) return prev;
+            
+            try {
+              const gamePatches = messageData.patches.map((p: PatchOperation) => ({
+                ...p,
+                path: `/game/state${p.path}`
+              }));
+              
+              const result = applyPatch(prev, gamePatches, true, false);
+              return result.newDocument as LobbyState;
+            } catch (error) {
+              console.error('[WebSocket] Game patch failed:', error);
+              return prev;
+            }
+          });
+        }
+        
+        // Update UI if provided
+        if (messageData.ui && lobbyState.game?.id === messageData.gameId) {
+          setLobbyState(prev => ({
+            ...prev,
+            game: prev.game ? { ...prev.game, ui: messageData.ui } : prev.game
+          }));
+        }
+        break;
+        
+      case 'gameEnded':
+        // Game has ended
+        setLobbyState(prev => {
+          const games = prev.games.map(g => 
+            g.id === messageData.gameId 
+              ? { ...g, status: 'ended' as const }
+              : g
+          );
+          
+          // Clear current game if it's the one that ended
+          const game = prev.game?.id === messageData.gameId ? undefined : prev.game;
+          
+          return { ...prev, games, game };
+        });
+        break;
+        
+      case 'memberJoined':
+        // Update member list and check if it's the current user
+        if (messageData.members) {
+          setLobbyState(prev => {
+            const isCurrentUserJoining = messageData.member === username;
+            return {
+              ...prev,
+              members: messageData.members,
+              isJoined: isCurrentUserJoining ? true : prev.isJoined,
+            };
+          });
+        }
+        break;
+        
+      case 'memberLeft':
+      case 'memberUpdate':
+        // Update member list
+        if (messageData.members) {
+          setLobbyState(prev => ({
+            ...prev,
+            members: messageData.members,
+          }));
+        }
+        break;
+        
+      case 'tableJoined':
+        // User successfully joined a table with auto-assigned seat
+        console.log(`[WebSocket] Successfully joined table ${messageData.tableId} at seat ${messageData.seatIndex}`);
+        break;
+        
+      // Table messages
+      case 'tableCreated':
+        setLobbyState(prev => ({
+          ...prev,
+          tables: [...(prev.tables || []), messageData.table],
+        }));
+        break;
+        
+      case 'tableUpdated':
+        setLobbyState(prev => ({
+          ...prev,
+          tables: (prev.tables || []).map(t =>
+            t.id === messageData.tableId
+              ? {
+                  ...t,
+                  seats: messageData.seats,
+                  readyStates: messageData.readyStates,
+                  status: messageData.status,
+                  countdownEndsAt: messageData.countdownEndsAt,
+                }
+              : t
+          ),
+        }));
+        break;
+        
+      case 'countdownStarted':
+        setLobbyState(prev => ({
+          ...prev,
+          tables: (prev.tables || []).map(t =>
+            t.id === messageData.tableId
+              ? { ...t, status: 'Countdown', countdownEndsAt: messageData.endsAt }
+              : t
+          ),
+        }));
+        break;
+        
+      case 'countdownCancelled':
+        setLobbyState(prev => ({
+          ...prev,
+          tables: (prev.tables || []).map(t =>
+            t.id === messageData.tableId
+              ? { ...t, status: 'Open', countdownEndsAt: undefined }
+              : t
+          ),
+        }));
+        break;
+        
+      case 'chatMessage':
+        setLobbyState(prev => ({
+          ...prev,
+          recentChat: [...(prev.recentChat || []), {
+            id: messageData.id || `${Date.now()}`,
+            scope: messageData.scope,
+            tableId: messageData.tableId,
+            sender: messageData.sender,
+            message: messageData.message,
+            timestamp: messageData.timestamp,
+          }].slice(-100), // Keep last 100 messages
+        }));
+        break;
+        
+      case 'error':
+        console.error('Lobby error:', messageData.message);
+        // Check if it's a table-specific error
+        if (messageData.context && messageData.context.includes('table')) {
+          setLobbyState(prev => ({ ...prev, tableError: messageData.message }));
+        } else {
+          setLobbyState(prev => ({ ...prev, error: messageData.message }));
+        }
+        
+        // If lobby doesn't exist, don't try to reconnect
+        if (messageData.message === 'Lobby does not exist') {
+          setShouldReconnect(false);
+          setHasReceivedError(true);
+          disconnect();
+        }
+        break;
+        
+      default:
+        console.warn('Unknown message type:', type);
+    }
   };
 
   const [shouldReconnect, setShouldReconnect] = useState(true);
@@ -310,12 +438,8 @@ export function useLobbyWebSocket(
   
   const { messages, sendMessage, connected, state, disconnect } = useReconnectingWebSocket(url, (dataStr) => {
     try {
-      const data = JSON.parse(dataStr) as ServerMessage;
-      const handler = messageHandlers[data.type as keyof typeof messageHandlers];
-      if (handler) {
-        // @ts-expect-error - Union type requires type assertion
-        handler(data);
-      }
+      const data = JSON.parse(dataStr);
+      handleMessage(data);
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
     }
@@ -324,18 +448,103 @@ export function useLobbyWebSocket(
     reconnectAttempts: 3
   });
 
-  useEffect(() => {
-    return () => {
-      localStorage.setItem(
-        `lobby_${lobbyId}_lastTick`,
-        String(lastTickRef.current),
-      );
-    };
-  }, [lobbyId]);
+  // Actions
+  const createGame = (gameType: string) => {
+    sendMessage(JSON.stringify({ action: 'createGame', gameType }));
+  };
+  
+  const joinGame = (gameId: string) => {
+    sendMessage(JSON.stringify({ action: 'joinGame', gameId }));
+  };
+  
+  const leaveGame = (gameId: string) => {
+    sendMessage(JSON.stringify({ action: 'leaveGame', gameId }));
+  };
+  
+  const startGame = (gameId: string) => {
+    console.log('[WebSocket] Starting game:', gameId);
+    sendMessage(JSON.stringify({ action: 'startGame', gameId: gameId }));
+  };
+  
+  const sendGameAction = (gameId: string, actionData: any) => {
+    sendMessage(JSON.stringify({ 
+      action: 'gameAction', 
+      gameId,
+      ...actionData 
+    }));
+  };
+  
+  const leaveLobby = () => {
+    sendMessage(JSON.stringify({ action: 'leaveLobby' }));
+  };
+  
+  const requestGameState = (tableId: string) => {
+    console.log('[WebSocket] Requesting game state for table:', tableId);
+    sendMessage(JSON.stringify({ action: 'requestGameState', tableId }));
+  };
+  
+  const renameLobby = (name: string) => {
+    sendMessage(JSON.stringify({ action: 'renameLobby', name }));
+  };
+  
+  // Table actions
+  const createTable = (bundleId: string, minPlayers?: number, maxPlayers?: number) => {
+    sendMessage(JSON.stringify({ 
+      action: 'createTable', 
+      bundleId,
+      minPlayers,
+      maxPlayers,
+    }));
+  };
+  
+  const joinTable = (tableId: string) => {
+    sendMessage(JSON.stringify({ 
+      action: 'joinTable', 
+      tableId 
+    }));
+  };
+  
+  const claimSeat = (tableId: string, seatIndex: number) => {
+    sendMessage(JSON.stringify({ 
+      action: 'claimSeat', 
+      tableId, 
+      seatIndex 
+    }));
+  };
+  
+  const releaseSeat = (tableId: string, seatIndex: number) => {
+    sendMessage(JSON.stringify({ 
+      action: 'releaseSeat', 
+      tableId, 
+      seatIndex 
+    }));
+  };
+  
+  const setReady = (tableId: string, ready: boolean) => {
+    sendMessage(JSON.stringify({ 
+      action: 'setReady', 
+      tableId, 
+      ready 
+    }));
+  };
+  
+  const sendChatMessage = (message: string, scope: 'lobby' | 'table' = 'lobby', tableId?: string) => {
+    sendMessage(JSON.stringify({ 
+      action: 'sendChatMessage', 
+      message,
+      scope,
+      tableId,
+    }));
+  };
 
-  const joinLobby = () => sendMessage(JSON.stringify({ action: 'join' }));
-  const leaveLobby = () => sendMessage(JSON.stringify({ action: 'leave' }));
-  const startGame = () => sendMessage(JSON.stringify({ action: 'start_game' }));
+  const clearTableError = () => {
+    setLobbyState(prev => ({ ...prev, tableError: undefined }));
+  };
+
+  // Join the lobby (separate from just viewing)
+  const joinLobby = () => {
+    sendMessage(JSON.stringify({ action: 'joinLobby' }));
+  };
 
   return {
     messages,
@@ -343,9 +552,23 @@ export function useLobbyWebSocket(
     connected,
     connectionState: state,
     lobbyState,
-    joinLobby,
-    leaveLobby,
+    createGame,
+    joinGame,
+    leaveGame,
     startGame,
+    sendGameAction,
+    leaveLobby,
+    renameLobby,
     disconnect,
+    joinLobby,
+    requestGameState,
+    // Table actions
+    createTable,
+    joinTable,
+    claimSeat,
+    releaseSeat,
+    setReady,
+    sendChatMessage,
+    clearTableError,
   };
 }

@@ -1,13 +1,14 @@
 import { ButtonHTMLAttributes, ReactNode } from 'react';
-import { theme, cn } from '../../theme/constants';
+import { theme } from '../../theme/constants';
+import { cn } from '../../utils/cn';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'warning';
+  variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'warning' | 'outline' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
   children: ReactNode;
 }
 
-export default function Button({ 
+function Button({ 
   variant = 'primary', 
   size = 'md',
   className,
@@ -19,7 +20,9 @@ export default function Button({
     secondary: theme.colors.button.secondary,
     success: theme.colors.button.success,
     danger: theme.colors.button.danger,
-    warning: theme.colors.button.warning
+    warning: theme.colors.button.warning,
+    outline: 'border border-gray-400 text-gray-700 hover:bg-gray-50',
+    ghost: 'text-gray-600 hover:bg-gray-100'
   };
 
   const sizeClasses = {
@@ -43,3 +46,6 @@ export default function Button({
     </button>
   );
 }
+
+export default Button;
+export { Button };

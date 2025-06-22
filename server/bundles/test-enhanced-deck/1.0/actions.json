@@ -1,0 +1,52 @@
+[
+  {
+    "auto": true,
+    "id": "deal",
+    "ui": {
+      "logTemplate": "Dealing 13 cards to each player"
+    },
+    "uses": "dealToAllPlayers",
+    "with": {
+      "count": 13,
+      "from": "/zones/deck",
+      "mode": "fixed",
+      "toZonePattern": "/zones/hand_{player}"
+    }
+  },
+  {
+    "id": "draw",
+    "ui": {
+      "direction": "Draw a card",
+      "logTemplate": "{player} drew a card"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 1,
+      "from": "/zones/deck",
+      "to": "/zones/hand_{player}"
+    }
+  },
+  {
+    "id": "makeMeld",
+    "ui": {
+      "direction": "Select cards to form a meld (set or run)",
+      "logTemplate": "{player} formed a meld"
+    },
+    "uses": "formMelds",
+    "when": [
+      {
+        "condition": "zone.count",
+        "with": {
+          "operator": ">=",
+          "value": 3,
+          "zone": "/zones/hand_{player}"
+        }
+      }
+    ],
+    "with": {
+      "fromZone": "/zones/hand_{player}",
+      "selectedCards": [],
+      "toZone": "/zones/melds_{player}"
+    }
+  }
+]

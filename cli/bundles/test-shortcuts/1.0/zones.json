@@ -1,0 +1,16 @@
+[
+  {
+    "gridProps": {
+      "cols": 3,
+      "rows": 3
+    },
+    "id": "board",
+    "type": "grid"
+  },
+  {
+    "contents": "empty",
+    "id": "hand_{player}",
+    "type": "list",
+    "visibility": "owner"
+  }
+]

@@ -26,7 +26,6 @@ fn test_three_player_state_creation() {
         zones: json!([]),
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     };
 
     let state = load_initial_state(&bundle);
@@ -66,7 +65,6 @@ fn test_four_player_state_creation() {
         zones: json!([]),
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     };
 
     let state = load_initial_state(&bundle);
@@ -114,7 +112,6 @@ fn test_player_zone_expansion() {
         zones,
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     };
 
     let state = load_initial_state(&bundle);

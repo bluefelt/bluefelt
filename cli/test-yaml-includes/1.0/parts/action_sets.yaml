@@ -1,0 +1,16 @@
+card_actions:
+  - id: draw_two
+    then:
+      - transferEntity:
+          from: deck
+          to: p{currentPlayer}_hand
+      - transferEntity:
+          from: deck
+          to: p{currentPlayer}_hand
+          
+  - id: discard_hand
+    then:
+      - transferEntity:
+          from: p{currentPlayer}_hand
+          to: discard
+          all: true

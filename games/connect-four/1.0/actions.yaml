@@ -1,5 +1,6 @@
 # Main action - drop a disc into a column
-- id: dropDisc
+- id: dropChecker
+  aliases: ["drop", "dropDisc"]  # Alternative names for the action
   uses: placeWithGravity
   ui:
     direction: "Click a column to drop your disc"
@@ -17,15 +18,42 @@
 
 # Check for winning condition after each move
 - id: checkWin
-  uses: grid.lineOfMarks
+  uses: conditionalAction
   auto: true
   with:
-    zone: "/zones/board"
-    entity: "disc_{player}"
-    lineLength: 4
-    directions: ["horizontal", "vertical", "diagonal"]
+    condition:
+      condition: grid.lineOfMarks
+      with:
+        zone: "/zones/board"
+        entity: "disc_{player}"
+        lineLength: 4
+        directions: ["horizontal", "vertical", "diagonal"]
+    then:
+      - action: endGame
+    
+# End the game when someone wins
+- id: endGame
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: "game"
+    phase: "end"
+  ui:
+    logTemplate: "{player} wins with 4 in a row!"
+  then:
+    - action: setWinner
+
+# Set the winner
+- id: setWinner
+  uses: setValue
+  auto: true
+  with:
+    path: "/gameStatus/winner"
+    value: "{player}"
 
 # Advance to next player's turn
 - id: advanceTurn
   uses: nextTurn
   auto: true
+  ui:
+    logTemplate: "Turn passes to {nextPlayer}"

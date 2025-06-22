@@ -2,6 +2,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { getPlayerColor } from '../config/colors';
 import { getPlayerEntity, getEntityDisplay } from '../utils/entityUtils';
 import Breadcrumbs from './Breadcrumbs';
+import TokenDisplay from './TokenDisplay';
 
 interface GameHeaderProps {
   lobbyId: string;
@@ -70,6 +71,13 @@ export default function GameHeader({ gameId, gameName, status, players, currentP
           const entityDisplay = getEntityDisplay(playerEntity, playerNum);
           
           // Debug logging
+          console.log('[GameHeader] Player mark display:', {
+            player: p.username,
+            playerNum,
+            playerEntity,
+            entityDisplay,
+            entityDefinitions
+          });
           
           return (
             <div key={p.username} className="flex items-center space-x-2 relative">
@@ -111,23 +119,15 @@ export default function GameHeader({ gameId, gameName, status, players, currentP
                 }}
               >
                 {entityDisplay.type === 'token' && entityDisplay.value ? (
-                  <div 
-                    style={{ 
-                      width: '14px',
-                      height: '14px',
-                      backgroundColor: playerColor,
-                      maskImage: `url(/tokens/token_${entityDisplay.value}.svg)`,
-                      maskSize: 'contain',
-                      maskRepeat: 'no-repeat',
-                      maskPosition: 'center',
-                      WebkitMaskImage: `url(/tokens/token_${entityDisplay.value}.svg)`,
-                      WebkitMaskSize: 'contain',
-                      WebkitMaskRepeat: 'no-repeat',
-                      WebkitMaskPosition: 'center',
-                      marginLeft: '3px',
-                      marginBottom: '6px' // Adjust for bubble tail
-                    }}
-                  />
+                  <div style={{ marginLeft: '3px', marginBottom: '6px' }}>
+                    <TokenDisplay
+                      tokenType={entityDisplay.value}
+                      cellSize={20}
+                      color={playerColor}
+                      playerId={p.username}
+                      playerIndex={playerIndex}
+                    />
+                  </div>
                 ) : (
                   <span style={{ marginBottom: '2px' }}>{entityDisplay.text}</span>
                 )}

@@ -27,7 +27,6 @@ fn test_zone_id_player_template_expansion() {
         zones,
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     };
 
     let state = load_initial_state(&bundle);
@@ -77,7 +76,6 @@ fn test_entity_id_player_template_expansion() {
         zones,
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     };
 
     let state = load_initial_state(&bundle);
@@ -116,7 +114,6 @@ fn test_zone_contents_player_template_expansion() {
         zones,
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     };
 
     let state = load_initial_state(&bundle);
@@ -171,7 +168,6 @@ fn test_action_parameter_player_template_replacement() {
         zones,
         actions,
         phases: json!([]),
-        _hooks: None,
     };
 
     let mut state = load_initial_state(&bundle);
@@ -238,7 +234,6 @@ fn test_action_parameter_actor_template_replacement() {
         zones,
         actions,
         phases: json!([]),
-        _hooks: None,
     };
 
     let mut state = load_initial_state(&bundle);
@@ -300,7 +295,6 @@ fn test_action_parameter_selection_template_replacement() {
         zones,
         actions,
         phases: json!([]),
-        _hooks: None,
     };
 
     let mut state = load_initial_state(&bundle);
@@ -352,7 +346,6 @@ fn test_condition_player_template_evaluation() {
         zones: zones.clone(),
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     };
 
     let mut state = load_initial_state(&bundle);
@@ -428,12 +421,14 @@ fn test_phase_enter_action_template_replacement() {
         zones,
         actions,
         phases,
-        _hooks: None,
     };
 
     let mut state = load_initial_state(&bundle);
     state["currentPlayer"] = json!("p2");
     state["phases"]["game"] = json!("drawing");
+    
+    // Put some cards in the deck for the test
+    state["zones"]["deck"] = json!(["card1", "card2"]);
     
     // Process phases should replace {player} with p2
     let patches = bluefelt_core::engine::process_phases(&bundle, &mut state).unwrap();
@@ -497,7 +492,6 @@ fn test_nested_template_replacement() {
         zones,
         actions,
         phases: json!([]),
-        _hooks: None,
     };
 
     let mut state = load_initial_state(&bundle);
@@ -551,7 +545,6 @@ fn test_game_log_player_template_replacement() {
         zones: json!([]),
         actions,
         phases: json!([]),
-        _hooks: None,
     };
 
     // This tests the game log generation in the lobby

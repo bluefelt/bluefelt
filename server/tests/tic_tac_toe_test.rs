@@ -1,4 +1,4 @@
-use bluefelt_core::{bundle::BundleMap, engine::{load_initial_state, apply_verb}};
+use bluefelt_core::{bundle::BundleMap, engine::{load_initial_state, apply_verb}, lobby::action_map::compute_action_map};
 use serde_json::{json, Value};
 
 #[test]
@@ -27,6 +27,29 @@ fn test_tic_tac_toe_game_setup() {
             assert!(cell.is_null());
         }
     }
+    
+    // Verify action map - p1 should have 9 available actions (all cells)
+    let action_map = compute_action_map(&state, &bundle);
+    let p1_actions = action_map.get("p1").and_then(|v| v.as_object()).unwrap();
+    assert_eq!(p1_actions.len(), 9, "P1 should have 9 available cells to click");
+    
+    // Verify all cells are clickable
+    for row in 0..3 {
+        for col in 0..3 {
+            let cell_path = format!("/zones/board/cells/{}/{}", row, col);
+            assert!(p1_actions.contains_key(&cell_path), 
+                "Cell at ({}, {}) should be clickable", row, col);
+            
+            // Verify action details
+            let action = p1_actions.get(&cell_path).unwrap();
+            assert_eq!(action["action"], "placeMarker");
+            assert_eq!(action["direction"], "Click an empty cell to place your mark");
+        }
+    }
+    
+    // P2 should have no actions (not their turn)
+    let p2_actions = action_map.get("p2").and_then(|v| v.as_object()).unwrap();
+    assert_eq!(p2_actions.len(), 0, "P2 should have no actions when it's not their turn");
 }
 
 #[test]
@@ -80,6 +103,21 @@ fn test_tic_tac_toe_place_marker() {
     // Verify turn advanced to player 2
     assert_eq!(state["currentPlayer"], "p2");
     assert_eq!(state["turn"], 1);
+    
+    // Verify action map after p1's move
+    let action_map = compute_action_map(&state, &bundle);
+    
+    // P2 should now have 8 available actions (all cells except 0,0)
+    let p2_actions = action_map.get("p2").and_then(|v| v.as_object()).unwrap();
+    assert_eq!(p2_actions.len(), 8, "P2 should have 8 available cells after P1's move");
+    
+    // Verify (0,0) is not clickable anymore
+    assert!(!p2_actions.contains_key("/zones/board/cells/0/0"), 
+        "Cell (0,0) should not be clickable after P1 placed there");
+    
+    // P1 should have no actions (not their turn)
+    let p1_actions = action_map.get("p1").and_then(|v| v.as_object()).unwrap();
+    assert_eq!(p1_actions.len(), 0, "P1 should have no actions when it's P2's turn");
 }
 
 #[test]
@@ -225,4 +263,14 @@ fn test_tic_tac_toe_full_game_tie() {
             assert!(!cell.is_null());
         }
     }
+    
+    // Verify action map when board is full
+    let action_map = compute_action_map(&state, &bundle);
+    
+    // Both players should have no available actions when board is full
+    let p1_actions = action_map.get("p1").and_then(|v| v.as_object()).unwrap();
+    let p2_actions = action_map.get("p2").and_then(|v| v.as_object()).unwrap();
+    
+    assert_eq!(p1_actions.len(), 0, "P1 should have no actions when board is full");
+    assert_eq!(p2_actions.len(), 0, "P2 should have no actions when board is full");
 }

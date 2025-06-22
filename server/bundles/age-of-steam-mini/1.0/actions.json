@@ -1,0 +1,124 @@
+[
+  {
+    "cost": [
+      {
+        "amount": "{terrain_cost}",
+        "resource": "money"
+      }
+    ],
+    "id": "build_track",
+    "then": [
+      {
+        "action": "advance_build_turn"
+      }
+    ],
+    "ui": {
+      "direction": "Choose a hex to build track",
+      "logTemplate": "{player} built track at {location} for ${cost}",
+      "name": "Build Track"
+    },
+    "uses": "hex.buildTrack",
+    "when": [
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "/zones/railway_map/{target}"
+        }
+      },
+      {
+        "condition": "player.hasResources",
+        "with": {
+          "amount": "{terrain_cost}",
+          "resource": "money"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      }
+    ]
+  },
+  {
+    "args": {
+      "base_cost": 2,
+      "location": "{target}",
+      "terrain_modifiers": {
+        "mountain": 2,
+        "plains": 0,
+        "river": 1
+      },
+      "zone": "/zones/railway_map"
+    },
+    "auto": true,
+    "id": "calculate_terrain_cost",
+    "uses": "hex.calculateTerrainCost"
+  },
+  {
+    "cost": [
+      {
+        "amount": "{upgrade_cost}",
+        "resource": "money"
+      }
+    ],
+    "id": "upgrade_locomotive",
+    "ui": {
+      "direction": "Increase locomotive capacity",
+      "logTemplate": "{player} upgraded locomotive to capacity {new_capacity}",
+      "name": "Upgrade Locomotive"
+    },
+    "uses": "setState",
+    "when": [
+      {
+        "condition": "player.hasResources",
+        "with": {
+          "amount": "{upgrade_cost}",
+          "resource": "money"
+        }
+      }
+    ],
+    "with": {
+      "path": "/zones/locomotive_{player}/capacity",
+      "value": "min(6, {zones.locomotive_{player}.capacity} + 1)"
+    }
+  },
+  {
+    "id": "deliver_goods",
+    "then": [
+      {
+        "action": "calculate_delivery_income"
+      },
+      {
+        "action": "advance_delivery_turn"
+      }
+    ],
+    "ui": {
+      "direction": "Choose goods and destination city",
+      "logTemplate": "{player} delivered goods from {from_city} to {to_city} earning ${income}",
+      "name": "Deliver Goods"
+    },
+    "uses": "hex.deliverGoods",
+    "when": [
+      {
+        "condition": "hex.hasValidRoute",
+        "with": {
+          "from": "{source_city}",
+          "max_distance": "{zones.locomotive_{player}.capacity}",
+          "to": "{target_city}"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      }
+    ]
+  },
+  {
+    "args": {
+      "from": "{args.from_city}",
+      "income_per_link": 1,
+      "to": "{args.to_city}",
+      "track_owners": "{track_ownership}"
+    },
+    "auto": true,
+    "id": "calculate_delivery_income",
+    "uses": "hex.calculateRouteIncome"
+  }
+]

@@ -1,0 +1,301 @@
+[
+  {
+    "auto": true,
+    "id": "dealCardsP1",
+    "name": "Deal Cards to P1",
+    "ui": {
+      "logTemplate": "Dealing 7 cards to {player}"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 7,
+      "from": "/zones/drawPile",
+      "to": "/zones/hand_p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "dealCardsP2",
+    "name": "Deal Cards to P2",
+    "ui": {
+      "logTemplate": "Dealing 7 cards to {player}"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 7,
+      "from": "/zones/drawPile",
+      "to": "/zones/hand_p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "startDiscard",
+    "name": "Start Discard Pile",
+    "ui": {
+      "logTemplate": "Starting discard pile"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 1,
+      "from": "/zones/drawPile",
+      "to": "/zones/discardPile"
+    }
+  },
+  {
+    "auto": true,
+    "id": "beginPlay",
+    "name": "Begin Game",
+    "ui": {
+      "logTemplate": "Game begins - {player} goes first"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "play",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "id": "playCard",
+    "name": "Play Card",
+    "then": [
+      {
+        "action": "checkIfEight",
+        "with": {
+          "entity": "{args.entity}"
+        }
+      }
+    ],
+    "ui": {
+      "direction": "Play a card that matches rank, suit, or any 8",
+      "logTemplate": "{player} plays {args.entity}"
+    },
+    "uses": "transferEntity",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "play",
+          "phaseSet": "game"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "entity": "{args.entity}",
+      "from": "/zones/hand_{player}",
+      "to": "/zones/discardPile"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkIfEight",
+    "name": "Check if Eight",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": [
+        {
+          "condition": "entity.hasProperty",
+          "with": {
+            "entity": "{args.entity}",
+            "property": "rank",
+            "value": "8"
+          }
+        }
+      ],
+      "ifFalse": [
+        {
+          "action": "checkGameEnd"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "transitionToChooseSuit"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "transitionToChooseSuit",
+    "name": "Choose Suit Phase",
+    "ui": {
+      "logTemplate": "{player} played an 8 - choosing new suit"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "chooseSuit",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "id": "chooseSuit",
+    "name": "Choose Suit",
+    "then": [
+      {
+        "action": "checkGameEnd"
+      }
+    ],
+    "ui": {
+      "availableChoices": [
+        "hearts",
+        "diamonds",
+        "clubs",
+        "spades"
+      ],
+      "direction": "Choose the new suit",
+      "logTemplate": "{player} declares {args.suit} as the new suit"
+    },
+    "uses": "setState",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "chooseSuit",
+          "phaseSet": "game"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "path": "/currentSuit",
+      "value": "{args.suit}"
+    }
+  },
+  {
+    "id": "drawCard",
+    "name": "Draw Card",
+    "then": [
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Draw a card",
+      "logTemplate": "{player} draws a card"
+    },
+    "uses": "draw",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "play",
+          "phaseSet": "game"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      },
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "matching": {
+            "anyOf": [
+              {
+                "matchesTop": "/zones/discardPile",
+                "property": "rank"
+              },
+              {
+                "matchesTop": "/zones/discardPile",
+                "property": "suit"
+              },
+              {
+                "property": "rank",
+                "value": "8"
+              }
+            ]
+          },
+          "zone": "/zones/hand_{player}"
+        }
+      }
+    ],
+    "with": {
+      "count": 1,
+      "from": "/zones/drawPile",
+      "to": "/zones/hand_{player}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkGameEnd",
+    "name": "Check Game End",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": [
+        {
+          "condition": "zone.count",
+          "with": {
+            "operator": "==",
+            "value": 0,
+            "zone": "/zones/hand_{player}"
+          }
+        }
+      ],
+      "ifFalse": [
+        {
+          "action": "advanceTurn"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "declareWinner"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "declareWinner",
+    "name": "Declare Winner",
+    "then": [
+      {
+        "action": "endGame"
+      }
+    ],
+    "ui": {
+      "logTemplate": "{player} wins by playing all cards!"
+    },
+    "uses": "setState",
+    "with": {
+      "path": "/winner",
+      "value": "{player}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "endGame",
+    "name": "End Game",
+    "uses": "setPhase",
+    "with": {
+      "phase": "gameOver",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "name": "Advance Turn",
+    "then": [
+      {
+        "action": "transitionToPlay"
+      }
+    ],
+    "ui": {
+      "logTemplate": "Turn advances to {nextPlayer}"
+    },
+    "uses": "nextTurn"
+  },
+  {
+    "auto": true,
+    "id": "transitionToPlay",
+    "name": "Return to Play",
+    "uses": "setPhase",
+    "with": {
+      "phase": "play",
+      "phaseSet": "game"
+    }
+  }
+]

@@ -11,7 +11,6 @@ pub struct Bundle {
     pub zones: Option<Value>,
     pub actions: Option<Value>,
     pub phases: Option<Value>,
-    pub hooks: Option<Vec<u8>>,
 }
 
 /// Game manifest structure

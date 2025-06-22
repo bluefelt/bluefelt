@@ -1,0 +1,19 @@
+[
+  {
+    "id": "hex_board",
+    "shape": "hexgrid",
+    "shapeMeta": {
+      "layout": "flat",
+      "radius": 2
+    },
+    "type": "hexgrid",
+    "ui": {
+      "coordinateSystem": "axial",
+      "hexSize": 50,
+      "hexSpacing": 2,
+      "name": "Hex Board",
+      "showCoordinates": true
+    },
+    "visibility": "all"
+  }
+]

@@ -1,8 +1,11 @@
 import { useMemo } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { getColorById } from '../../config/colors';
+import { useAnimationsEnabled } from '../../context/AnimationContext';
+import TokenDisplay from '../TokenDisplay';
+import { ActionIndicator } from '../ActionIndicator';
 
-interface BoardCellProps {
+export interface BoardCellProps {
   cell: any;
   row: number;
   col: number;
@@ -14,6 +17,12 @@ interface BoardCellProps {
   entityDisplay: { type: 'token' | 'glyph'; glyph?: string; tokenType?: string };
   markColor: string;
   onCellClick: (row: number, col: number) => void;
+  zoneId?: string; // Add zone ID for animation targeting
+  playerPreferences?: Record<string, any>;
+  hasAction?: boolean;
+  isMultiStepAction?: boolean;
+  multiStepIndicatorState?: 'available' | 'current_step' | 'next_step' | 'selected' | 'confirmed';
+  stepNumber?: number;
 }
 
 export default function BoardCell({
@@ -27,9 +36,16 @@ export default function BoardCell({
   isSelected,
   entityDisplay,
   markColor,
-  onCellClick
+  onCellClick,
+  zoneId = 'board',
+  playerPreferences,
+  hasAction = false,
+  isMultiStepAction = false,
+  multiStepIndicatorState = 'available',
+  stepNumber
 }: BoardCellProps) {
   const { player } = usePlayer();
+  const animationsEnabled = useAnimationsEnabled();
   const isEmpty = cell === null;
   
   // Calculate cell background color
@@ -39,6 +55,39 @@ export default function BoardCell({
     }
     return '#000000';
   }, [useCheckerPattern, isDarkSquare]);
+
+  // Enhanced border styling for multi-step actions
+  const getBorderClasses = () => {
+    if (isSelected) {
+      if (isMultiStepAction) {
+        switch (multiStepIndicatorState) {
+          case 'selected':
+            return 'border-green-400 border-3 shadow-lg shadow-green-400/30';
+          case 'confirmed':
+            return 'border-green-500 border-3 shadow-lg shadow-green-500/40';
+          case 'current_step':
+            return 'border-yellow-400 border-3 shadow-lg shadow-yellow-400/40 animate-pulse';
+          default:
+            return 'border-yellow-400 border-2';
+        }
+      }
+      return 'border-yellow-400 border-2';
+    }
+    
+    // Special borders for multi-step action states
+    if (isMultiStepAction && hasAction) {
+      switch (multiStepIndicatorState) {
+        case 'current_step':
+          return 'border-yellow-300 border-2 border-dashed';
+        case 'next_step':
+          return 'border-blue-300 border border-dashed';
+        default:
+          return 'border-gray-700';
+      }
+    }
+    
+    return 'border-gray-700';
+  };
 
   const handleClick = () => {
     if (isClickable) {
@@ -51,10 +100,20 @@ export default function BoardCell({
 
   return (
     <div
-      className={`relative border ${isSelected ? 'border-yellow-400 border-2' : 'border-gray-700'}`}
+      className={`relative border ${getBorderClasses()}`}
       style={{ width: `${cellSize}px`, height: `${cellSize}px` }}
       data-testid={`cell-${row}-${col}`}
+      data-zone={zoneId}
+      data-row={row}
+      data-col={col}
+      data-game-container={row === 0 && col === 0 ? 'true' : undefined}
     >
+      <ActionIndicator 
+        hasAction={hasAction} 
+        isMultiStep={isMultiStepAction}
+        multiStepState={multiStepIndicatorState}
+        stepNumber={stepNumber}
+      />
       {isEmpty ? (
         <div 
           className={`w-full h-full flex items-center justify-center ${
@@ -99,68 +158,38 @@ export default function BoardCell({
           role={isClickable ? "button" : undefined}
           tabIndex={isClickable ? 0 : undefined}
         >
-          {entityDisplay.type === 'token' ? (
-            <TokenDisplay tokenType={entityDisplay.tokenType!} cellSize={cellSize} color={markColor} />
-          ) : (
-            <span 
-              className={`${fontSize} font-bold relative z-10`}
-              style={{ color: markColor }}
-            >
-              {entityDisplay.glyph}
-            </span>
-          )}
+          <div 
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            data-entity-display="true"
+            data-zone={zoneId}
+            data-row={row}
+            data-col={col}
+            style={{
+              // Ensure the entity display is isolated from the cell background
+              zIndex: 10,
+              isolation: 'isolate'
+            }}
+          >
+            {entityDisplay.type === 'token' ? (
+              <TokenDisplay 
+                tokenType={entityDisplay.tokenType!} 
+                cellSize={cellSize} 
+                color={markColor}
+                entityId={cell?.entity}
+                playerPreferences={playerPreferences}
+              />
+            ) : (
+              <span 
+                className={`${fontSize} font-bold relative`}
+                style={{ color: markColor }}
+              >
+                {entityDisplay.glyph}
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// Helper component for token display
-function TokenDisplay({ tokenType, cellSize, color }: { tokenType: string; cellSize: number; color: string }) {
-  const tokenSize = cellSize * 0.7;
-  
-  // Helper function to calculate hue rotation for color filters
-  const getHueRotation = (targetColor: string): number => {
-    const hex = targetColor.replace('#', '');
-    const r = parseInt(hex.substr(0, 2), 16) / 255;
-    const g = parseInt(hex.substr(2, 2), 16) / 255;
-    const b = parseInt(hex.substr(4, 2), 16) / 255;
-    
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const diff = max - min;
-    
-    let h = 0;
-    if (diff !== 0) {
-      switch (max) {
-        case r: h = ((g - b) / diff + (g < b ? 6 : 0)) / 6; break;
-        case g: h = ((b - r) / diff + 2) / 6; break;
-        case b: h = ((r - g) / diff + 4) / 6; break;
-      }
-    }
-    
-    const targetHue = h * 360;
-    const baseHue = 320; // Base hue for the token SVGs
-    
-    let rotation = targetHue - baseHue;
-    while (rotation > 180) rotation -= 360;
-    while (rotation < -180) rotation += 360;
-    
-    return rotation;
-  };
-
-  return (
-    <div 
-      className="relative z-10"
-      style={{ 
-        width: `${tokenSize}px`, 
-        height: `${tokenSize}px`,
-        backgroundImage: `url(/tokens/token_${tokenType}.svg)`,
-        backgroundSize: 'contain',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center',
-        filter: `hue-rotate(${getHueRotation(color)}deg) saturate(1.2)`
-      }}
-    />
-  );
-}

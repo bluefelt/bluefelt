@@ -1,0 +1,13 @@
+[
+  {
+    "id": "piece_{player}",
+    "props": {
+      "owner": "{player}",
+      "value": "{player}"
+    },
+    "quantity": 3,
+    "ui": {
+      "tokenType": "{player}"
+    }
+  }
+]

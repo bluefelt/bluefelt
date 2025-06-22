@@ -1,0 +1,20 @@
+{
+  "gameId": "age-of-steam-mini",
+  "version": "1.0",
+  "specVersion": "1",
+  "metadata": {
+    "name": "Age of Steam Mini",
+    "description": "Simplified Age of Steam for testing economic hex mechanics",
+    "author": "Bluefelt Team",
+    "players": {
+      "min": 2,
+      "max": 4
+    },
+    "tags": [
+      "hex-grid",
+      "economic",
+      "railway",
+      "test-game"
+    ]
+  }
+}

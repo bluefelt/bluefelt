@@ -370,7 +370,8 @@ fn validate_zone_references(bundle: &Bundle, zone_ids: &HashSet<String>, errors:
             if let Some(with) = action.get("with") {
                 // Check source zone
                 if let Some(source) = with["source"].as_str() {
-                    if !source.contains("{actor}") && !source.contains("{player}") && !zone_ids.contains(source) {
+                    // Skip validation if the zone contains any template variables (they'll be resolved at runtime)
+                    if !source.contains("{") && !zone_ids.contains(source) {
                         errors.push(ValidationError::new(
                             &bundle.game_id,
                             "invalid_zone_reference",
@@ -391,7 +392,8 @@ fn validate_zone_references(bundle: &Bundle, zone_ids: &HashSet<String>, errors:
                     };
                     
                     // "any" is a special zone identifier for worker placement games
-                    if zone_name != "any" && !zone_name.contains("{actor}") && !zone_name.contains("{player}") && !zone_ids.contains(zone_name) {
+                    // Skip validation if the zone contains any template variables (they'll be resolved at runtime)
+                    if zone_name != "any" && !zone_name.contains("{") && !zone_ids.contains(zone_name) {
                         errors.push(ValidationError::new(
                             &bundle.game_id,
                             "invalid_zone_reference",

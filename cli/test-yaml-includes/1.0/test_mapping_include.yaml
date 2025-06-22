@@ -1,0 +1,14 @@
+# Test mapping includes
+basic_actions:
+  - id: pass
+    then:
+      - endTurn: {}
+      
+$include: parts/action_sets.yaml
+
+board_actions:
+  - id: place_marker
+    then:
+      - createEntity:
+          type: marker
+          to: board

@@ -1,0 +1,6 @@
+id: token
+type: token
+properties:
+  color:
+    type: string
+    enum: ["red", "blue"]

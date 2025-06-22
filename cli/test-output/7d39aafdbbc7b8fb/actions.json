@@ -1,0 +1,24 @@
+[
+  {
+    "id": "draw_card",
+    "then": [
+      {
+        "transferEntity": {
+          "from": "deck",
+          "to": "p{currentPlayer}_hand"
+        }
+      }
+    ]
+  },
+  {
+    "id": "play_card",
+    "then": [
+      {
+        "transferEntity": {
+          "from": "p{currentPlayer}_hand",
+          "to": "discard"
+        }
+      }
+    ]
+  }
+]

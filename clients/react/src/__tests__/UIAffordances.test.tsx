@@ -5,18 +5,9 @@ import GameView from '../components/GameView';
 import GameZones from '../components/GameZones';
 import Board from '../components/zones/Board';
 import { ChoiceZone } from '../components/zones/ChoiceZone';
-import { PlayerProvider } from '../context/PlayerContext';
+import { TestProviders } from '../test/TestProviders';
 
-// Mock the PlayerContext
-vi.mock('../context/PlayerContext', async () => {
-  const actual = await vi.importActual('../context/PlayerContext');
-  return {
-    ...actual,
-    usePlayer: vi.fn(() => ({
-      player: { username: 'testuser', color: '#FF0000' }
-    }))
-  };
-});
+// Context mocks are now handled globally in test setup
 
 describe('UI Affordances Tests', () => {
   describe('Turn-based Action Availability', () => {
@@ -25,7 +16,7 @@ describe('UI Affordances Tests', () => {
       
       // Test when it's the player's turn
       const { rerender } = render(
-        <PlayerProvider initialPlayerName="testuser">
+        <TestProviders initialPlayer={{ username: 'testuser', color: '#FF0000' }}>
           <Board
             zones={{ board: [[null, null], [null, null]] }}
             entityDefinitions={[]}
@@ -40,7 +31,7 @@ describe('UI Affordances Tests', () => {
               '/zones/board/cells/0/1': { action: 'placeMarker' },
             }}
           />
-        </PlayerProvider>
+        </TestProviders>
       );
 
       // Should have clickable cells (only cells with actions are clickable)
@@ -54,7 +45,7 @@ describe('UI Affordances Tests', () => {
       // Test when it's NOT the player's turn
       mockOnCellClick.mockClear();
       rerender(
-        <PlayerProvider initialPlayerName="testuser">
+        <TestProviders initialPlayer={{ username: 'testuser', color: '#FF0000' }}>
           <Board
             zones={{ board: [[null, null], [null, null]] }}
             entityDefinitions={[]}
@@ -66,7 +57,7 @@ describe('UI Affordances Tests', () => {
             playerNames={['player1', 'player2']}
             actionMap={{}}
           />
-        </PlayerProvider>
+        </TestProviders>
       );
 
       // Should have no clickable cells when no actions provided
@@ -76,7 +67,7 @@ describe('UI Affordances Tests', () => {
 
     it('should highlight available actions', () => {
       render(
-        <PlayerProvider initialPlayerName="testuser">
+        <TestProviders initialPlayer={{ username: 'testuser', color: '#FF0000' }}>
           <Board
             zones={{ board: [['mark_p1', null], [null, 'mark_p2']] }}
             entityDefinitions={[]}
@@ -91,7 +82,7 @@ describe('UI Affordances Tests', () => {
               '/zones/board/cells/1/0': { action: 'placeMarker' },
             }}
           />
-        </PlayerProvider>
+        </TestProviders>
       );
 
       const cells = screen.getAllByRole('button');
@@ -262,7 +253,7 @@ describe('UI Affordances Tests', () => {
       const mockOnCellClick = vi.fn();
       
       render(
-        <PlayerProvider initialPlayerName="testuser">
+        <TestProviders initialPlayer={{ username: 'testuser', color: '#FF0000' }}>
           <Board
             zones={{ board: [[null, null], [null, null]] }}
             entityDefinitions={[]}
@@ -275,7 +266,7 @@ describe('UI Affordances Tests', () => {
             actionMap={{}}
             gameEnded={true}
           />
-        </PlayerProvider>
+        </TestProviders>
       );
 
       // With empty actionMap, no cells should be clickable

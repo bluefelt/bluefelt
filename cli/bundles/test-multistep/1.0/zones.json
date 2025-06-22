@@ -1,0 +1,23 @@
+[
+  {
+    "gridProps": {
+      "cols": 3,
+      "rows": 3
+    },
+    "id": "board",
+    "type": "grid",
+    "ui": {
+      "name": "Game Board"
+    },
+    "visibility": "all"
+  },
+  {
+    "id": "choice_zone",
+    "items": [],
+    "type": "choice",
+    "ui": {
+      "name": "Choices"
+    },
+    "visibility": "owner"
+  }
+]

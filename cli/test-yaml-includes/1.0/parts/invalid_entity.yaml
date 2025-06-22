@@ -1,0 +1,5 @@
+# This entity is missing required 'id' field
+type: invalid
+properties:
+  value: 
+    type: number

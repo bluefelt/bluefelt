@@ -1,0 +1,72 @@
+[
+  {
+    "aliases": [
+      "drop",
+      "dropDisc"
+    ],
+    "id": "dropChecker",
+    "then": [
+      {
+        "action": "checkWin"
+      },
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Click a column to drop your disc",
+      "logTemplate": "{player} dropped a disc in column {targetColumn}"
+    },
+    "uses": "placeWithGravity",
+    "when": [
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "column": "{args.targetColumn}",
+      "entity": "disc_{player}",
+      "zone": "/zones/board"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkWin",
+    "then": [
+      {
+        "action": "endGame"
+      }
+    ],
+    "uses": "grid.lineOfMarks",
+    "with": {
+      "directions": [
+        "horizontal",
+        "vertical",
+        "diagonal"
+      ],
+      "entity": "disc_{player}",
+      "lineLength": 4,
+      "zone": "/zones/board"
+    }
+  },
+  {
+    "auto": true,
+    "id": "endGame",
+    "ui": {
+      "logTemplate": "{player} wins with 4 in a row!"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "end",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "ui": {
+      "logTemplate": "Turn passes to {nextPlayer}"
+    },
+    "uses": "nextTurn"
+  }
+]

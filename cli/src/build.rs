@@ -13,6 +13,8 @@ use tracing::{debug, info, warn};
 
 use crate::bundle::{Bundle, BundleManifest};
 use crate::validate;
+use crate::yaml_includes;
+use crate::yaml_shortcuts;
 
 /// Main entry point for the build command
 pub async fn run(
@@ -61,21 +63,15 @@ pub async fn run(
     // TODO: Implement template expansion for entities
 
     // Step 4: Convert YAML to JSON
-    let mut bundle = Bundle {
+    let bundle = Bundle {
         manifest: manifest.clone(),
         entities: entities.map(yaml_to_json),
         zones: zones.map(yaml_to_json),
         actions: actions.map(yaml_to_json),
         phases: phases.map(yaml_to_json),
-        hooks: None,
     };
 
-    // Step 5: Compile hooks if they exist
-    if let Some(hooks_wasm) = compile_hooks(&game_path, release_mode).await? {
-        bundle.hooks = Some(hooks_wasm);
-    }
-
-    // Step 6: Calculate bundle hash
+    // Step 5: Calculate bundle hash
     let bundle_hash = calculate_bundle_hash(&bundle)?;
     info!("Bundle hash: {}", bundle_hash.green());
 
@@ -85,31 +81,25 @@ pub async fn run(
         .context("Failed to create output directory")?;
 
     // Step 8: Write JSON files
-    write_json_file(&bundle_output_dir.join("manifest.json"), &bundle.manifest)?;
+    write_json_file_with_options(&bundle_output_dir.join("manifest.json"), &bundle.manifest, release_mode)?;
     
     if let Some(entities) = &bundle.entities {
-        write_json_file(&bundle_output_dir.join("entities.json"), entities)?;
+        write_json_file_with_options(&bundle_output_dir.join("entities.json"), entities, release_mode)?;
     }
     
     if let Some(zones) = &bundle.zones {
-        write_json_file(&bundle_output_dir.join("zones.json"), zones)?;
+        write_json_file_with_options(&bundle_output_dir.join("zones.json"), zones, release_mode)?;
     }
     
     if let Some(actions) = &bundle.actions {
-        write_json_file(&bundle_output_dir.join("actions.json"), actions)?;
+        write_json_file_with_options(&bundle_output_dir.join("actions.json"), actions, release_mode)?;
     }
     
     if let Some(phases) = &bundle.phases {
-        write_json_file(&bundle_output_dir.join("phases.json"), phases)?;
+        write_json_file_with_options(&bundle_output_dir.join("phases.json"), phases, release_mode)?;
     }
 
-    // Step 9: Write hooks.wasm if it exists
-    if let Some(hooks) = &bundle.hooks {
-        fs::write(bundle_output_dir.join("hooks.wasm"), hooks)
-            .context("Failed to write hooks.wasm")?;
-    }
-
-    // Step 10: Copy assets if they exist
+    // Step 6: Copy assets if they exist
     let assets_dir = game_path.join("assets");
     if assets_dir.exists() {
         copy_dir_recursive(&assets_dir, &bundle_output_dir.join("assets"))?;
@@ -137,13 +127,26 @@ fn load_yaml<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
         .with_context(|| format!("Failed to parse YAML from {}", path.display()))
 }
 
-/// Load raw YAML value
+/// Load raw YAML value with include and shortcut processing
 fn load_yaml_raw(path: &Path) -> Result<YamlValue> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
     
-    serde_yaml::from_str(&content)
-        .with_context(|| format!("Failed to parse YAML from {}", path.display()))
+    let mut yaml: YamlValue = serde_yaml::from_str(&content)
+        .with_context(|| format!("Failed to parse YAML from {}", path.display()))?;
+    
+    // Process includes first
+    let mut included_files = std::collections::HashSet::new();
+    yaml = yaml_includes::process_includes(
+        yaml, 
+        path.parent().unwrap_or(Path::new(".")), 
+        &mut included_files
+    )?;
+    
+    // Then expand shortcuts
+    yaml = yaml_shortcuts::expand_shortcuts(yaml)?;
+    
+    Ok(yaml)
 }
 
 /// Convert YAML value to JSON value
@@ -177,86 +180,24 @@ fn yaml_to_json(yaml: YamlValue) -> JsonValue {
     }
 }
 
-/// Write JSON to file with pretty formatting
+/// Write JSON to file with optional minification
 fn write_json_file<T: Serialize>(path: &Path, data: &T) -> Result<()> {
-    let json = serde_json::to_string_pretty(data)?;
+    write_json_file_with_options(path, data, false)
+}
+
+/// Write JSON to file with minification option
+fn write_json_file_with_options<T: Serialize>(path: &Path, data: &T, minify: bool) -> Result<()> {
+    let json = if minify {
+        serde_json::to_string(data)?
+    } else {
+        serde_json::to_string_pretty(data)?
+    };
     fs::write(path, json)
         .with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(())
 }
 
-/// Compile hooks if they exist
-async fn compile_hooks(game_path: &Path, release_mode: bool) -> Result<Option<Vec<u8>>> {
-    let hooks_dir = game_path.join("hooks");
-    if !hooks_dir.exists() {
-        return Ok(None);
-    }
 
-    // Check for Rust hooks
-    if hooks_dir.join("Cargo.toml").exists() {
-        info!("Compiling Rust hooks...");
-        compile_rust_hooks(&hooks_dir, release_mode).await
-    } else {
-        warn!("Hooks directory exists but no supported language found");
-        Ok(None)
-    }
-}
-
-/// Compile Rust hooks to WASM
-async fn compile_rust_hooks(hooks_dir: &Path, release_mode: bool) -> Result<Option<Vec<u8>>> {
-    use tokio::process::Command;
-
-    let mut cmd = Command::new("cargo");
-    cmd.arg("build")
-        .arg("--target")
-        .arg("wasm32-unknown-unknown")
-        .current_dir(hooks_dir);
-
-    if release_mode {
-        cmd.arg("--release");
-    }
-
-    let output = cmd.output().await
-        .context("Failed to run cargo build for hooks")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Failed to compile hooks:\n{}", stderr);
-    }
-
-    // Find the compiled WASM file
-    let target_dir = hooks_dir.join("target/wasm32-unknown-unknown");
-    let wasm_path = if release_mode {
-        target_dir.join("release/hooks.wasm")
-    } else {
-        target_dir.join("debug/hooks.wasm")
-    };
-
-    if !wasm_path.exists() {
-        anyhow::bail!("Expected WASM output not found at {}", wasm_path.display());
-    }
-
-    // Optimize with wasm-strip if available
-    let wasm_bytes = if which::which("wasm-strip").is_ok() {
-        info!("Optimizing WASM with wasm-strip...");
-        let output = Command::new("wasm-strip")
-            .arg(&wasm_path)
-            .arg("-o")
-            .arg("-")
-            .output()
-            .await?;
-        
-        if output.status.success() {
-            output.stdout
-        } else {
-            fs::read(&wasm_path)?
-        }
-    } else {
-        fs::read(&wasm_path)?
-    };
-
-    Ok(Some(wasm_bytes))
-}
 
 /// Calculate SHA-256 hash of the bundle
 fn calculate_bundle_hash(bundle: &Bundle) -> Result<String> {
@@ -281,10 +222,6 @@ fn calculate_bundle_hash(bundle: &Bundle) -> Result<String> {
     
     if let Some(phases) = &bundle.phases {
         hasher.update(serde_json::to_string(phases)?.as_bytes());
-    }
-    
-    if let Some(hooks) = &bundle.hooks {
-        hasher.update(hooks);
     }
     
     let result = hasher.finalize();
@@ -327,6 +264,12 @@ pub async fn run_all(
 
     if !games_dir.exists() {
         anyhow::bail!("Games directory {} does not exist", games_dir.display());
+    }
+
+    // Validate action names before building
+    info!("Validating action names across all games...");
+    if let Err(e) = crate::action_validation::validate_action_names(&games_dir) {
+        anyhow::bail!("Action validation failed: {}", e);
     }
 
     let mut built_count = 0;
@@ -434,50 +377,38 @@ async fn build_single_game(
     };
 
     // Step 3: Convert YAML to JSON
-    let mut bundle = Bundle {
+    let bundle = Bundle {
         manifest: manifest.clone(),
         entities: entities.map(yaml_to_json),
         zones: zones.map(yaml_to_json),
         actions: actions.map(yaml_to_json),
         phases: phases.map(yaml_to_json),
-        hooks: None,
     };
 
-    // Step 4: Compile hooks if they exist
-    if let Some(hooks_wasm) = compile_hooks(game_path, release_mode).await? {
-        bundle.hooks = Some(hooks_wasm);
-    }
-
-    // Step 5: Create output directory
+    // Step 4: Create output directory
     fs::create_dir_all(output_dir)
         .context("Failed to create output directory")?;
 
     // Step 6: Write JSON files
-    write_json_file(&output_dir.join("manifest.json"), &bundle.manifest)?;
+    write_json_file_with_options(&output_dir.join("manifest.json"), &bundle.manifest, release_mode)?;
     
     if let Some(entities) = &bundle.entities {
-        write_json_file(&output_dir.join("entities.json"), entities)?;
+        write_json_file_with_options(&output_dir.join("entities.json"), entities, release_mode)?;
     }
     
     if let Some(zones) = &bundle.zones {
-        write_json_file(&output_dir.join("zones.json"), zones)?;
+        write_json_file_with_options(&output_dir.join("zones.json"), zones, release_mode)?;
     }
     
     if let Some(actions) = &bundle.actions {
-        write_json_file(&output_dir.join("actions.json"), actions)?;
+        write_json_file_with_options(&output_dir.join("actions.json"), actions, release_mode)?;
     }
     
     if let Some(phases) = &bundle.phases {
-        write_json_file(&output_dir.join("phases.json"), phases)?;
+        write_json_file_with_options(&output_dir.join("phases.json"), phases, release_mode)?;
     }
 
-    // Step 7: Write hooks.wasm if it exists
-    if let Some(hooks) = &bundle.hooks {
-        fs::write(output_dir.join("hooks.wasm"), hooks)
-            .context("Failed to write hooks.wasm")?;
-    }
-
-    // Step 8: Copy assets if they exist
+    // Step 5: Copy assets if they exist
     let assets_dir = game_path.join("assets");
     if assets_dir.exists() {
         copy_dir_recursive(&assets_dir, &output_dir.join("assets"))?;

@@ -9,11 +9,10 @@ tokio         = { version = "1.37", features = ["macros", "rt-multi-thread"] }
 serde         = { version = "1", features = ["derive"] }
 serde_json    = "1"
 serde_yaml    = "0.9"
-uuid          = { version = "1.7", features = ["v4"] }
+uuid          = { version = "1.7", features = ["v4", "serde"] }
 parking_lot   = "0.12"
 dashmap       = "5.5"
 futures-util  = "0.3"     # for StreamExt::split
-wasmtime      = { version = "20", default-features = false, features = ["async"] }
 sha2          = "0.10"
 walkdir       = "2.5"
 anyhow        = "1.0"
@@ -23,11 +22,15 @@ chrono = "0.4"
 rand = "0.9.1"
 regex = "1.0"
 hex = "0.4"
+nanoid = "0.4"
+json-patch = "2.0"
 
 [dev-dependencies]
 tokio            = { version = "1.37", features = ["macros", "rt-multi-thread"] }
 reqwest          = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 async-tungstenite = { version = "0.24", features = ["tokio-rustls-webpki-roots"], default-features = false }
+tokio-tungstenite = "0.24"
+futures-util     = "0.3"
 serde_json       = "1.0"
 
 [[bin]]

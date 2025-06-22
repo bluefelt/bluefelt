@@ -3,6 +3,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import Board from '../zones/Board';
 import { PlayerProvider } from '../../context/PlayerContext';
+import { AnimationProvider } from '../../context/AnimationContext';
+import { PlayerPreferencesProvider } from '../../context/PlayerPreferencesContext';
+import { ReactNode } from 'react';
 
 // Mock the PlayerContext
 vi.mock('../../context/PlayerContext', async () => {
@@ -14,6 +17,28 @@ vi.mock('../../context/PlayerContext', async () => {
     }))
   };
 });
+
+// Mock the hooks
+vi.mock('../../hooks/useMarkColor', () => ({
+  useMarkColor: () => () => '#FF0000'
+}));
+
+// Mock ActionIndicator hook and component
+vi.mock('../ActionIndicator', () => ({
+  useHasAction: () => ({ hasAction: false, isMultiStepAction: false }),
+  ActionIndicator: ({ hasAction, isMultiStep }: any) => hasAction ? <div>Action Available</div> : null
+}));
+
+// Test wrapper to provide all necessary contexts
+const TestWrapper = ({ children }: { children: ReactNode }) => (
+  <PlayerPreferencesProvider>
+    <AnimationProvider>
+      <PlayerProvider>
+        {children}
+      </PlayerProvider>
+    </AnimationProvider>
+  </PlayerPreferencesProvider>
+);
 
 describe('Board Component', () => {
   const mockOnCellClick = vi.fn();
@@ -33,10 +58,10 @@ describe('Board Component', () => {
     onCellClick: mockOnCellClick,
     isMyTurn: true,
     zoneMetadata: [
-      { id: 'board', type: 'grid', gridDimensions: { rows: 3, cols: 3 } }
+      { id: 'board', renderType: 'grid', visibility: 'all', gridDimensions: { rows: 3, cols: 3 } }
     ],
     playerNames: ['player1', 'player2'],
-    actionMap: undefined // Board component uses undefined to enable all empty cells
+    actionMap: {} // Empty action map - server authority means no actions without explicit map
   };
 
   beforeEach(() => {
@@ -46,9 +71,8 @@ describe('Board Component', () => {
   describe('Basic Rendering', () => {
     it('should render the board component', () => {
       render(
-        <PlayerProvider>
-          <Board {...defaultProps} />
-        </PlayerProvider>
+        <Board {...defaultProps} />,
+        { wrapper: TestWrapper }
       );
 
       expect(screen.getByText('Board')).toBeInTheDocument();
@@ -67,9 +91,8 @@ describe('Board Component', () => {
       };
 
       render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
       // Check for X and O displays
@@ -86,27 +109,35 @@ describe('Board Component', () => {
       };
 
       render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
       // Should render nothing when no zones
-      expect(screen.queryByText('Board')).not.toBeInTheDocument();
+      const boardElement = screen.queryByTestId('board-zone');
+      expect(boardElement).not.toBeInTheDocument();
     });
   });
 
   describe('Click Handling', () => {
     it('should handle cell clicks when it is my turn', () => {
+      // For server authority, we need to provide an action map
+      const propsWithActions = {
+        ...defaultProps,
+        actionMap: {
+          '/zones/board/cells/0/0': { action: 'place', direction: 'Click to place' },
+          '/zones/board/cells/1/1': { action: 'place', direction: 'Click to place' }
+        }
+      };
+      
       const { container } = render(
-        <PlayerProvider>
-          <Board {...defaultProps} />
-        </PlayerProvider>
+        <Board {...propsWithActions} />,
+        { wrapper: TestWrapper }
       );
 
-      // Find clickable cells (empty cells when it's my turn)
+      // Find clickable cells based on action map
       const cells = container.querySelectorAll('.cursor-pointer');
-      expect(cells.length).toBeGreaterThan(0);
+      expect(cells.length).toBe(2); // Should match action map entries
 
       // Click the first clickable cell
       fireEvent.click(cells[0]);
@@ -120,9 +151,8 @@ describe('Board Component', () => {
       };
 
       const { container } = render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
       // All cells should have cursor-not-allowed
@@ -146,9 +176,8 @@ describe('Board Component', () => {
       };
 
       const { container } = render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
       // Should have exactly 2 clickable cells
@@ -166,9 +195,8 @@ describe('Board Component', () => {
       };
 
       const { container } = render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
       // Both formats should work
@@ -186,15 +214,14 @@ describe('Board Component', () => {
           secondBoard: [[null, null], [null, null]]
         },
         zoneMetadata: [
-          { id: 'board', type: 'grid', gridDimensions: { rows: 2, cols: 2 } },
-          { id: 'secondBoard', type: 'grid', gridDimensions: { rows: 2, cols: 2 } }
+          { id: 'board', renderType: 'grid', visibility: 'all', gridDimensions: { rows: 2, cols: 2 } },
+          { id: 'secondBoard', renderType: 'grid', visibility: 'all', gridDimensions: { rows: 2, cols: 2 } }
         ]
       };
 
       render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
       // Should render both zone titles
@@ -208,18 +235,18 @@ describe('Board Component', () => {
       const props = {
         ...defaultProps,
         zones: {
-          board: null
+          board: null as any
         }
       };
 
       render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
-      // Should not crash
-      expect(screen.queryByText('Board')).not.toBeInTheDocument();
+      // Should not crash and should not render board zone
+      const boardElement = screen.queryByTestId('board-zone');
+      expect(boardElement).not.toBeInTheDocument();
     });
 
     it('should skip non-grid zones', () => {
@@ -233,15 +260,20 @@ describe('Board Component', () => {
       };
 
       render(
-        <PlayerProvider>
-          <Board {...props} />
-        </PlayerProvider>
+        <Board {...props} />,
+        { wrapper: TestWrapper }
       );
 
-      // Should only render the board
+      // Should only render the board zone
+      const boardZone = screen.getByTestId('board-zone');
+      expect(boardZone).toBeInTheDocument();
       expect(screen.getByText('Board')).toBeInTheDocument();
-      expect(screen.queryByText('Marks')).not.toBeInTheDocument();
-      expect(screen.queryByText('Deck')).not.toBeInTheDocument();
+      
+      // Should not render non-grid zones
+      const marksZone = screen.queryByTestId('marks-zone');
+      const deckZone = screen.queryByTestId('deck-zone');
+      expect(marksZone).not.toBeInTheDocument();
+      expect(deckZone).not.toBeInTheDocument();
     });
   });
 });

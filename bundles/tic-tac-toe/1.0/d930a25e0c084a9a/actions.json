@@ -1,0 +1,70 @@
+[
+  {
+    "id": "placeMarker",
+    "then": [
+      {
+        "action": "checkWin"
+      },
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Click an empty cell to place your mark",
+      "logTemplate": "{player} placed their mark at ({row}, {col})"
+    },
+    "uses": "place",
+    "when": [
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "{args.location}"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "entity": "mark_{player}",
+      "location": "{args.location}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkWin",
+    "uses": "grid.lineOfMarks",
+    "with": {
+      "directions": [
+        "horizontal",
+        "vertical",
+        "diagonal"
+      ],
+      "entity": "mark_{player}",
+      "lineLength": 3,
+      "zone": "zones/board"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "uses": "conditionalAction",
+    "with": {
+      "then": [
+        {
+          "action": "actuallyAdvanceTurn"
+        }
+      ],
+      "when": [
+        {
+          "condition": "game.notEnded"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "actuallyAdvanceTurn",
+    "uses": "nextTurn"
+  }
+]

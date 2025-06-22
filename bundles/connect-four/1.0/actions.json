@@ -1,6 +1,10 @@
 [
   {
-    "id": "dropDisc",
+    "aliases": [
+      "drop",
+      "dropDisc"
+    ],
+    "id": "dropChecker",
     "then": [
       {
         "action": "checkWin"
@@ -28,21 +32,60 @@
   {
     "auto": true,
     "id": "checkWin",
-    "uses": "grid.lineOfMarks",
+    "uses": "conditionalAction",
     "with": {
-      "directions": [
-        "horizontal",
-        "vertical",
-        "diagonal"
-      ],
-      "entity": "disc_{player}",
-      "lineLength": 4,
-      "zone": "/zones/board"
+      "condition": {
+        "condition": "grid.lineOfMarks",
+        "with": {
+          "directions": [
+            "horizontal",
+            "vertical",
+            "diagonal"
+          ],
+          "entity": "disc_{player}",
+          "lineLength": 4,
+          "zone": "/zones/board"
+        }
+      },
+      "then": [
+        {
+          "action": "endGame"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "endGame",
+    "then": [
+      {
+        "action": "setWinner"
+      }
+    ],
+    "ui": {
+      "logTemplate": "{player} wins with 4 in a row!"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "end",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "setWinner",
+    "uses": "setValue",
+    "with": {
+      "path": "/gameStatus/winner",
+      "value": "{player}"
     }
   },
   {
     "auto": true,
     "id": "advanceTurn",
+    "ui": {
+      "logTemplate": "Turn passes to {nextPlayer}"
+    },
     "uses": "nextTurn"
   }
 ]

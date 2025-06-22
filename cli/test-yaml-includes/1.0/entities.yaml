@@ -1,0 +1,10 @@
+# Using !include syntax within a sequence
+- "!include parts/card_entity.yaml"
+- "!include parts/token_entity.yaml"
+- "!include parts/circular_a.yaml"
+- id: marker
+  type: token
+  properties:
+    symbol:
+      type: string
+      enum: ["X", "O"]

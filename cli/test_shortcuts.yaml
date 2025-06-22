@@ -1,0 +1,76 @@
+# Test YAML shortcuts functionality
+
+# Test 1: if/then/else shorthand
+actions:
+  - id: test_if_then
+    if: "zone.isEmpty"
+    then:
+      - uses: "bf.nextTurn"
+  
+  - id: test_if_object
+    if: 
+      phase: "main"
+    uses: "bf.deal"
+    with:
+      count: 5
+  
+  - id: test_if_owner
+    if:
+      owner: "{player}"
+    uses: "bf.move"
+    
+  - id: test_if_empty
+    if:
+      empty: true
+    uses: "bf.place"
+
+# Test 2: Standard library actions
+  - id: test_bf_deal
+    uses: "bf.deal"
+    
+  - id: test_bf_draw
+    uses: "bf.draw"
+    
+  - id: test_bf_shuffle
+    uses: "bf.shuffle"
+    
+  - id: test_bf_nextTurn
+    uses: "bf.nextTurn"
+    
+  - id: test_bf_endGame
+    uses: "bf.endGame"
+    
+  - id: test_bf_place
+    uses: "bf.place"
+    with:
+      entity: "token"
+      zone: "board_0_0"
+      
+  - id: test_bf_move
+    uses: "bf.move"
+    with:
+      from: "board_0_0"
+      to: "board_0_1"
+
+# Test 3: Other shortcuts
+  - id: test_log
+    uses: "someAction"
+    log: "Player {player} did something"
+    
+  - id: test_then_string
+    uses: "someAction"
+    then: "nextTurn"
+
+# Test 4: Entity shortcuts
+entities:
+  deck: standard-52
+
+# Test 5: Zone shortcuts  
+zones:
+  - id: game_board
+    grid: 3x3
+
+# Test 6: Condition shortcuts
+conditions:
+  - empty: true
+  - owned_by: "{player}"

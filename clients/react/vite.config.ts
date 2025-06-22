@@ -11,21 +11,11 @@ export default defineConfig({
   server: {
     proxy: {
       // API endpoints
-      '/api/lobbies': {
-        target: 'http://localhost:8000',
+      '/api': {
+        target: 'http://172.19.15.150:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-      '/api/games': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-      // WebSocket connections - special handling
-      '/lobbies': {
-        target: 'ws://localhost:8000',
+        // WebSocket support
         ws: true,
-        changeOrigin: true
       }
     },
     // Let dev server handle file-not-found with index.html

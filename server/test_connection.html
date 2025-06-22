@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Connection Test</title>
+</head>
+<body>
+    <h1>Server Connection Test</h1>
+    <div id="status">Testing...</div>
+    <div id="result"></div>
+    
+    <script>
+        async function testConnection() {
+            const statusEl = document.getElementById('status');
+            const resultEl = document.getElementById('result');
+            
+            try {
+                console.log('Testing connection to http://localhost:8000/api/lobbies');
+                const response = await fetch('http://localhost:8000/api/lobbies');
+                const data = await response.json();
+                
+                statusEl.textContent = 'Connected!';
+                statusEl.style.color = 'green';
+                resultEl.textContent = 'Response: ' + JSON.stringify(data);
+            } catch (error) {
+                statusEl.textContent = 'Failed to connect';
+                statusEl.style.color = 'red';
+                resultEl.textContent = 'Error: ' + error.message;
+                console.error('Connection error:', error);
+            }
+        }
+        
+        testConnection();
+        
+        // Also log what the config would resolve to
+        console.log('window.location.hostname:', window.location.hostname);
+        console.log('window.location.protocol:', window.location.protocol);
+    </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "main",
+    "phases": [
+      {
+        "allowedActions": [
+          "place_mark"
+        ],
+        "id": "play",
+        "initial": true,
+        "name": "Game Play"
+      }
+    ]
+  }
+]

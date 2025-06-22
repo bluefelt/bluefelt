@@ -1,0 +1,15 @@
+specVersion: "1.0"
+gameId: test-shortcut-game
+version: "1.0"
+displayName: Test Shortcut Game
+description: A game to test YAML shortcuts
+minPlayers: 2
+maxPlayers: 4
+metadata:
+  name: Test Author
+  email: test@example.com
+  description: Test game for YAML shortcuts
+  author: Test Author
+  players: 
+    min: 2
+    max: 4

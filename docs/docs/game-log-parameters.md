@@ -522,6 +522,6 @@ logTemplate:
 
 - [Game Implementation Guide](./game-implementation-guide.md) - Overall game development process
 - [State Structure](./state-structure.md) - How game state is organized
-- [SDK Reference](./sdk-reference.md) - API documentation
+- [Server API](./bluefelt-server.md) - API documentation
 
 Remember: Good game log messages significantly improve the player experience by providing clear feedback about what happened in the game!

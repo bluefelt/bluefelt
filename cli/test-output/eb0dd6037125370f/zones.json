@@ -1,0 +1,12 @@
+[
+  {
+    "id": "deck",
+    "type": "deck",
+    "visibility": "hidden"
+  },
+  {
+    "id": "discard",
+    "type": "list",
+    "visibility": "public"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "gameId": "test-enhanced-deck",
+  "version": "1.0",
+  "specVersion": "1",
+  "metadata": {
+    "name": "Test Enhanced Deck",
+    "description": "Testing bf.standardDeck with overrides",
+    "author": "Test",
+    "players": {
+      "min": 2,
+      "max": 4
+    }
+  }
+}

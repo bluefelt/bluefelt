@@ -71,7 +71,6 @@ fn create_test_ttt_bundle() -> Bundle {
         zones,
         actions,
         phases,
-        _hooks: None,
     }
 }
 

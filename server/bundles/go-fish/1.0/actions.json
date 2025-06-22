@@ -5,36 +5,17 @@
     "name": "Deal Cards to Players",
     "then": [
       {
-        "action": "dealToP2"
-      }
-    ],
-    "ui": {
-      "logTemplate": "Dealing 7 cards to p1"
-    },
-    "uses": "draw",
-    "with": {
-      "count": 7,
-      "from": "/zones/pool",
-      "to": "/zones/hand_p1"
-    }
-  },
-  {
-    "auto": true,
-    "id": "dealToP2",
-    "name": "Deal Cards to P2",
-    "then": [
-      {
         "action": "beginTurns"
       }
     ],
     "ui": {
-      "logTemplate": "Dealing 7 cards to p2"
+      "logTemplate": "Dealing cards to all players"
     },
-    "uses": "draw",
+    "uses": "dealToAllPlayers",
     "with": {
       "count": 7,
       "from": "/zones/pool",
-      "to": "/zones/hand_p2"
+      "toZonePattern": "/zones/hand_{player}"
     }
   },
   {
@@ -52,9 +33,82 @@
   },
   {
     "auto": true,
-    "id": "startTurn",
-    "name": "Start Turn",
-    "uses": "setState",
+    "id": "populateRankChoices",
+    "name": "Populate Rank Choices",
+    "uses": "presentChoice",
+    "with": {
+      "options": {
+        "fromZone": "/zones/hand_{player}",
+        "property": "rank",
+        "type": "property"
+      },
+      "prompt": "Choose a rank to ask for",
+      "zone": "/zones/choice_{player}"
+    }
+  },
+  {
+    "cancellable": true,
+    "confirmBeforeFinalizing": false,
+    "id": "askForCards",
+    "isMultiStep": true,
+    "name": "Ask for Cards",
+    "result": {
+      "as": "setState",
+      "ui": {
+        "logTemplate": "{player} asks {targetPlayer} for {selectedRank}s"
+      },
+      "with": {
+        "path": "/selection/askingFor",
+        "value": {
+          "rank": "{selectedRank}",
+          "target": "{targetPlayer}"
+        }
+      }
+    },
+    "stateStore": [
+      "selectedRank",
+      "targetPlayer"
+    ],
+    "steps": [
+      {
+        "as": "bf.selectChoice",
+        "id": "selectRank",
+        "store": "selectedRank",
+        "ui": {
+          "direction": "Choose a rank to ask for"
+        },
+        "with": {
+          "choiceZone": "/zones/choice_{actor}",
+          "dynamicChoices": {
+            "fromZone": "/zones/hand_{actor}",
+            "labels": {
+              "a": "Ace",
+              "j": "Jack",
+              "k": "King",
+              "q": "Queen"
+            },
+            "property": "rank",
+            "type": "uniqueProperty"
+          }
+        }
+      },
+      {
+        "as": "bf.selectPlayer",
+        "id": "selectPlayer",
+        "store": "targetPlayer",
+        "ui": {
+          "direction": "Choose which player to ask"
+        },
+        "with": {
+          "excludeSelf": true
+        }
+      }
+    ],
+    "then": [
+      {
+        "action": "processResponse"
+      }
+    ],
     "when": [
       {
         "condition": "phase.is",
@@ -65,173 +119,48 @@
       },
       {
         "condition": "player.isActor"
-      },
-      {
-        "condition": "value.notExists",
-        "with": {
-          "path": "/selection/availableRanks"
-        }
       }
-    ],
-    "with": {
-      "path": "/selection/availableRanks",
-      "value": [
-        "a",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-        "j",
-        "q",
-        "k"
-      ]
-    }
-  },
-  {
-    "id": "selectRank",
-    "name": "Select Rank",
-    "then": [
-      {
-        "action": "transitionToSelectingPlayer"
-      }
-    ],
-    "ui": {
-      "direction": "Choose a rank to ask for"
-    },
-    "uses": "setState",
-    "when": [
-      {
-        "condition": "phase.is",
-        "with": {
-          "phase": "selectingRank",
-          "phaseSet": "game"
-        }
-      },
-      {
-        "condition": "player.isActor"
-      }
-    ],
-    "with": {
-      "path": "/selection/selectedRank",
-      "value": "{args.rank}"
-    }
-  },
-  {
-    "id": "selectPlayer",
-    "name": "Ask Player",
-    "then": [
-      {
-        "action": "transitionToResponding"
-      }
-    ],
-    "ui": {
-      "direction": "Choose which player to ask"
-    },
-    "uses": "setState",
-    "when": [
-      {
-        "condition": "phase.is",
-        "with": {
-          "phase": "selectingPlayer",
-          "phaseSet": "game"
-        }
-      },
-      {
-        "condition": "player.isActor"
-      },
-      {
-        "condition": "value.notEquals",
-        "with": {
-          "value1": "{args.targetPlayer}",
-          "value2": "{player}"
-        }
-      }
-    ],
-    "with": {
-      "path": "/selection/targetPlayer",
-      "value": "{args.targetPlayer}"
-    }
+    ]
   },
   {
     "auto": true,
-    "id": "checkPlayerCards",
-    "name": "Check Player Response",
-    "ui": {
-      "logTemplate": "{player} asks {selection.targetPlayer} for {selection.selectedRank}s"
-    },
+    "id": "processResponse",
+    "name": "Process Response",
     "uses": "conditionalAction",
-    "when": [
-      {
-        "condition": "phase.is",
-        "with": {
-          "phase": "responding",
-          "phaseSet": "game"
-        }
-      }
-    ],
     "with": {
       "condition": [
         {
           "condition": "zone.hasMatching",
           "with": {
             "property": "rank",
-            "value": "{selection.selectedRank}",
-            "zone": "/zones/hand_{selection.targetPlayer}"
+            "value": "{selection.askingFor.rank}",
+            "zone": "/zones/hand_{selection.askingFor.target}"
           }
         }
       ],
       "ifFalse": [
         {
-          "action": "transitionToFishing"
+          "action": "goFish"
         }
       ],
       "ifTrue": [
         {
           "action": "transferCards",
           "with": {
-            "from": "/zones/hand_{selection.targetPlayer}",
+            "from": "/zones/hand_{selection.askingFor.target}",
             "property": "rank",
             "to": "/zones/hand_{player}",
-            "value": "{selection.selectedRank}"
+            "value": "{selection.askingFor.rank}"
           }
         },
         {
-          "action": "checkForBooksWithRank",
+          "action": "checkForBooksAfterReceiving",
           "with": {
             "player": "{player}",
-            "rank": "{selection.selectedRank}"
+            "rank": "{selection.askingFor.rank}"
           }
-        },
-        {
-          "action": "transitionToSelectingRank"
         }
       ]
-    }
-  },
-  {
-    "auto": true,
-    "id": "storePreDrawCount",
-    "name": "Store Pre-Draw Count",
-    "uses": "queryEntities",
-    "when": [
-      {
-        "condition": "phase.is",
-        "with": {
-          "phase": "fishing",
-          "phaseSet": "game"
-        }
-      }
-    ],
-    "with": {
-      "property": "rank",
-      "storePath": "/selection/preDrawCount",
-      "value": "{selection.selectedRank}",
-      "zone": "/zones/hand_{player}"
     }
   },
   {
@@ -240,21 +169,21 @@
     "name": "Go Fish!",
     "then": [
       {
-        "action": "checkIfRankCountIncreased"
+        "action": "checkForBooksAfterFishing",
+        "with": {
+          "player": "{player}",
+          "rank": "{selection.askingFor.rank}"
+        }
+      },
+      {
+        "action": "advanceTurn"
       }
     ],
     "ui": {
-      "logTemplate": "Go Fish! {player} draws a card from the pool"
+      "logTemplate": "{selection.askingFor.target} says 'Go Fish!' - {player} draws a card"
     },
     "uses": "draw",
     "when": [
-      {
-        "condition": "phase.is",
-        "with": {
-          "phase": "fishing",
-          "phaseSet": "game"
-        }
-      },
       {
         "condition": "zone.count",
         "with": {
@@ -287,11 +216,34 @@
     "id": "checkForBooksWithRank",
     "name": "Check for Pairs of Specific Rank",
     "ui": {
-      "logTemplate": "{player} forms a pair of {args.rank}s"
+      "logTemplate": ""
     },
     "uses": "formPairs",
     "with": {
       "player": "{player}",
+      "rank": "{args.rank}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkForBooksAfterReceiving",
+    "name": "Check for Pairs After Receiving Cards",
+    "ui": {
+      "logTemplate": "{args.player} forms a pair of {args.rank}s"
+    },
+    "uses": "formPairs",
+    "with": {
+      "player": "{args.player}",
+      "rank": "{args.rank}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkForBooksAfterFishing",
+    "name": "Check for Pairs After Fishing",
+    "uses": "formPairs",
+    "with": {
+      "player": "{args.player}",
       "rank": "{args.rank}"
     }
   },
@@ -335,9 +287,6 @@
     "auto": true,
     "id": "calculateWinner",
     "name": "Calculate Winner",
-    "ui": {
-      "logTemplate": "Calculating winner based on pairs collected"
-    },
     "uses": "calculateWinner",
     "when": [
       {
@@ -354,128 +303,9 @@
     "id": "transferCards",
     "name": "Transfer Cards",
     "ui": {
-      "logTemplate": "{selection.targetPlayer} has {selection.selectedRank}s and gives them to {player}"
+      "logTemplate": "{player} receives {selection.askingFor.rank}s from {selection.askingFor.target}"
     },
     "uses": "transferMatching"
-  },
-  {
-    "auto": true,
-    "id": "checkIfRankCountIncreased",
-    "name": "Check If Rank Count Increased",
-    "then": [
-      {
-        "action": "compareCountsAndAdvance"
-      }
-    ],
-    "uses": "queryEntities",
-    "with": {
-      "property": "rank",
-      "storePath": "/selection/postDrawCount",
-      "value": "{selection.selectedRank}",
-      "zone": "/zones/hand_{player}"
-    }
-  },
-  {
-    "auto": true,
-    "id": "compareCountsAndAdvance",
-    "name": "Compare Counts and Advance Turn",
-    "uses": "conditionalAction",
-    "with": {
-      "condition": [
-        {
-          "condition": "value.notEquals",
-          "with": {
-            "value1": "{selection.postDrawCount}",
-            "value2": "{selection.preDrawCount}"
-          }
-        }
-      ],
-      "ifFalse": [
-        {
-          "action": "checkForBooksWithRank",
-          "with": {
-            "player": "{player}",
-            "rank": "{selection.selectedRank}"
-          }
-        },
-        {
-          "action": "advanceTurn"
-        },
-        {
-          "action": "transitionToSelectingRank"
-        }
-      ],
-      "ifTrue": [
-        {
-          "action": "checkForBooksWithRank",
-          "with": {
-            "player": "{player}",
-            "rank": "{selection.selectedRank}"
-          }
-        },
-        {
-          "action": "continueAfterDrawingRequestedRank"
-        }
-      ]
-    }
-  },
-  {
-    "auto": true,
-    "id": "transitionToSelectingPlayer",
-    "name": "Transition to Selecting Player",
-    "uses": "setPhase",
-    "with": {
-      "phase": "selectingPlayer",
-      "phaseSet": "game"
-    }
-  },
-  {
-    "auto": true,
-    "id": "transitionToResponding",
-    "name": "Transition to Responding",
-    "uses": "setPhase",
-    "with": {
-      "phase": "responding",
-      "phaseSet": "game"
-    }
-  },
-  {
-    "auto": true,
-    "id": "transitionToCheckingPairs",
-    "name": "Transition to Checking Pairs",
-    "uses": "setPhase",
-    "with": {
-      "phase": "checkingPairs",
-      "phaseSet": "game"
-    }
-  },
-  {
-    "auto": true,
-    "id": "transitionToFishing",
-    "name": "Transition to Fishing",
-    "then": [
-      {
-        "action": "storePreDrawCount"
-      }
-    ],
-    "ui": {
-      "logTemplate": "{selection.targetPlayer} says 'Go Fish!'"
-    },
-    "uses": "setPhase",
-    "with": {
-      "phase": "fishing",
-      "phaseSet": "game"
-    }
-  },
-  {
-    "auto": true,
-    "id": "transitionToSelectingRank",
-    "name": "Transition to Selecting Rank",
-    "uses": "setPhase",
-    "with": {
-      "phase": "selectingRank",
-      "phaseSet": "game"
-    }
   },
   {
     "auto": true,
@@ -492,23 +322,10 @@
   },
   {
     "auto": true,
-    "id": "continueAfterDrawingRequestedRank",
-    "name": "Continue After Drawing Requested Rank",
-    "ui": {
-      "logTemplate": "{player} drew a {selection.selectedRank} and gets another turn!"
-    },
-    "uses": "setPhase",
-    "with": {
-      "phase": "selectingRank",
-      "phaseSet": "game"
-    }
-  },
-  {
-    "auto": true,
     "id": "advanceTurn",
     "name": "Advance Turn",
     "ui": {
-      "logTemplate": "Turn passes to {nextPlayer}"
+      "logTemplate": ""
     },
     "uses": "nextTurn"
   }

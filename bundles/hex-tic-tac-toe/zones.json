@@ -1,0 +1,21 @@
+[
+  {
+    "contents": "empty",
+    "id": "hex_board",
+    "shapeMeta": {
+      "coordinates": "axial",
+      "layout": "flat",
+      "size": 2
+    },
+    "type": "hexgrid",
+    "ui": {
+      "hexGrid": {
+        "borderColor": "#333",
+        "borderWidth": 2,
+        "coordinateStyle": "alphanumeric",
+        "hexSize": 60,
+        "showCoordinates": true
+      }
+    }
+  }
+]

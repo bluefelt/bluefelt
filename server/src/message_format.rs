@@ -2,7 +2,8 @@
 
 use serde_json::{json, Value, Map};
 
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum MessageFormat {
     /// Standard format with nested JSON and path-based action maps
     Standard,
@@ -10,7 +11,8 @@ pub enum MessageFormat {
     Simple,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum UpdateFormat {
     /// JSON Patch format (default)
     Patch,

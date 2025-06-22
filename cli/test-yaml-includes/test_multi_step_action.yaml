@@ -1,0 +1,47 @@
+- id: testMultiStepAction
+  type: multiStep
+  cancellable: true
+  confirmBeforeFinalizing: true
+  ui:
+    confirmationPrompt: "Move {selectedPiece} to {spaceToMoveTo}?"
+  stateStore:
+    - selectedPiece
+    - spaceToMoveTo
+  steps:
+    - id: selectPiece
+      as: bf.selectEntity
+      with:
+        source: gameBoard
+        count: 1
+        conditions:
+          - owner: "{actor}"
+      ui:
+        direction: "Select one of your pieces to move"
+      store: selectedPiece
+    
+    - id: moveSelectedPiece
+      as: bf.selectMapSpace
+      with:
+        zone: gameBoard
+        conditions:
+          - isEmpty: true
+      ui:
+        direction: "Select an empty space to move your piece"
+      store: spaceToMoveTo
+  
+  result:
+    as: bf.moveEntity
+    with:
+      entity: "{selectedPiece}"
+      destination: "{spaceToMoveTo}"
+    ui:
+      logTemplate: "{player} moved {selectedPiece} to {spaceToMoveTo}"
+
+- id: invalidMultiStep
+  type: multiStep
+  # Missing required fields to test validation
+  steps:
+    - id: invalidStep
+      # Missing 'as' and 'store' fields
+      with:
+        source: gameBoard

@@ -70,3 +70,6 @@ export interface GameManifest {
     };
   };
 }
+
+// Re-export zone tier system
+export * from './zones';

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "place_mark",
+    "then": [
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Click an empty hex to place your mark"
+    },
+    "uses": "place",
+    "when": [
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "{args.location}"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "entity": "mark_{currentPlayer}",
+      "location": "{args.location}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "uses": "nextTurn"
+  }
+]

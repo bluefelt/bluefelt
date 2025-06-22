@@ -1,0 +1,10 @@
+specVersion: "1.0"
+gameId: test-yaml-includes
+version: "1.0"
+metadata:
+  name: Test YAML Includes
+  description: Test game to verify YAML include functionality works correctly
+  author: Test Author
+  players:
+    min: 2
+    max: 2

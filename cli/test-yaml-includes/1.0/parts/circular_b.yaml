@@ -1,0 +1,3 @@
+id: circular_test_b
+type: token
+extra: "!include circular_a.yaml"

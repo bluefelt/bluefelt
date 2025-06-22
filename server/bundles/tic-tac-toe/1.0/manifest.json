@@ -1,0 +1,14 @@
+{
+  "gameId": "tic-tac-toe",
+  "version": "1.0",
+  "specVersion": "1",
+  "metadata": {
+    "name": "Tic-Tac-Toe",
+    "description": "Classic game of X's and O's on a 3x3 grid",
+    "author": "Bluefelt Team",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  }
+}

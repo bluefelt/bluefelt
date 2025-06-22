@@ -1,0 +1,74 @@
+[
+  {
+    "cancellable": true,
+    "confirmBeforeFinalizing": true,
+    "id": "movePiece",
+    "isMultiStep": true,
+    "result": {
+      "as": "moveEntity",
+      "ui": {
+        "logTemplate": "{player} moved piece from {selectedPiece.location} to {destination}"
+      },
+      "with": {
+        "from": "{selectedPiece.location}",
+        "to": "{destination}"
+      }
+    },
+    "stateStore": [
+      "selectedPiece",
+      "destination"
+    ],
+    "steps": [
+      {
+        "as": "bf.selectEntity",
+        "id": "selectPiece",
+        "store": "selectedPiece",
+        "ui": {
+          "direction": "Select a piece to move"
+        },
+        "with": {
+          "entityFilter": "token_{player}",
+          "zone": "/zones/board"
+        }
+      },
+      {
+        "as": "bf.selectLocation",
+        "id": "selectDestination",
+        "store": "destination",
+        "ui": {
+          "direction": "Select where to move your piece"
+        },
+        "with": {
+          "emptyOnly": true,
+          "zone": "/zones/board"
+        }
+      }
+    ],
+    "ui": {
+      "confirmationPrompt": "Move piece from {selectedPiece.location} to {destination}?",
+      "direction": "Select a piece, then select where to move it"
+    },
+    "when": [
+      {
+        "condition": "player.isActor"
+      }
+    ]
+  },
+  {
+    "id": "placeToken",
+    "ui": {
+      "direction": "Click an empty space to place your token",
+      "logTemplate": "{currentPlayer} placed a token"
+    },
+    "uses": "place",
+    "when": [
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "entity": "token_{currentPlayer}",
+      "location": "/zones/board/cells/{args.row}/{args.col}"
+    }
+  }
+]

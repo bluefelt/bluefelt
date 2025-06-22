@@ -10,13 +10,13 @@ fn test_connect_four_game_log_column_replacement() {
     // Verify the log template exists in the bundle
     let actions = bundle.actions.as_array().expect("actions should be an array");
     let drop_action = actions.iter()
-        .find(|a| a["id"].as_str() == Some("dropDisc"))
-        .expect("dropDisc action not found");
+        .find(|a| a["id"].as_str() == Some("dropChecker"))
+        .expect("dropChecker action not found");
     
     let log_template = drop_action["ui"]["logTemplate"].as_str()
         .expect("logTemplate should exist");
     
-    assert_eq!(log_template, "{player} dropped a disc in column {column}");
+    assert_eq!(log_template, "{player} dropped a disc in column {targetColumn}");
     
     // Test that the action is properly configured for column-based arguments
     let with_args = &drop_action["with"];

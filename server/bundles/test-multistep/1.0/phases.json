@@ -1,0 +1,63 @@
+[
+  {
+    "id": "game",
+    "initial": "setup",
+    "phases": [
+      {
+        "id": "setup",
+        "transitions": [
+          {
+            "automatic": true,
+            "to": "player_turn"
+          }
+        ]
+      },
+      {
+        "actions": [
+          "placeToken",
+          "movePiece"
+        ],
+        "id": "player_turn",
+        "transitions": [
+          {
+            "automatic": true,
+            "to": "check_win"
+          }
+        ],
+        "type": "playerAction",
+        "who": [
+          {
+            "type": "turn.player"
+          }
+        ]
+      },
+      {
+        "id": "check_win",
+        "transitions": [
+          {
+            "to": "game_over",
+            "when": [
+              {
+                "type": "gridFull",
+                "zone": "board"
+              }
+            ]
+          },
+          {
+            "automatic": true,
+            "to": "player_turn",
+            "verbs": [
+              {
+                "action": "nextTurn"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "game_over",
+        "type": "gameEnd"
+      }
+    ]
+  }
+]

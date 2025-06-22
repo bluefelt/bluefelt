@@ -5,7 +5,11 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GameView from '../../../components/GameView';
 import { PlayerProvider } from '../../../context/PlayerContext';
+import { AnimationProvider } from '../../../context/AnimationContext';
+import { PlayerPreferencesProvider } from '../../../context/PlayerPreferencesContext';
+import { WebSocketProvider } from '../../../context/WebSocketContext';
 import type { LobbyState } from '../../../types/messages';
+import { mockPlayerContext } from '../../../test/mocks';
 
 // Mock the API calls
 vi.mock('../../../api/lobbies', () => ({
@@ -37,15 +41,17 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock the PlayerContext
-vi.mock('../../../context/PlayerContext', () => ({
-  PlayerProvider: ({ children }: { children: React.ReactNode }) => children,
-  usePlayer: () => ({
+// Context mocks are handled globally in test setup
+// Set up Alice as the player for this test suite
+beforeEach(() => {
+  mockPlayerContext.usePlayer.mockReturnValue({
     player: { username: 'Alice', color: '#ff0000' },
     setPlayer: vi.fn(),
     clearPlayer: vi.fn()
-  })
-}));
+  });
+});
+
+
 
 // Mock useLobbyWebSocket
 const mockSendAction = vi.fn();
@@ -120,17 +126,29 @@ describe('Three Mens Morris Client Regression Tests', () => {
         actionMap: {
           p1: {
             // Placement phase - can place on any empty cell
-            '/zones/board/cells/0/0': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/0/1': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/0/2': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/1/0': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/1/1': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/1/2': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/2/0': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/2/1': { action: 'placeToken', direction: 'Place your piece' },
-            '/zones/board/cells/2/2': { action: 'placeToken', direction: 'Place your piece' }
+            '/zones/board/cells/0/0': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/0/0', entity: 'piece_p1' } },
+            '/zones/board/cells/0/1': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/0/1', entity: 'piece_p1' } },
+            '/zones/board/cells/0/2': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/0/2', entity: 'piece_p1' } },
+            '/zones/board/cells/1/0': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/1/0', entity: 'piece_p1' } },
+            '/zones/board/cells/1/1': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/1/1', entity: 'piece_p1' } },
+            '/zones/board/cells/1/2': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/1/2', entity: 'piece_p1' } },
+            '/zones/board/cells/2/0': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/2/0', entity: 'piece_p1' } },
+            '/zones/board/cells/2/1': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/2/1', entity: 'piece_p1' } },
+            '/zones/board/cells/2/2': { action: 'placeToken', direction: 'Place your piece', args: { target: '/zones/board/cells/2/2', entity: 'piece_p1' } }
           }
         },
+        zones: [{
+          id: 'board',
+          shape: 'grid',
+          renderType: 'grid',
+          name: 'Board',
+          visibility: 'all',
+          gridProps: { rows: 3, cols: 3 }
+        }],
+        entities: [
+          { id: 'piece_p1', type: 'piece', props: { owner: 'p1' } },
+          { id: 'piece_p2', type: 'piece', props: { owner: 'p2' } }
+        ],
         players: ['Alice', 'Bob'],
         messages: []
       },
@@ -142,17 +160,24 @@ describe('Three Mens Morris Client Regression Tests', () => {
   });
 
   it('renders Three Mens Morris game board correctly in placement phase', async () => {
-    await act(async () => {
-      render(
-        <BrowserRouter>
-          <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-            <PlayerProvider>
-              <GameView />
-            </PlayerProvider>
-          </QueryClientProvider>
-        </BrowserRouter>
-      );
-    });
+    render(
+      <BrowserRouter>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+          <PlayerPreferencesProvider>
+            <AnimationProvider>
+              <PlayerProvider>
+                <WebSocketProvider>
+                  <GameView 
+                    lobbyId="test-lobby"
+                    onLeave={() => {}}
+                  />
+                </WebSocketProvider>
+              </PlayerProvider>
+            </AnimationProvider>
+          </PlayerPreferencesProvider>
+        </QueryClientProvider>
+      </BrowserRouter>
+    );
 
     // Should show turn indicator
     await waitFor(() => {
@@ -167,17 +192,24 @@ describe('Three Mens Morris Client Regression Tests', () => {
   });
 
   it('handles piece placement correctly', async () => {
-    await act(async () => {
-      render(
-        <BrowserRouter>
-          <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-            <PlayerProvider>
-              <GameView />
-            </PlayerProvider>
-          </QueryClientProvider>
-        </BrowserRouter>
-      );
-    });
+    render(
+      <BrowserRouter>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+          <PlayerPreferencesProvider>
+            <AnimationProvider>
+              <PlayerProvider>
+                <WebSocketProvider>
+                  <GameView 
+                    lobbyId="test-lobby"
+                    onLeave={() => {}}
+                  />
+                </WebSocketProvider>
+              </PlayerProvider>
+            </AnimationProvider>
+          </PlayerPreferencesProvider>
+        </QueryClientProvider>
+      </BrowserRouter>
+    );
 
     // Wait for board to be rendered
     await waitFor(() => {
@@ -185,9 +217,9 @@ describe('Three Mens Morris Client Regression Tests', () => {
     });
 
     // Click on a cell to place piece
-    // Find the board container first
-    const boardContainer = screen.getByTestId('board-container');
-    const cells = within(boardContainer).getAllByRole('button');
+    // Find the board zone first
+    const boardZone = screen.getByTestId('board-zone');
+    const cells = within(boardZone).getAllByRole('button');
     
     // Click center cell (index 4 in a 3x3 grid)
     fireEvent.click(cells[4]);
@@ -244,11 +276,23 @@ describe('Three Mens Morris Client Regression Tests', () => {
         actionMap: {
           p1: {
             // Can select own pieces
-            '/zones/board/cells/0/0': { action: 'selectPiece', direction: 'Select your piece to move' },
-            '/zones/board/cells/1/1': { action: 'selectPiece', direction: 'Select your piece to move' },
-            '/zones/board/cells/2/2': { action: 'selectPiece', direction: 'Select your piece to move' }
+            '/zones/board/cells/0/0': { action: 'selectPiece', direction: 'Select your piece to move', args: { location: '/zones/board/cells/0/0', player: 'p1' } },
+            '/zones/board/cells/1/1': { action: 'selectPiece', direction: 'Select your piece to move', args: { location: '/zones/board/cells/1/1', player: 'p1' } },
+            '/zones/board/cells/2/2': { action: 'selectPiece', direction: 'Select your piece to move', args: { location: '/zones/board/cells/2/2', player: 'p1' } }
           }
         },
+        zones: [{
+          id: 'board',
+          shape: 'grid',
+          renderType: 'grid',
+          name: 'Board',
+          visibility: 'all',
+          gridProps: { rows: 3, cols: 3 }
+        }],
+        entities: [
+          { id: 'piece_p1', type: 'piece', props: { owner: 'p1' } },
+          { id: 'piece_p2', type: 'piece', props: { owner: 'p2' } }
+        ],
         players: ['Alice', 'Bob'],
         messages: []
       },
@@ -258,17 +302,24 @@ describe('Three Mens Morris Client Regression Tests', () => {
       }
     });
 
-    await act(async () => {
-      render(
-        <BrowserRouter>
-          <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-            <PlayerProvider>
-              <GameView />
-            </PlayerProvider>
-          </QueryClientProvider>
-        </BrowserRouter>
-      );
-    });
+    render(
+      <BrowserRouter>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+          <PlayerPreferencesProvider>
+            <AnimationProvider>
+              <PlayerProvider>
+                <WebSocketProvider>
+                  <GameView 
+                    lobbyId="test-lobby"
+                    onLeave={() => {}}
+                  />
+                </WebSocketProvider>
+              </PlayerProvider>
+            </AnimationProvider>
+          </PlayerPreferencesProvider>
+        </QueryClientProvider>
+      </BrowserRouter>
+    );
 
     // Wait for game to render
     await waitFor(() => {
@@ -324,11 +375,23 @@ describe('Three Mens Morris Client Regression Tests', () => {
       ui: {
         actionMap: {
           p1: {
-            '/zones/board/cells/0/0': { action: 'selectPiece', direction: 'Select your piece to move' },
-            '/zones/board/cells/1/1': { action: 'selectPiece', direction: 'Select your piece to move' },
-            '/zones/board/cells/2/2': { action: 'selectPiece', direction: 'Select your piece to move' }
+            '/zones/board/cells/0/0': { action: 'selectPiece', direction: 'Select your piece to move', args: { location: '/zones/board/cells/0/0', player: 'p1' } },
+            '/zones/board/cells/1/1': { action: 'selectPiece', direction: 'Select your piece to move', args: { location: '/zones/board/cells/1/1', player: 'p1' } },
+            '/zones/board/cells/2/2': { action: 'selectPiece', direction: 'Select your piece to move', args: { location: '/zones/board/cells/2/2', player: 'p1' } }
           }
         },
+        zones: [{
+          id: 'board',
+          shape: 'grid',
+          renderType: 'grid',
+          name: 'Board',
+          visibility: 'all',
+          gridProps: { rows: 3, cols: 3 }
+        }],
+        entities: [
+          { id: 'piece_p1', type: 'piece', props: { owner: 'p1' } },
+          { id: 'piece_p2', type: 'piece', props: { owner: 'p2' } }
+        ],
         players: ['Alice', 'Bob'],
         messages: []
       },
@@ -341,9 +404,18 @@ describe('Three Mens Morris Client Regression Tests', () => {
     const { rerender } = render(
       <BrowserRouter>
         <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-          <PlayerProvider>
-            <GameView />
-          </PlayerProvider>
+          <PlayerPreferencesProvider>
+            <AnimationProvider>
+              <PlayerProvider>
+                <WebSocketProvider>
+                  <GameView 
+                    lobbyId="test-lobby"
+                    onLeave={() => {}}
+                  />
+                </WebSocketProvider>
+              </PlayerProvider>
+            </AnimationProvider>
+          </PlayerPreferencesProvider>
         </QueryClientProvider>
       </BrowserRouter>
     );
@@ -354,8 +426,8 @@ describe('Three Mens Morris Client Regression Tests', () => {
     });
 
     // Click on a piece to select it (pieces show as X for p1)
-    const boardContainer = screen.getByTestId('board-container');
-    const cells = within(boardContainer).getAllByRole('button');
+    const boardZone = screen.getByTestId('board-zone');
+    const cells = within(boardZone).getAllByRole('button');
     
     // Find a cell with a piece - first check if there are any clickable cells
     const clickableCells = cells.filter(cell => cell.getAttribute('role') === 'button');
@@ -415,10 +487,22 @@ describe('Three Mens Morris Client Regression Tests', () => {
         actionMap: {
           p1: {
             // After selecting, can move to adjacent empty cells
-            '/zones/board/cells/0/1': { action: 'moveSelectedPiece', direction: 'Move here' },
-            '/zones/board/cells/1/0': { action: 'moveSelectedPiece', direction: 'Move here' }
+            '/zones/board/cells/0/1': { action: 'moveSelectedPiece', direction: 'Move here', args: { target: '/zones/board/cells/0/1', player: 'p1' } },
+            '/zones/board/cells/1/0': { action: 'moveSelectedPiece', direction: 'Move here', args: { target: '/zones/board/cells/1/0', player: 'p1' } }
           }
         },
+        zones: [{
+          id: 'board',
+          shape: 'grid',
+          renderType: 'grid',
+          name: 'Board',
+          visibility: 'all',
+          gridProps: { rows: 3, cols: 3 }
+        }],
+        entities: [
+          { id: 'piece_p1', type: 'piece', props: { owner: 'p1' } },
+          { id: 'piece_p2', type: 'piece', props: { owner: 'p2' } }
+        ],
         players: ['Alice', 'Bob'],
         messages: []
       },
@@ -432,16 +516,25 @@ describe('Three Mens Morris Client Regression Tests', () => {
     rerender(
       <BrowserRouter>
         <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-          <PlayerProvider>
-            <GameView />
-          </PlayerProvider>
+          <PlayerPreferencesProvider>
+            <AnimationProvider>
+              <PlayerProvider>
+                <WebSocketProvider>
+                  <GameView 
+                    lobbyId="test-lobby"
+                    onLeave={() => {}}
+                  />
+                </WebSocketProvider>
+              </PlayerProvider>
+            </AnimationProvider>
+          </PlayerPreferencesProvider>
         </QueryClientProvider>
       </BrowserRouter>
     );
 
-    // Find the board container again in the re-rendered component
-    const boardContainer2 = screen.getByTestId('board-container');
-    const cells2 = within(boardContainer2).getAllByRole('button');
+    // Find the board zone again in the re-rendered component
+    const boardZone2 = screen.getByTestId('board-zone');
+    const cells2 = within(boardZone2).getAllByRole('button');
     
     // Click on empty cell to move
     mockSendAction.mockClear();
@@ -499,6 +592,18 @@ describe('Three Mens Morris Client Regression Tests', () => {
       },
       ui: {
         actionMap: { p1: {}, p2: {} }, // No actions when game ended
+        zones: [{
+          id: 'board',
+          shape: 'grid',
+          renderType: 'grid',
+          name: 'Board',
+          visibility: 'all',
+          gridProps: { rows: 3, cols: 3 }
+        }],
+        entities: [
+          { id: 'piece_p1', type: 'piece', props: { owner: 'p1' } },
+          { id: 'piece_p2', type: 'piece', props: { owner: 'p2' } }
+        ],
         players: ['Alice', 'Bob'],
         messages: []
       },
@@ -508,17 +613,24 @@ describe('Three Mens Morris Client Regression Tests', () => {
       }
     });
 
-    await act(async () => {
-      render(
-        <BrowserRouter>
-          <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-            <PlayerProvider>
-              <GameView />
-            </PlayerProvider>
-          </QueryClientProvider>
-        </BrowserRouter>
-      );
-    });
+    render(
+      <BrowserRouter>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+          <PlayerPreferencesProvider>
+            <AnimationProvider>
+              <PlayerProvider>
+                <WebSocketProvider>
+                  <GameView 
+                    lobbyId="test-lobby"
+                    onLeave={() => {}}
+                  />
+                </WebSocketProvider>
+              </PlayerProvider>
+            </AnimationProvider>
+          </PlayerPreferencesProvider>
+        </QueryClientProvider>
+      </BrowserRouter>
+    );
 
     // Should show winner
     await waitFor(() => {

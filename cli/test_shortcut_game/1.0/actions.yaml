@@ -1,0 +1,40 @@
+# Test if/then/else shorthand
+- id: draw_card
+  if:
+    phase: main
+  uses: bf.draw
+  log: "{player} drew a card"
+  then: 
+    - uses: bf.nextTurn
+
+# Test condition object shortcuts
+- id: play_card
+  scope: player
+  if:
+    - phase: main
+    - owner: "{player}"
+  uses: transferEntity
+  with:
+    from: hand_{player}
+    to: discard
+    
+# Test empty condition shortcut  
+- id: place_token
+  scope: board_*
+  if:
+    empty: true
+  uses: bf.place
+  with:
+    entity: token_{player}
+    
+# Test then string shortcut
+- id: end_turn
+  scope: player
+  uses: nextTurn
+  then: nextTurn
+  
+# Test game end
+- id: win_game
+  uses: bf.endGame
+  with:
+    winner: "{player}"

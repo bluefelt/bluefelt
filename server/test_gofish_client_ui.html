@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Go Fish UI Test</title>
+    <script>
+        let ws1, ws2;
+        let lobbyId;
+        
+        async function createLobby() {
+            const res = await fetch('http://localhost:8000/api/lobbies', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ game_id: 'go-fish' })
+            });
+            const data = await res.json();
+            lobbyId = data.id;
+            document.getElementById('status').innerHTML = `Lobby created: ${lobbyId}`;
+            return lobbyId;
+        }
+        
+        async function connectPlayers() {
+            ws1 = new WebSocket(`ws://localhost:8000/api/lobbies/${lobbyId}/ws?player=Alice&join=true`);
+            ws2 = new WebSocket(`ws://localhost:8000/api/lobbies/${lobbyId}/ws?player=Bob&join=true`);
+            
+            ws1.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                console.log('Alice received:', msg);
+                
+                if (msg.type === 'playerUpdate' && msg.players?.length === 2) {
+                    console.log('Starting game...');
+                    ws1.send(JSON.stringify({ action: 'start_game' }));
+                }
+                
+                if (msg.type === 'gameStarted') {
+                    console.log('Game started, checking action map...');
+                    const actionMap = msg.ui?.actionMap?.p1;
+                    if (actionMap && actionMap._multiStep_askForCards) {
+                        console.log('Starting multi-step action...');
+                        ws1.send(JSON.stringify({ 
+                            action: 'askForCards',
+                            args: {}
+                        }));
+                    }
+                }
+                
+                if (msg.type === 'diff') {
+                    msg.patch.forEach(p => {
+                        if (p.path.includes('multiStepState')) {
+                            console.log('Multi-step state patch:', p);
+                            const state = p.value;
+                            if (state && state.stepActionMap) {
+                                console.log('Step action map:', state.stepActionMap);
+                                document.getElementById('choices').innerHTML = 
+                                    '<h3>Available Ranks:</h3>' +
+                                    Object.entries(state.stepActionMap)
+                                        .map(([path, action]) => 
+                                            `<button onclick="selectRank('${action.args.choice}')">${action.args.label || action.args.choice}</button>`
+                                        ).join(' ');
+                            }
+                        }
+                    });
+                }
+            };
+            
+            await new Promise(resolve => {
+                ws1.onopen = () => {
+                    console.log('Alice connected');
+                    ws2.onopen = () => {
+                        console.log('Bob connected');
+                        resolve();
+                    };
+                };
+            });
+        }
+        
+        function selectRank(rank) {
+            console.log('Selecting rank:', rank);
+            ws1.send(JSON.stringify({
+                action: 'multiStepSelect',
+                args: { choice: rank }
+            }));
+        }
+        
+        async function setup() {
+            await createLobby();
+            await connectPlayers();
+        }
+    </script>
+</head>
+<body onload="setup()">
+    <h1>Go Fish UI Test</h1>
+    <div id="status">Creating lobby...</div>
+    <div id="choices"></div>
+    <p>Check the console for debug information</p>
+</body>
+</html>

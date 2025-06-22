@@ -1,98 +1,65 @@
-import BoardZone from './BoardZone';
+import React from 'react';
+import type { EntityUI } from '../../types/game-types';
+import BoardCell from './BoardCell';
 
 interface BoardProps {
-  zones: any;
-  entityDefinitions?: any[];
-  onCellClick?: (row: number, col: number) => void;
-  isMyTurn?: boolean;
-  zoneMetadata?: any[];
-  playerNames?: string[];
-  actionMap?: Record<string, any>;
-  currentPlayerActionMap?: Record<string, any>;
-  selection?: any;
+  zone: {
+    cells: (string | null)[][];
+  };
+  zoneId: string;
+  getEntityUI: (entityId: string | null) => EntityUI | null;
+  onEntityClick: (entityId: string, actionId: string) => void;
+  onCellClick: (row: number, col: number) => void;
+  tier?: number;
 }
 
-export default function Board({ 
-  zones, 
-  entityDefinitions, 
+export function Board({
+  zone,
+  zoneId,
+  getEntityUI,
+  onEntityClick,
   onCellClick,
-  isMyTurn = false,
-  zoneMetadata,
-  playerNames,
-  actionMap,
-  currentPlayerActionMap,
-  selection
+  tier = 0
 }: BoardProps) {
-  console.log('[Board] Component props:', {
-    zones: zones ? Object.keys(zones) : 'null',
-    zoneMetadata,
-    isMyTurn,
-    actionMap: actionMap ? Object.keys(actionMap).length : 0
-  });
+  const { cells } = zone;
   
-  if (!zones) {
-    return null;
-  }
-  
-  // Enhanced cell click handler that supports both cell and column actions
-  const handleCellClick = (zoneKey: string, row: number, col: number) => {
-    // Check if there's a column-based action for this column
-    const columnPath = `/zones/${zoneKey}/columns/${col}`;
-    const columnAction = currentPlayerActionMap?.[columnPath] || actionMap?.[columnPath];
-    
-    if (columnAction) {
-      // This is a column-based action (like gravity) - trigger the column action
-      // We need to pass the column information to the action handler
-      if (onCellClick) {
-        // Store the column info in a way the action handler can access
-        // For now, we'll use a special row value to indicate this is a column action
-        onCellClick(-1, col); // -1 indicates column action
-      }
-      return;
-    }
-    
-    // Standard cell click
-    onCellClick?.(row, col);
-  };
-  
-  // Find all grid-shaped zones (2D arrays)
-  const gridZones: Array<{key: string, data: any[][]}> = [];
-  Object.entries(zones).forEach(([key, value]) => {
-    // Check if it's a 2D array and not a marks zone
-    if (Array.isArray(value) && 
-        value.length > 0 && 
-        Array.isArray(value[0]) &&
-        !key.includes('marks')) {
-      gridZones.push({ key, data: value as any[][] });
-    }
-  });
-  
-  console.log('[Board] Grid zones found:', gridZones.map(gz => ({ key: gz.key, rows: gz.data.length, cols: gz.data[0]?.length })));
-  
-  if (gridZones.length === 0) {
-    console.log('[Board] No grid zones found, returning null');
-    return null;
-  }
-
-  console.log('[Board] Rendering board with zones:', gridZones.map(gz => gz.key));
-
   return (
-    <div className={`w-full ${gridZones.length > 1 ? 'grid gap-6 lg:grid-cols-2' : ''}`} data-testid="board-container">
-      {gridZones.map(({ key: zoneId, data: boardData }) => (
-        <BoardZone
-          key={zoneId}
-          zoneId={zoneId}
-          boardData={boardData}
-          isMyTurn={isMyTurn}
-          onCellClick={(row, col) => handleCellClick(zoneId, row, col)}
-          entityDefinitions={entityDefinitions}
-          zoneMetadata={zoneMetadata}
-          isSingleZone={gridZones.length === 1}
-          playerNames={playerNames}
-          actionMap={currentPlayerActionMap || actionMap}
-          selection={selection}
-        />
-      ))}
+    <div className={`board-zone tier-${tier}`} data-zone-id={zoneId}>
+      <div className="board-grid">
+        {cells.map((row, rowIndex) => (
+          <div key={rowIndex} className="board-row">
+            {row.map((entity, colIndex) => {
+              const entityUI = entity ? getEntityUI(entity) : null;
+              const hasInteractions = entityUI?.interactions.length || 0 > 0;
+              const interactionStyle = entityUI?.interactions[0]?.style;
+              
+              return (
+                <div
+                  key={`${rowIndex}-${colIndex}`}
+                  className={`board-cell ${hasInteractions ? 'interactive' : ''} ${interactionStyle?.highlight || ''}`}
+                  style={{ cursor: interactionStyle?.cursor || 'default' }}
+                  onClick={() => {
+                    if (entity && entityUI?.interactions[0]) {
+                      onEntityClick(entity, entityUI.interactions[0].actionId);
+                    } else {
+                      onCellClick(rowIndex, colIndex);
+                    }
+                  }}
+                >
+                  {entity && (
+                    <BoardCell
+                      entity={entity}
+                      entityUI={entityUI}
+                      position={[rowIndex, colIndex]}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
+

@@ -1,5 +1,6 @@
 import Card from './Card';
 import { getPlayerColor } from '../config/colors';
+import { ActionIndicator } from './ActionIndicator';
 
 interface CardEntity {
   id: string;
@@ -29,9 +30,13 @@ interface CardZoneProps {
   playerNames?: string[];
   you?: string;
   playerColor?: string;
+  playerPreferences?: Record<string, any>;
+  multiStepState?: any;
+  actionMap?: Record<string, any>;
 }
 
 export default function CardZone({
+  zoneId,
   zoneName,
   cards,
   layout,
@@ -45,8 +50,23 @@ export default function CardZone({
   hasZoneAction = false,
   playerNames = [],
   you,
-  playerColor
+  playerColor,
+  playerPreferences,
+  multiStepState,
+  actionMap = {}
 }: CardZoneProps) {
+
+  // Extract player ID from zone name for card styling
+  const getPlayerIdFromZone = (zoneId: string): string | undefined => {
+    // Handle patterns like hand_p1, deck_p2, etc.
+    const playerMatch = zoneId.match(/_p(\d+)$/);
+    if (playerMatch) {
+      return `p${playerMatch[1]}`;
+    }
+    return undefined;
+  };
+
+  const zonePlayerId = getPlayerIdFromZone(zoneId);
 
   // Determine if cards should be face up
   const getCardVisibility = (index: number): boolean => {
@@ -184,6 +204,9 @@ export default function CardZone({
     marginLeft: 10
   };
 
+  // Check for multi-step action indicator at zone level
+  const isMultiStepZone = Boolean(multiStepState && hasZoneAction);
+
   // For stack layout with hidden cards, show placeholder
   if (layout === 'stack' && visibility === 'none' && !showTop) {
     const clickableStyle: React.CSSProperties = hasZoneAction && possibleActions.length === 0 ? {
@@ -194,9 +217,10 @@ export default function CardZone({
     
     return (
       <div 
-        style={{...containerStyle, ...clickableStyle}}
+        style={{...containerStyle, ...clickableStyle, position: 'relative'}}
         onClick={hasZoneAction ? onZoneClick : undefined}
       >
+        <ActionIndicator hasAction={hasZoneAction} isMultiStep={isMultiStepZone} />
         <div style={labelStyle}>{parseZoneName(zoneName)}</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {cards.length > 0 && (
@@ -204,6 +228,8 @@ export default function CardZone({
               isFaceUp={false}
               size="medium"
               isSelectable={hasZoneAction && possibleActions.length === 0}
+              playerId={zonePlayerId}
+              playerPreferences={playerPreferences}
             />
           )}
           {showCount && cards.length > 0 && <div style={countStyle}>{cards.length}</div>}
@@ -221,9 +247,11 @@ export default function CardZone({
   
   return (
     <div 
-      style={{...containerStyle, ...clickableStyle}}
+      style={{...containerStyle, ...clickableStyle, position: 'relative'}}
       onClick={hasZoneAction && layout === 'stack' ? onZoneClick : undefined}
+      data-testid={`zone-${zoneId}`}
     >
+      <ActionIndicator hasAction={hasZoneAction} isMultiStep={isMultiStepZone} />
       <div style={labelStyle}>{parseZoneName(zoneName)}</div>
       {showCount && layout !== 'stack' && <div style={countStyle}>{cards.length} cards</div>}
       
@@ -262,6 +290,8 @@ export default function CardZone({
                   }
                 }}
                 size="medium"
+                playerId={zonePlayerId}
+                playerPreferences={playerPreferences}
               />
             </div>
           );

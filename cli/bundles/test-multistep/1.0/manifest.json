@@ -1,0 +1,14 @@
+{
+  "gameId": "test-multistep",
+  "version": "1.0",
+  "specVersion": "1",
+  "metadata": {
+    "name": "Test Multi-Step",
+    "description": "Test game for multi-step actions",
+    "author": "Test Author",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  }
+}

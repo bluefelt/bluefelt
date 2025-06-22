@@ -18,7 +18,7 @@ pub struct ManifestMetadata {
     pub description: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ZoneGroup {
     pub id: String,
     pub title: String,
@@ -41,7 +41,7 @@ pub struct Manifest {
     pub zone_groups: Option<Vec<ZoneGroup>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Bundle {
     pub game_id: String,
     pub manifest: Manifest,
@@ -49,7 +49,32 @@ pub struct Bundle {
     pub zones: Value,
     pub actions: Value,
     pub phases: Value,
-    pub _hooks: Option<Vec<u8>>, // WebAssembly module bytes (reserved for future use)
+}
+
+impl Default for Bundle {
+    fn default() -> Self {
+        Self {
+            game_id: String::new(),
+            manifest: Manifest {
+                game_id: String::new(),
+                version: String::new(),
+                spec_version: "1.0".to_string(),
+                metadata: ManifestMetadata {
+                    name: String::new(),
+                    author: String::new(),
+                    description: String::new(),
+                    players: PlayersRange { min: 2, max: 4 },
+                },
+                phases: None,
+                setup: None,
+                zone_groups: None,
+            },
+            entities: serde_json::json!({}),
+            zones: serde_json::json!({}),
+            actions: serde_json::json!([]),
+            phases: serde_json::json!({}),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -108,16 +133,9 @@ impl BundleMap {
                     // Expand shorthand syntax
                     expand_game_definitions(&mut entities, &mut zones, &mut actions, &manifest);
                     
-                    // Load hooks if available
-                    let hooks_path = base.join("hooks.wasm");
-                    let hooks = if hooks_path.exists() {
-                        Some(fs::read(&hooks_path)?)
-                    } else {
-                        None
-                    };
 
                     println!("Loading game: {} v{}", game_id, ver);
-                    let bundle = Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, phases, _hooks: hooks };
+                    let bundle = Bundle { game_id: game_id.clone(), manifest, entities, zones, actions, phases };
                     
                     // Validate the bundle
                     let validation_errors = validate_bundle(&bundle);
@@ -143,4 +161,21 @@ impl BundleMap {
     pub fn list_games(&self) -> Vec<String> {
         self.bundles.keys().cloned().collect()
     }
+    
+    /// Create empty BundleMap for testing
+    pub fn new_empty() -> Self {
+        Self {
+            bundles: HashMap::new(),
+        }
+    }
+    
+    /// Insert bundle for testing
+    pub fn insert_bundle(&mut self, game_id: String, bundle: Bundle) {
+        self.bundles.insert(game_id, bundle);
+    }
+}
+
+/// Load bundles from directory  
+pub fn load_bundles_from_dir(dir: &str) -> anyhow::Result<BundleMap> {
+    BundleMap::load_dir(dir)
 }

@@ -1,0 +1,26 @@
+[
+  {
+    "contents": "empty",
+    "id": "board",
+    "name": "Territory Board",
+    "shapeMeta": {
+      "layout": "flat",
+      "size": 3
+    },
+    "type": "hexgrid",
+    "ui": {
+      "showCoordinates": true
+    }
+  },
+  {
+    "contents": [
+      {
+        "count": 20,
+        "entity": "stone_{player}"
+      }
+    ],
+    "id": "supply",
+    "name": "Stone Supply",
+    "type": "list"
+  }
+]

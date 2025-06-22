@@ -1,0 +1,12 @@
+[
+  {
+    "generate": true,
+    "id": "standardDeck"
+  },
+  {
+    "id": "score_{player}",
+    "name": "Player {player} Score",
+    "type": "counter",
+    "value": 0
+  }
+]

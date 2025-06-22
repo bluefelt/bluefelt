@@ -1,4 +1,5 @@
 use crate::bundle::Bundle;
+use crate::engine::enhanced_phases::initialize_enhanced_phases;
 use serde_json::{json, Value, Map};
 use rand::seq::SliceRandom;
 use rand::RngCore;
@@ -222,8 +223,10 @@ fn create_single_zone_with_rng<R: RngCore>(
 
     let mut value = match zone_type {
         "grid" => init_grid(zone, &content_spec),
+        "hexgrid" => init_hexgrid(zone, &content_spec),
         "list" | "deck" | "stack" => init_list(&content_spec),
         "single" => init_single(&content_spec),
+        "choice" => init_choice(zone),
         _ => Value::Null,
     };
     
@@ -316,6 +319,96 @@ fn create_grid_cells(rows: usize, cols: usize, contents: &Value) -> Vec<Value> {
     }).collect()
 }
 
+fn init_hexgrid(zone: &Value, contents: &Value) -> Value {
+    use crate::engine::hex::{HexCoord, HexLayout};
+    use std::collections::HashMap;
+    
+    // Get hex grid configuration from shapeMeta
+    let shape_meta = zone.get("shapeMeta").unwrap_or(&Value::Null);
+    
+    // Determine layout type
+    let layout = shape_meta.get("layout")
+        .and_then(|l| l.as_str())
+        .map(|s| match s {
+            "pointy" => HexLayout::Pointy,
+            _ => HexLayout::Flat,
+        })
+        .unwrap_or(HexLayout::Flat);
+    
+    // Get hex grid size - support multiple configuration styles
+    let hex_cells = if let Some(size) = shape_meta.get("size").and_then(|s| s.as_u64()) {
+        // Hexagonal grid with radius
+        create_hexagonal_cells(size as i32, contents)
+    } else if let (Some(rows), Some(cols)) = (
+        shape_meta.get("rows").and_then(|r| r.as_u64()),
+        shape_meta.get("cols").and_then(|c| c.as_u64())
+    ) {
+        // Rectangular hex grid
+        create_rectangular_hex_cells(rows as i32, cols as i32, contents, layout)
+    } else {
+        // Default small hex grid
+        create_hexagonal_cells(1, contents)
+    };
+    
+    json!({
+        "type": "hexgrid",
+        "layout": match layout {
+            HexLayout::Flat => "flat",
+            HexLayout::Pointy => "pointy",
+        },
+        "cells": hex_cells,
+        "shapeMeta": shape_meta
+    })
+}
+
+fn create_hexagonal_cells(radius: i32, contents: &Value) -> Value {
+    use crate::engine::hex::HexCoord;
+    use std::collections::HashMap;
+    
+    let mut cells = HashMap::new();
+    
+    // Generate hexes in a hexagonal pattern
+    for q in -radius..=radius {
+        let r1 = std::cmp::max(-radius, -q - radius);
+        let r2 = std::cmp::min(radius, -q + radius);
+        for r in r1..=r2 {
+            let coord = HexCoord::new(q, r);
+            let cell_value = if contents.as_str() == Some("empty") {
+                Value::Null
+            } else {
+                contents.clone()
+            };
+            cells.insert(format!("{},{}", q, r), cell_value);
+        }
+    }
+    
+    json!(cells)
+}
+
+fn create_rectangular_hex_cells(rows: i32, cols: i32, contents: &Value, layout: crate::engine::hex::HexLayout) -> Value {
+    use crate::engine::hex::{HexCoord, OffsetCoord};
+    use std::collections::HashMap;
+    
+    let mut cells = HashMap::new();
+    
+    // Generate hexes in rectangular arrangement using offset coordinates
+    for row in 0..rows {
+        for col in 0..cols {
+            let offset = OffsetCoord { col, row };
+            let hex = HexCoord::from_offset(offset, layout);
+            
+            let cell_value = if contents.as_str() == Some("empty") {
+                Value::Null
+            } else {
+                contents.clone()
+            };
+            cells.insert(format!("{},{}", hex.q, hex.r), cell_value);
+        }
+    }
+    
+    json!(cells)
+}
+
 fn init_list(contents: &Value) -> Value {
     let items = create_list_items(contents);
     
@@ -336,6 +429,19 @@ fn init_single(contents: &Value) -> Value {
     })
 }
 
+fn init_choice(zone: &Value) -> Value {
+    // Initialize choice zones with empty items array and optional prompt
+    let prompt = zone.get("prompt")
+        .and_then(|p| p.as_str())
+        .unwrap_or("Make a choice");
+    
+    json!({
+        "type": "choice",
+        "items": [],
+        "prompt": prompt
+    })
+}
+
 fn create_list_items(contents: &Value) -> Vec<Value> {
     if contents.as_str() == Some("empty") {
         Vec::new()
@@ -343,20 +449,57 @@ fn create_list_items(contents: &Value) -> Vec<Value> {
         let count = contents.get("count").and_then(|c| c.as_u64()).unwrap_or(1);
         (0..count).map(|_| json!({"entity": entity_id})).collect()
     } else if let Some(arr) = contents.as_array() {
-        // Convert string array items to entity objects
+        // Handle array of entity objects or strings
         arr.iter().map(|item| {
             if let Some(entity_str) = item.as_str() {
+                // Convert string to entity object
                 json!({"entity": entity_str})
+            } else if item.get("entity").is_some() {
+                // Already an entity object, use as-is
+                item.clone()
             } else {
+                // Other object type, use as-is
                 item.clone()
             }
         }).collect()
+    } else if let Some(contents_str) = contents.as_str() {
+        // Handle single string entity reference
+        vec![json!({"entity": contents_str})]
     } else {
         vec![contents.clone()]
     }
 }
 
 fn initialize_phase_states(phases_def: &Value) -> Value {
+    // Check if we should use enhanced phase system
+    let use_enhanced = should_use_enhanced_phases(phases_def);
+    
+    if use_enhanced {
+        // Use enhanced phase system with enter/exit actions
+        initialize_enhanced_phases(phases_def)
+    } else {
+        // Use legacy simple phase states
+        initialize_legacy_phase_states(phases_def)
+    }
+}
+
+fn should_use_enhanced_phases(phases_def: &Value) -> bool {
+    // Check if any phase has enterActions or exitActions
+    if let Some(phase_sets) = phases_def.as_array() {
+        for phase_set in phase_sets {
+            if let Some(phases) = phase_set["phases"].as_array() {
+                for phase in phases {
+                    if phase.get("enterActions").is_some() || phase.get("exitActions").is_some() {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn initialize_legacy_phase_states(phases_def: &Value) -> Value {
     let mut phase_states = json!({});
     
     if let Some(phase_sets) = phases_def.as_array() {

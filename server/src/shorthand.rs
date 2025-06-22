@@ -1,6 +1,222 @@
 use serde_json::{json, Value};
 use crate::bundle::Manifest;
 
+/// Generates an enhanced standard 52-card deck with display properties and overrides
+fn generate_enhanced_standard_deck(overrides: Option<&Value>) -> Vec<Value> {
+    // Define base rank properties with display and logical values
+    let base_ranks = create_base_rank_definitions();
+    let base_suits = create_base_suit_definitions();
+    
+    // Apply overrides to base definitions
+    let final_ranks = apply_rank_overrides(&base_ranks, overrides);
+    let final_suits = apply_suit_overrides(&base_suits, overrides);
+    
+    let mut cards = Vec::new();
+    
+    // Generate cards for each suit and rank combination
+    for (suit_key, suit_def) in &final_suits {
+        for (rank_key, rank_def) in &final_ranks {
+            let card_id = format!("card_{}_{}", suit_key, rank_key.to_lowercase());
+            
+            // Apply conditional overrides for this specific card
+            let card_props = apply_conditional_overrides(rank_def, suit_def, suit_key, overrides);
+            
+            // Create the enhanced card with rich properties
+            let card = json!({
+                "id": card_id,
+                "type": "card",
+                "props": {
+                    "suit": suit_key,
+                    "rank": rank_key,
+                    "value": card_props.get("value").unwrap_or(&rank_def["value"]),
+                    "pointValue": card_props.get("pointValue").unwrap_or(&rank_def.get("pointValue").unwrap_or(&rank_def["value"])),
+                    "adjacentTo": rank_def.get("adjacentTo").unwrap_or(&json!([])),
+                },
+                "ui": {
+                    "cardType": "playing_card",
+                    "display": format!("{} of {}", 
+                        rank_def.get("display").and_then(|d| d.as_str()).unwrap_or(rank_key),
+                        suit_def.get("display").and_then(|d| d.as_str()).unwrap_or(suit_key)
+                    ),
+                    "displayShort": format!("{}{}", 
+                        rank_def.get("displayShort").and_then(|d| d.as_str()).unwrap_or(rank_key),
+                        suit_def.get("displayShort").and_then(|d| d.as_str()).unwrap_or(suit_key)
+                    ),
+                    "color": suit_def.get("color").and_then(|c| c.as_str()).unwrap_or("black")
+                }
+            });
+            cards.push(card);
+        }
+    }
+    
+    cards
+}
+
+/// Create base rank definitions with standard display and logical properties
+fn create_base_rank_definitions() -> std::collections::HashMap<String, Value> {
+    let mut ranks = std::collections::HashMap::new();
+    
+    ranks.insert("A".to_string(), json!({
+        "value": 1,
+        "display": "Ace",
+        "displayShort": "A",
+        "adjacentTo": ["2", "K"]  // Can be low or high
+    }));
+    
+    for i in 2..=10 {
+        let rank_str = i.to_string();
+        let adjacent = if i == 2 {
+            json!(["A", "3"])
+        } else if i == 10 {
+            json!(["9", "J"])
+        } else {
+            json!([(i-1).to_string(), (i+1).to_string()])
+        };
+        
+        ranks.insert(rank_str.clone(), json!({
+            "value": i,
+            "display": match i {
+                2 => "Two", 3 => "Three", 4 => "Four", 5 => "Five",
+                6 => "Six", 7 => "Seven", 8 => "Eight", 9 => "Nine", 10 => "Ten",
+                _ => &rank_str
+            },
+            "displayShort": rank_str,
+            "adjacentTo": adjacent
+        }));
+    }
+    
+    ranks.insert("J".to_string(), json!({
+        "value": 11,
+        "display": "Jack",
+        "displayShort": "J",
+        "adjacentTo": ["10", "Q"]
+    }));
+    
+    ranks.insert("Q".to_string(), json!({
+        "value": 12,
+        "display": "Queen", 
+        "displayShort": "Q",
+        "adjacentTo": ["J", "K"]
+    }));
+    
+    ranks.insert("K".to_string(), json!({
+        "value": 13,
+        "display": "King",
+        "displayShort": "K", 
+        "adjacentTo": ["Q", "A"]
+    }));
+    
+    ranks
+}
+
+/// Create base suit definitions with display properties
+fn create_base_suit_definitions() -> std::collections::HashMap<String, Value> {
+    let mut suits = std::collections::HashMap::new();
+    
+    suits.insert("hearts".to_string(), json!({
+        "display": "Hearts",
+        "displayShort": "♥",
+        "color": "red"
+    }));
+    
+    suits.insert("diamonds".to_string(), json!({
+        "display": "Diamonds",
+        "displayShort": "♦", 
+        "color": "red"
+    }));
+    
+    suits.insert("clubs".to_string(), json!({
+        "display": "Clubs",
+        "displayShort": "♣",
+        "color": "black"
+    }));
+    
+    suits.insert("spades".to_string(), json!({
+        "display": "Spades", 
+        "displayShort": "♠",
+        "color": "black"
+    }));
+    
+    suits
+}
+
+/// Apply rank overrides from game configuration
+fn apply_rank_overrides(base_ranks: &std::collections::HashMap<String, Value>, overrides: Option<&Value>) -> std::collections::HashMap<String, Value> {
+    let mut final_ranks = base_ranks.clone();
+    
+    if let Some(overrides) = overrides {
+        if let Some(rank_overrides) = overrides.get("ranks").and_then(|r| r.as_object()) {
+            for (rank_key, override_value) in rank_overrides {
+                if let Some(base_rank) = final_ranks.get_mut(rank_key) {
+                    // Merge override properties into base rank
+                    if let (Some(base_obj), Some(override_obj)) = (base_rank.as_object_mut(), override_value.as_object()) {
+                        for (prop_key, prop_value) in override_obj {
+                            base_obj.insert(prop_key.clone(), prop_value.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    final_ranks
+}
+
+/// Apply suit overrides from game configuration
+fn apply_suit_overrides(base_suits: &std::collections::HashMap<String, Value>, overrides: Option<&Value>) -> std::collections::HashMap<String, Value> {
+    let mut final_suits = base_suits.clone();
+    
+    if let Some(overrides) = overrides {
+        if let Some(suit_overrides) = overrides.get("suits").and_then(|s| s.as_object()) {
+            for (suit_key, override_value) in suit_overrides {
+                if let Some(base_suit) = final_suits.get_mut(suit_key) {
+                    // Merge override properties into base suit
+                    if let (Some(base_obj), Some(override_obj)) = (base_suit.as_object_mut(), override_value.as_object()) {
+                        for (prop_key, prop_value) in override_obj {
+                            base_obj.insert(prop_key.clone(), prop_value.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    final_suits
+}
+
+/// Apply conditional overrides for specific card combinations (e.g., Queen of Hearts)
+fn apply_conditional_overrides(
+    rank_def: &Value, 
+    _suit_def: &Value, 
+    suit_key: &str,
+    _overrides: Option<&Value>
+) -> serde_json::Map<String, Value> {
+    let mut card_props = serde_json::Map::new();
+    
+    // Handle conditional overrides from rank definition
+    if let Some(rank_obj) = rank_def.as_object() {
+        for (prop_key, prop_value) in rank_obj {
+            // Check if this is a conditional property
+            if let Some(condition_obj) = prop_value.as_object() {
+                if let (Some(condition), Some(then_val), Some(else_val)) = (
+                    condition_obj.get("if").and_then(|c| c.as_str()),
+                    condition_obj.get("then"),
+                    condition_obj.get("else")
+                ) {
+                    // Simple condition evaluation: suit == "Hearts"
+                    if condition == format!("suit == \"{}\"", suit_key) {
+                        card_props.insert(prop_key.clone(), then_val.clone());
+                    } else {
+                        card_props.insert(prop_key.clone(), else_val.clone());
+                    }
+                }
+            }
+        }
+    }
+    
+    card_props
+}
+
 /// Expands shorthand syntax in game definitions
 pub fn expand_game_definitions(
     entities: &mut Value,
@@ -50,6 +266,14 @@ fn expand_entities(entities: &mut Value, max_players: u32) {
                 } else if entity_id == "standardDeck" && entity.get("generate").and_then(|g| g.as_bool()) == Some(true) {
                     // Generate standard 52-card deck for entities with id: "standardDeck" and generate: true
                     expanded.extend(generate_standard_deck());
+                } else if let Some(as_value) = entity.get("as").and_then(|a| a.as_str()) {
+                    if as_value == "bf.standardDeck" {
+                        // Generate enhanced standard deck with overrides
+                        let overrides = entity.get("overrides");
+                        expanded.extend(generate_enhanced_standard_deck(overrides));
+                    } else {
+                        expanded.push(entity.clone());
+                    }
                 } else if let Some(entity_type) = entity.get("type").and_then(|t| t.as_str()) {
                     if entity_type == "standardDeck" {
                         // Generate standard 52-card deck

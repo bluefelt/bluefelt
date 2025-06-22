@@ -1,0 +1,10 @@
+# Simple phases without includes
+- id: main
+  phases:
+    - id: setup
+      init:
+        - shuffleZone:
+            zone: deck
+            
+    - id: play
+      turnBased: true

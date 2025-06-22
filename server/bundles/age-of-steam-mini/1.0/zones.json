@@ -1,0 +1,143 @@
+[
+  {
+    "contents": "empty",
+    "id": "railway_map",
+    "shape": "hexgrid",
+    "shapeMeta": {
+      "cols": 12,
+      "coordinates": "axial",
+      "layout": "flat",
+      "rows": 8,
+      "terrain": [
+        {
+          "coords": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              2,
+              0
+            ],
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "cost_modifier": 0,
+          "type": "plains"
+        },
+        {
+          "coords": [
+            [
+              3,
+              0
+            ],
+            [
+              3,
+              1
+            ],
+            [
+              3,
+              2
+            ]
+          ],
+          "cost_modifier": 1,
+          "type": "river"
+        },
+        {
+          "coords": [
+            [
+              5,
+              0
+            ],
+            [
+              5,
+              1
+            ],
+            [
+              6,
+              1
+            ]
+          ],
+          "cost_modifier": 2,
+          "type": "mountain"
+        }
+      ]
+    },
+    "ui": {
+      "hexGrid": {
+        "hexSize": 50,
+        "showCoordinates": true,
+        "terrainColors": {
+          "mountain": "#8B7355",
+          "plains": "#90EE90",
+          "river": "#4682B4"
+        }
+      }
+    }
+  },
+  {
+    "id": "cities",
+    "shape": "hexgrid_overlay",
+    "shapeMeta": {
+      "locations": [
+        {
+          "coord": [
+            0,
+            0
+          ],
+          "id": "city_a",
+          "name": "City A"
+        },
+        {
+          "coord": [
+            4,
+            2
+          ],
+          "id": "city_b",
+          "name": "City B"
+        },
+        {
+          "coord": [
+            7,
+            0
+          ],
+          "id": "city_c",
+          "name": "City C"
+        },
+        {
+          "coord": [
+            2,
+            4
+          ],
+          "id": "city_d",
+          "name": "City D"
+        }
+      ],
+      "parentZone": "railway_map"
+    },
+    "ui": {
+      "cityStyle": "railroad_era"
+    }
+  },
+  {
+    "contents": {
+      "entity": "locomotive_{player}"
+    },
+    "id": "locomotive_{player}",
+    "properties": {
+      "capacity": 1,
+      "coal": 3
+    },
+    "shape": "single"
+  }
+]

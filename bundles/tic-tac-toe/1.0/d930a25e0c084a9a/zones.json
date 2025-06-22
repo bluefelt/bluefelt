@@ -1,0 +1,11 @@
+[
+  {
+    "contents": "empty",
+    "id": "board",
+    "shape": "grid",
+    "shapeMeta": {
+      "cols": 3,
+      "rows": 3
+    }
+  }
+]

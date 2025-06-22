@@ -1,0 +1,213 @@
+[
+  {
+    "auto": true,
+    "id": "shuffleDeck",
+    "ui": {
+      "logTemplate": "Cards shuffled"
+    },
+    "uses": "shuffle",
+    "with": {
+      "zone": "/zones/deck"
+    }
+  },
+  {
+    "auto": true,
+    "id": "dealToP1",
+    "ui": {
+      "logTemplate": "Cards dealt to Player 1"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 26,
+      "from": "/zones/deck",
+      "to": "/zones/hand_p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "dealToP2",
+    "ui": {
+      "logTemplate": "Cards dealt to Player 2"
+    },
+    "uses": "draw",
+    "with": {
+      "count": 25,
+      "from": "/zones/deck",
+      "to": "/zones/hand_p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "beginPlay",
+    "ui": {
+      "logTemplate": "Game begins! Players take turns drawing cards."
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "play",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "id": "p1DrawsFromP2",
+    "then": [
+      {
+        "action": "checkGameEnd"
+      },
+      {
+        "action": "checkGameEndP2"
+      },
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Draw a card from Player 2",
+      "logTemplate": "Player 1 draws a card from Player 2"
+    },
+    "uses": "draw",
+    "when": [
+      {
+        "condition": "zone.hasCards",
+        "with": {
+          "zone": "/zones/hand_p2"
+        }
+      },
+      {
+        "condition": "player.isActor",
+        "with": {
+          "player": "p1"
+        }
+      },
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "play",
+          "phaseSet": "game"
+        }
+      }
+    ],
+    "with": {
+      "count": 1,
+      "from": "/zones/hand_p2",
+      "random": true,
+      "to": "/zones/hand_p1"
+    }
+  },
+  {
+    "id": "p2DrawsFromP1",
+    "then": [
+      {
+        "action": "checkGameEnd"
+      },
+      {
+        "action": "checkGameEndP2"
+      },
+      {
+        "action": "advanceTurn"
+      }
+    ],
+    "ui": {
+      "direction": "Draw a card from Player 1",
+      "logTemplate": "Player 2 draws a card from Player 1"
+    },
+    "uses": "draw",
+    "when": [
+      {
+        "condition": "zone.hasCards",
+        "with": {
+          "zone": "/zones/hand_p1"
+        }
+      },
+      {
+        "condition": "player.isActor",
+        "with": {
+          "player": "p2"
+        }
+      },
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "play",
+          "phaseSet": "game"
+        }
+      }
+    ],
+    "with": {
+      "count": 1,
+      "from": "/zones/hand_p1",
+      "random": true,
+      "to": "/zones/hand_p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkGameEnd",
+    "uses": "conditionalAction",
+    "when": [
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "/zones/hand_p1"
+        }
+      }
+    ],
+    "with": {
+      "action": "declareP2Loser"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkGameEndP2",
+    "uses": "conditionalAction",
+    "when": [
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "/zones/hand_p2"
+        }
+      }
+    ],
+    "with": {
+      "action": "declareP1Loser"
+    }
+  },
+  {
+    "auto": true,
+    "id": "declareP1Loser",
+    "ui": {
+      "logTemplate": "Player 1 is left with the Old Maid and loses!"
+    },
+    "uses": "setState",
+    "with": {
+      "gameStatus": {
+        "loser": "p1",
+        "state": "ended",
+        "winner": "p2"
+      }
+    }
+  },
+  {
+    "auto": true,
+    "id": "declareP2Loser",
+    "ui": {
+      "logTemplate": "Player 2 is left with the Old Maid and loses!"
+    },
+    "uses": "setState",
+    "with": {
+      "gameStatus": {
+        "loser": "p2",
+        "state": "ended",
+        "winner": "p1"
+      }
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "ui": {
+      "logTemplate": "Turn advances"
+    },
+    "uses": "nextTurn"
+  }
+]

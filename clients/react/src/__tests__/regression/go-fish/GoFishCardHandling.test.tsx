@@ -140,7 +140,11 @@ describe('Go Fish Card Handling and Actions', () => {
             '/zones/choice_p1/ranks/A': {
               action: 'selectRank',
               direction: 'Choose a rank to ask for',
-              rank: 'A'
+              args: {
+                rank: 'A',
+                location: '/zones/choice_p1/ranks/A',
+                player: 'p1'
+              }
             }
           }
         }
@@ -151,13 +155,17 @@ describe('Go Fish Card Handling and Actions', () => {
 
     // Should be able to select a rank
     act(() => {
-      result.current.handleChoiceSelect('ranks', 'A');
+      result.current.handleChoiceSelect('choice_p1/ranks', 'A');
     });
 
     expect(mockSendMessage).toHaveBeenCalledWith(
       JSON.stringify({
         action: 'selectRank',
-        args: { rank: 'A', player: 'p1' }
+        args: { 
+          rank: 'A', 
+          location: '/zones/choice_p1/ranks/A',
+          player: 'p1' 
+        }
       })
     );
   });
@@ -178,7 +186,11 @@ describe('Go Fish Card Handling and Actions', () => {
             '/zones/choice_p1/players/p2': {
               action: 'selectPlayer',
               direction: 'Choose a player to ask',
-              targetPlayer: 'p2'
+              args: {
+                targetPlayer: 'p2',
+                location: '/zones/choice_p1/players/p2',
+                player: 'p1'
+              }
             }
           }
         }
@@ -189,13 +201,17 @@ describe('Go Fish Card Handling and Actions', () => {
 
     // Should be able to select a player
     act(() => {
-      result.current.handleChoiceSelect('players', 'p2');
+      result.current.handleChoiceSelect('choice_p1/players', 'p2');
     });
 
     expect(mockSendMessage).toHaveBeenCalledWith(
       JSON.stringify({
         action: 'selectPlayer',
-        args: { targetPlayer: 'p2', player: 'p1' }
+        args: { 
+          targetPlayer: 'p2', 
+          location: '/zones/choice_p1/players/p2',
+          player: 'p1' 
+        }
       })
     );
   });
@@ -252,7 +268,7 @@ describe('Go Fish Card Handling and Actions', () => {
 
     // Should still be able to try selecting (server will validate)
     act(() => {
-      result.current.handleChoiceSelect('ranks', 'A');
+      result.current.handleChoiceSelect('choice_p1/ranks', 'A');
     });
 
     expect(mockSendMessage).toHaveBeenCalled();

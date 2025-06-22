@@ -1,0 +1,16 @@
+[
+  {
+    "color": "#FF6B6B",
+    "id": "mark_p1",
+    "name": "Player 1 Mark",
+    "symbol": "X",
+    "textColor": "#FFFFFF"
+  },
+  {
+    "color": "#4ECDC4",
+    "id": "mark_p2",
+    "name": "Player 2 Mark",
+    "symbol": "O",
+    "textColor": "#FFFFFF"
+  }
+]

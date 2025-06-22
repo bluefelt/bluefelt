@@ -1,5 +1,13 @@
+# Phase transition action
+- id: transitionToPlay
+  auto: true
+  uses: setPhase
+  with:
+    phaseSet: game
+    phase: play
+
 # Main action - place a mark on the board
-- id: placeMarker
+- id: placeMark
   uses: place
   with:
     location: "{args.location}"
@@ -8,29 +16,88 @@
     direction: "Click an empty cell to place your mark"
     logTemplate: "{player} placed their mark at ({row}, {col})"
   when:
+    - condition: game.notEnded
     - condition: zone.isEmpty
       with:
         zone: "{args.location}"
     - condition: player.isActor
   then:
-    - action: checkWin
-    - action: advanceTurn
+    - action: checkWinOrAdvance
 
-# Check for winning condition after each move
-- id: checkWin
-  uses: grid.lineOfMarks
+# Check for winning condition, then advance turn if no win
+- id: checkWinOrAdvance  
+  uses: conditionalAction
   auto: true
   with:
-    zone: "zones/board"
-    entity: "mark_{player}"
-    lineLength: 3
-    directions: ["horizontal", "vertical", "diagonal"]
+    condition:
+      condition: grid.lineOfMarks
+      with:
+        zone: "/zones/board"
+        entity: "mark_{player}"
+        lineLength: 3
+        directions: ["horizontal", "vertical", "diagonal"]
+    then:
+      - action: setGamePhase
+      - action: setWinner
+    else:
+      - action: advanceTurn
+    
+# Helper action to set phase
+- id: setGamePhase
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: "game"
+    phase: "end"
   ui:
-    logTemplate: "Checking for three in a row..."
-
-# Advance to next player's turn
+    logTemplate: "Game over!"
+    
+# Helper action to set winner
+- id: setWinner  
+  uses: setState
+  auto: true
+  with:
+    path: "/gameStatus"
+    value:
+      state: "ended"
+      winner: "{player}"
+      tie: false
+  ui:
+    logTemplate: "{player} wins!"
+    
+# Advance to next player's turn 
 - id: advanceTurn
   uses: nextTurn
   auto: true
+  then:
+    - action: checkForTie
   ui:
     logTemplate: "Turn passes to {nextPlayer}"
+    
+# Check if board is full (tie game)
+- id: checkForTie
+  uses: conditionalAction
+  auto: true
+  with:
+    condition:
+      condition: zone.isEmpty
+      negate: true
+      with:
+        zone: "/zones/board"
+        checkAll: true
+    then:
+      - action: setGamePhase
+      - action: setTie
+    
+# Helper action to set tie
+- id: setTie
+  uses: setState
+  auto: true
+  with:
+    path: "/gameStatus"
+    value:
+      state: "ended"
+      winner: null
+      tie: true
+  ui:
+    logTemplate: "It's a tie! The board is full."

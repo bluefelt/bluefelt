@@ -1,0 +1,91 @@
+# Test real-world example using YAML shortcuts
+
+manifest:
+  game_id: test-shortcut-game
+  version: 1.0
+  display_name: Test Shortcut Game
+  description: A game to test YAML shortcuts
+  min_players: 2
+  max_players: 4
+
+entities:
+  deck: standard-52
+
+zones:
+  - id: deck
+    type: pile
+    face_down: true
+    
+  - id: discard
+    type: pile
+    
+  # Use grid shortcut
+  - id: board
+    grid: 3x3
+    
+  - id: hand_{player}
+    type: hand
+    owner: "{player}"
+
+phases:
+  - id: setup
+    auto: true
+    onEnter:
+      # Use bf.shuffle shortcut
+      - uses: bf.shuffle
+        with:
+          zone: deck
+          
+      # Use bf.deal shortcut
+      - uses: bf.deal
+        with:
+          count: 7
+          
+      - uses: setPhase
+        with:
+          phase: main
+          
+  - id: main
+    turn: true
+    
+actions:
+  # Test if/then/else shorthand
+  - id: draw_card
+    if:
+      phase: main
+    uses: bf.draw
+    log: "{player} drew a card"
+    then: 
+      - uses: bf.nextTurn
+    
+  # Test condition object shortcuts
+  - id: play_card
+    scope: player
+    if:
+      - phase: main
+      - owner: "{player}"
+    uses: transferEntity
+    with:
+      from: hand_{player}
+      to: discard
+      
+  # Test empty condition shortcut  
+  - id: place_token
+    scope: board_*
+    if:
+      empty: true
+    uses: bf.place
+    with:
+      entity: token_{player}
+      
+  # Test then string shortcut
+  - id: end_turn
+    scope: player
+    uses: someAction
+    then: nextTurn
+    
+  # Test game end
+  - id: win_game
+    uses: bf.endGame
+    with:
+      winner: "{player}"

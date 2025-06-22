@@ -65,9 +65,9 @@ pub async fn run(
                         Ok(_) => {
                             info!("{}", "✓ Rebuild successful".green());
                             
-                            // TODO: Send hot reload signal to connected clients
+                            // Send hot reload signal to server
                             if serve {
-                                debug!("TODO: Send hot reload signal to clients");
+                                tokio::spawn(notify_server_reload(port));
                             }
                         }
                         Err(e) => {
@@ -122,4 +122,27 @@ async fn start_dev_server(port: u16, open: bool) -> Result<()> {
     }
     
     Ok(())
+}
+
+/// Notify the server that bundles have been reloaded
+async fn notify_server_reload(server_port: u16) {
+    let url = format!("http://localhost:{}/api/reload/bundles", server_port);
+    
+    let client = reqwest::Client::new();
+    match client.post(&url)
+        .json(&serde_json::json!({}))
+        .send()
+        .await 
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                info!("{}", "✓ Server notified of reload".green());
+            } else {
+                warn!("Server reload notification failed: {}", response.status());
+            }
+        }
+        Err(e) => {
+            debug!("Could not notify server of reload: {}", e);
+        }
+    }
 }

@@ -61,6 +61,50 @@ vi.mock('../../../context/PlayerContext', () => ({
   })
 }));
 
+// Mock the AnimationContext
+vi.mock('../../../context/AnimationContext', () => ({
+  useAnimationsEnabled: vi.fn(() => true),
+  useAnimation: vi.fn(() => ({
+    state: { isAnimating: false, config: { enableAnimations: true } },
+    updateConfig: vi.fn(),
+    addAnimation: vi.fn(),
+    removeAnimation: vi.fn(),
+    clearQueue: vi.fn(),
+    isAnimating: false
+  }))
+}));
+
+// Mock the PlayerPreferencesContext
+vi.mock('../../../context/PlayerPreferencesContext', () => ({
+  usePlayerPreferences: vi.fn(() => ({
+    preferences: { 
+      username: 'Alice', 
+      color: '#FF0000',
+      tokenId: 'classic',
+      showOpponentTokens: true,
+      colorSchemeId: 'default',
+      cardStyleId: 'classic'
+    },
+    isLoggedIn: true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    updatePreferences: vi.fn(),
+    updateToken: vi.fn(),
+    updateColorScheme: vi.fn(),
+    updatePlayerColor: vi.fn(),
+    updateShowOpponentTokens: vi.fn(),
+    updateCardStyle: vi.fn(),
+    updateColor: vi.fn()
+  })),
+  PlayerPreferencesProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePlayer: vi.fn(() => ({
+    player: { username: 'Alice', color: '#FF0000' },
+    login: vi.fn(),
+    logout: vi.fn(),
+    updateColor: vi.fn()
+  }))
+}));
+
 // Helper to render game with all providers
 function renderGame(lobbyState: LobbyState, lobbyId: string = 'test-lobby') {
   const queryClient = new QueryClient({
@@ -136,8 +180,9 @@ describe('Connect Four Client Regression Tests', () => {
         zones: [
           { 
             id: 'board', 
-            type: 'grid', 
-            name: 'Game Board', 
+            shape: 'grid',
+            renderType: 'grid',
+            name: 'Board', 
             visibility: 'all',
             gridProps: { rows: 6, cols: 7 }
           }
@@ -190,7 +235,7 @@ describe('Connect Four Client Regression Tests', () => {
 
     // Wait for game to render
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
 
     // Check that we have a board zone
@@ -209,7 +254,7 @@ describe('Connect Four Client Regression Tests', () => {
 
     // Wait for game to render
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
 
     // Get the board zone and find column drop zones
@@ -316,7 +361,7 @@ describe('Connect Four Client Regression Tests', () => {
 
     // Wait for initial render
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
 
     // Simulate receiving a patch that places a disc

@@ -1,6 +1,7 @@
 # The game board - 3x3 grid
 - id: board
   shape: grid
+  tier: tactical  # Main game board where play happens
   shapeMeta:
     rows: 3
     cols: 3

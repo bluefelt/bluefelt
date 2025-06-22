@@ -1,0 +1,121 @@
+[
+  {
+    "as": "bf.place",
+    "id": "place_stone",
+    "then": [
+      {
+        "args": {
+          "location": "{targetLocation}",
+          "player": "{currentPlayer}"
+        },
+        "verb": "claimTerritory"
+      },
+      {
+        "args": {
+          "condition": "largestTerritory",
+          "threshold": 10
+        },
+        "verb": "checkTerritoryWin"
+      }
+    ],
+    "ui": {
+      "direction": "Choose an empty hex to claim territory",
+      "name": "Place Stone"
+    },
+    "when": [
+      {
+        "condition": "location.empty"
+      }
+    ],
+    "with": {
+      "entity": "stone_{currentPlayer}",
+      "source": "supply",
+      "targetLocation": "{targetLocation}"
+    }
+  },
+  {
+    "as": "bf.place",
+    "id": "place_adjacent",
+    "then": [
+      {
+        "args": {
+          "location": "{targetLocation}",
+          "player": "{currentPlayer}"
+        },
+        "verb": "claimTerritory"
+      },
+      {
+        "args": {
+          "location": "{targetLocation}",
+          "player": "{currentPlayer}"
+        },
+        "verb": "checkTerritoryExpansion"
+      },
+      {
+        "args": {
+          "condition": "totalControl",
+          "threshold": 15
+        },
+        "verb": "checkTerritoryWin"
+      }
+    ],
+    "ui": {
+      "direction": "Choose an empty hex adjacent to your territory",
+      "name": "Expand Territory"
+    },
+    "when": [
+      {
+        "condition": "location.empty"
+      },
+      {
+        "args": {
+          "entity": "stone_{currentPlayer}"
+        },
+        "condition": "location.adjacentTo"
+      }
+    ],
+    "with": {
+      "entity": "stone_{currentPlayer}",
+      "source": "supply",
+      "targetLocation": "{targetLocation}"
+    }
+  },
+  {
+    "as": "bf.multiPlace",
+    "id": "place_shape",
+    "then": [
+      {
+        "args": {
+          "entity": "stone_{currentPlayer}",
+          "location": "{targetLocation}",
+          "placementRule": "adjacent",
+          "player": "{currentPlayer}",
+          "shape": "triangle",
+          "zone": "board"
+        },
+        "verb": "placeShape"
+      },
+      {
+        "args": {
+          "player": "{currentPlayer}"
+        },
+        "verb": "findLargestTerritory"
+      }
+    ],
+    "ui": {
+      "direction": "Choose location for your shape",
+      "name": "Place Territory Shape"
+    },
+    "when": [
+      {
+        "condition": "location.empty"
+      }
+    ],
+    "with": {
+      "entity": "stone_{currentPlayer}",
+      "shape": "triangle",
+      "source": "supply",
+      "targetLocation": "{targetLocation}"
+    }
+  }
+]

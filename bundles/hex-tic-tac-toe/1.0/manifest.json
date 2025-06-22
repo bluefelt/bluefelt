@@ -1,0 +1,14 @@
+{
+  "gameId": "hex-tic-tac-toe",
+  "version": "1.0",
+  "specVersion": "1",
+  "metadata": {
+    "name": "Hex Tic-Tac-Toe",
+    "description": "Classic tic-tac-toe on a hexagonal grid",
+    "author": "Bluefelt Team",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  }
+}

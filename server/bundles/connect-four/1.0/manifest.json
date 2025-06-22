@@ -1,0 +1,14 @@
+{
+  "gameId": "connect-four",
+  "version": "1.0",
+  "specVersion": "1.0",
+  "metadata": {
+    "name": "Connect 4",
+    "description": "Drop discs to connect four in a row",
+    "author": "Bluefelt Team",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  }
+}

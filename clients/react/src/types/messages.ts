@@ -103,17 +103,77 @@ export type MetaState = {
     timestamp: string;
   }>;
   phaseStates?: any;
+  multiStepState?: Record<string, {
+    actionId: string;
+    actionType: string;
+    currentStepId: string;
+    currentStepIndex: number;
+    totalSteps: number;
+    storedData: Record<string, any>;
+    canCancel: boolean;
+    requiresConfirmation: boolean;
+    confirmationPrompt?: string;
+  }>;
 };
 
 export type ActionInfo = {
   action: string;
   direction: string;
+  args?: Record<string, any>;
 };
 
 export type PatchOperation = {
   op: 'add' | 'remove' | 'replace';
   path: string;
   value?: unknown;
+};
+
+export type MultiStepStartMessage = {
+  type: 'multiStepStart';
+  actionId: string;
+  stepId: string;
+  stepType: string;
+  direction?: string;
+  canCancel: boolean;
+  actionMap: Record<string, any>;
+};
+
+export type MultiStepUpdateMessage = {
+  type: 'multiStepUpdate';
+  actionId: string;
+  stepId: string;
+  stepType: string;
+  direction?: string;
+  canCancel: boolean;
+  currentStep?: number;
+  totalSteps?: number;
+  actionMap: Record<string, any>;
+};
+
+export type MultiStepConfirmationMessage = {
+  type: 'multiStepConfirmation';
+  actionId: string;
+  prompt: string;
+};
+
+export type MultiStepCompleteMessage = {
+  type: 'multiStepComplete';
+  actionId: string;
+};
+
+export type MultiStepCancelledMessage = {
+  type: 'multiStepCancelled';
+  playerId: string;
+};
+
+export type ActionMapUpdateMessage = {
+  type: 'actionMapUpdate';
+  actionMap: Record<string, Record<string, any>>;
+};
+
+export type PlayerPreferencesUpdateMessage = {
+  type: 'playerPreferencesUpdate';
+  preferences: any;
 };
 
 export type ServerMessage = 
@@ -123,7 +183,14 @@ export type ServerMessage =
   | DiffMessage
   | InfoMessage
   | ErrorMessage
-  | StartedMessage;
+  | StartedMessage
+  | MultiStepStartMessage
+  | MultiStepUpdateMessage
+  | MultiStepConfirmationMessage
+  | MultiStepCompleteMessage
+  | MultiStepCancelledMessage
+  | ActionMapUpdateMessage
+  | PlayerPreferencesUpdateMessage;
 
 export type ClientAction = 
   | { action: 'join' }

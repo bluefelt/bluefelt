@@ -1,0 +1,20 @@
+[
+  {
+    "id": "game",
+    "phases": [
+      {
+        "id": "playing",
+        "initial": true,
+        "possibleActions": [
+          "place_mark"
+        ]
+      },
+      {
+        "id": "game_over",
+        "ui": {
+          "display": "Game Over"
+        }
+      }
+    ]
+  }
+]

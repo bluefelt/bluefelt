@@ -1,0 +1,16 @@
+[
+  {
+    "id": "mark_p1",
+    "ui": {
+      "player": "p1",
+      "tokenType": "hex_mark"
+    }
+  },
+  {
+    "id": "mark_p2",
+    "ui": {
+      "player": "p2",
+      "tokenType": "hex_mark"
+    }
+  }
+]

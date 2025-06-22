@@ -10,34 +10,161 @@ class TicTacToeRegressionTest extends GameTestFramework {
     super('tic-tac-toe');
     this.board = Array(3).fill(null).map(() => Array(3).fill(null));
     this.moveCount = 0;
+    this.lastMoveTickProcessed = -1; // Track the last tick we counted a move for
   }
 
   processPatch(patches) {
+    // Track if this patch batch contains a board update
+    let boardUpdated = false;
+    let lastBoardUpdate = null;
+    
     for (const patch of patches) {
+      // Board updates
       if (patch.path.match(/\/game\/zones\/board\/cells\/(\d+)\/(\d+)/)) {
         const [, row, col] = patch.path.match(/\/(\d+)\/(\d+)$/);
-        this.board[parseInt(row)][parseInt(col)] = patch.value?.entity;
-        this.moveCount++;
+        const entity = patch.value?.entity;
+        this.board[parseInt(row)][parseInt(col)] = entity;
+        
+        // Only track if this is a new entity placement (not clearing)
+        if (entity) {
+          boardUpdated = true;
+          lastBoardUpdate = { row: parseInt(row), col: parseInt(col), entity };
+        }
       }
       
+      // Turn updates
       if (patch.path === '/game/currentPlayer') {
         this.currentPlayer = patch.value;
       }
       
+      // Game status updates
       if (patch.path === '/game/gameStatus') {
         this.gameStatus = patch.value;
         if (patch.value?.state === 'ended') {
           this.gameEnded = true;
         }
       }
+      
+      // Action map updates
+      if (patch.path === '/ui/actionMap') {
+        this.actionMap = patch.value;
+      }
+    }
+    
+    // Simplified move counting: increment for each board update we see
+    // Use a Set to track which cells have been updated to avoid double-counting
+    if (boardUpdated && lastBoardUpdate) {
+      const cellKey = `${lastBoardUpdate.row},${lastBoardUpdate.col}`;
+      if (!this.processedCells) {
+        this.processedCells = new Set();
+      }
+      
+      if (!this.processedCells.has(cellKey)) {
+        this.processedCells.add(cellKey);
+        this.moveCount++;
+        
+        // Extract player from entity (mark_p1 -> p1, mark_p2 -> p2)
+        const entityMatch = lastBoardUpdate.entity.match(/mark_(.+)$/);
+        const movingPlayer = entityMatch ? entityMatch[1] : lastBoardUpdate.entity;
+        
+        console.log(`  Move ${this.moveCount}: ${movingPlayer} → (${lastBoardUpdate.row},${lastBoardUpdate.col})`);
+      }
     }
   }
 
-  async testAllWinConditions() {
+  static async testActionMaps() {
+    console.log('\n🎯 Testing Action Maps\n');
+    
+    // Test 1: Initial Action Map
+    await TicTacToeRegressionTest.runScenario('Initial Action Map', async (test) => {
+      // P1 should have 9 available cells at start
+      assert(test.actionMap, 'Action map should exist');
+      assert(test.actionMap.p1, 'P1 should have actions');
+      const p1ActionCount = Object.keys(test.actionMap.p1).length;
+      assert.strictEqual(p1ActionCount, 9, 'P1 should have 9 available cells');
+      
+      // P2 should have no actions (not their turn)
+      assert(test.actionMap.p2, 'P2 action map should exist');
+      const p2ActionCount = Object.keys(test.actionMap.p2).length;
+      assert.strictEqual(p2ActionCount, 0, 'P2 should have no actions');
+      
+      // Verify all cells are clickable for P1
+      for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+          const cellPath = `/zones/board/cells/${row}/${col}`;
+          assert(test.actionMap.p1[cellPath], `Cell (${row},${col}) should be clickable for P1`);
+          assert.strictEqual(test.actionMap.p1[cellPath].action, 'placeMark', 'Should be placeMark action');
+        }
+      }
+    });
+    
+    await TicTacToeRegressionTest.runScenario('Action Map After Move', async (test) => {
+      // P1 places at (1,1)
+      await test.executeAction('p1', 'placeMark', {
+        location: '/zones/board/cells/1/1',
+        entity: 'mark_p1'
+      });
+      
+      // Wait for turn transition
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Now P2 should have 8 available cells
+      const p2ActionCount = Object.keys(test.actionMap.p2).length;
+      assert.strictEqual(p2ActionCount, 8, 'P2 should have 8 available cells');
+      
+      // P1 should have no actions
+      const p1ActionCount = Object.keys(test.actionMap.p1).length;
+      assert.strictEqual(p1ActionCount, 0, 'P1 should have no actions');
+      
+      // Cell (1,1) should not be in P2's action map
+      assert(!test.actionMap.p2['/zones/board/cells/1/1'], 'Occupied cell should not be clickable');
+    });
+    
+    await TicTacToeRegressionTest.runScenario('Action Map When Game Ends', async (test) => {
+      // Play winning sequence for P1 in row 2
+      await test.executeAction('p1', 'placeMark', {
+        location: '/zones/board/cells/2/0',
+        entity: 'mark_p1'
+      });
+      await test.executeAction('p2', 'placeMark', {
+        location: '/zones/board/cells/0/0',
+        entity: 'mark_p2'
+      });
+      await test.executeAction('p1', 'placeMark', {
+        location: '/zones/board/cells/2/1',
+        entity: 'mark_p1'
+      });
+      await test.executeAction('p2', 'placeMark', {
+        location: '/zones/board/cells/0/1',
+        entity: 'mark_p2'
+      });
+      await test.executeAction('p1', 'placeMark', {
+        location: '/zones/board/cells/2/2',
+        entity: 'mark_p1'
+      });
+      
+      // Wait for game end - give time for all patches to be processed
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Debug the state
+      console.log('    Game status:', JSON.stringify(test.gameStatus));
+      console.log('    Game ended:', test.gameEnded);
+      console.log('    Action map:', JSON.stringify(test.actionMap));
+      
+      // Both players should have no actions after game ends
+      const p1ActionCount = Object.keys(test.actionMap.p1 || {}).length;
+      const p2ActionCount = Object.keys(test.actionMap.p2 || {}).length;
+      
+      assert.strictEqual(p1ActionCount, 0, 'P1 should have no actions after game ends');
+      assert.strictEqual(p2ActionCount, 0, 'P2 should have no actions after game ends');
+    });
+  }
+
+  static async testAllWinConditions() {
     console.log('\n📋 Testing All Win Conditions\n');
     
     // Test horizontal win (row 0)
-    await this.testScenario('Horizontal Win - Row 0', async () => {
+    await TicTacToeRegressionTest.runScenario('Horizontal Win - Row 0', async (test) => {
       const moves = [
         { player: 'p1', row: 0, col: 0 },
         { player: 'p2', row: 1, col: 0 },
@@ -46,16 +173,16 @@ class TicTacToeRegressionTest extends GameTestFramework {
         { player: 'p1', row: 0, col: 2 }, // P1 wins
       ];
       
-      await this.playMoves(moves);
-      assert.strictEqual(this.gameStatus?.winner, 'p1', 'P1 should win');
-      assert.strictEqual(this.moveCount, 5, 'Should take 5 moves');
+      await test.playMoves(moves);
+      assert.strictEqual(test.gameStatus?.winner, 'p1', 'P1 should win');
+      assert.strictEqual(test.moveCount, 5, 'Should take 5 moves');
     });
   }
 
-  async testTieGame() {
+  static async testTieGame() {
     console.log('\n🤝 Testing Tie Game\n');
     
-    await this.testScenario('Tie Game - Full Board', async () => {
+    await TicTacToeRegressionTest.runScenario('Tie Game - Full Board', async (test) => {
       const moves = [
         { player: 'p1', row: 0, col: 0 },
         { player: 'p2', row: 1, col: 1 },
@@ -68,41 +195,41 @@ class TicTacToeRegressionTest extends GameTestFramework {
         { player: 'p1', row: 2, col: 0 }, // Board full - tie
       ];
       
-      await this.playMoves(moves);
-      console.log('Game status after all moves:', JSON.stringify(this.gameStatus));
-      console.log('Move count:', this.moveCount);
-      console.log('Game ended:', this.gameEnded);
-      assert.strictEqual(this.gameStatus?.tie, true, 'Should be a tie');
-      assert.strictEqual(this.gameStatus?.winner, null, 'No winner');
-      assert.strictEqual(this.moveCount, 9, 'Board should be full');
+      await test.playMoves(moves);
+      console.log('Game status after all moves:', JSON.stringify(test.gameStatus));
+      console.log('Move count:', test.moveCount);
+      console.log('Game ended:', test.gameEnded);
+      assert.strictEqual(test.gameStatus?.tie, true, 'Should be a tie');
+      assert.strictEqual(test.gameStatus?.winner, null, 'No winner');
+      assert.strictEqual(test.moveCount, 9, 'Board should be full');
     });
   }
 
-  async testInvalidMoves() {
+  static async testInvalidMoves() {
     console.log('\n❌ Testing Invalid Moves\n');
     
-    await this.testScenario('Occupied Cell Rejection', async () => {
+    await TicTacToeRegressionTest.runScenario('Occupied Cell Rejection', async (test) => {
       // P1 plays center
-      await this.executeAction('p1', 'placeMarker', {
+      await test.executeAction('p1', 'placeMark', {
         location: '/zones/board/cells/1/1',
         entity: 'mark_p1'
       });
       
-      const currentTurn = this.currentPlayer;
+      const currentTurn = test.currentPlayer;
       
       // P2 tries same cell
-      await this.executeAction('p2', 'placeMarker', {
+      await test.executeAction('p2', 'placeMark', {
         location: '/zones/board/cells/1/1',
         entity: 'mark_p2'
       });
       
       // Should still be P2's turn (move rejected)
-      assert.strictEqual(this.currentPlayer, 'p2', 'Turn should not advance');
+      assert.strictEqual(test.currentPlayer, 'p2', 'Turn should not advance');
     });
 
-    await this.testScenario('Out of Turn Move', async () => {
+    await TicTacToeRegressionTest.runScenario('Out of Turn Move', async (test) => {
       // P1 plays
-      await this.executeAction('p1', 'placeMarker', {
+      await test.executeAction('p1', 'placeMark', {
         location: '/zones/board/cells/0/0',
         entity: 'mark_p1'
       });
@@ -111,27 +238,27 @@ class TicTacToeRegressionTest extends GameTestFramework {
       await new Promise(resolve => setTimeout(resolve, 100));
       
       // Verify it's P2's turn
-      assert.strictEqual(this.currentPlayer, 'p2', 'Should be P2 turn after P1 move');
+      assert.strictEqual(test.currentPlayer, 'p2', 'Should be P2 turn after P1 move');
       
       // P1 tries again (should be rejected)
-      const boardBefore = JSON.stringify(this.board);
-      const turnBefore = this.currentPlayer;
+      const boardBefore = JSON.stringify(test.board);
+      const turnBefore = test.currentPlayer;
       
-      await this.executeAction('p1', 'placeMarker', {
+      await test.executeAction('p1', 'placeMark', {
         location: '/zones/board/cells/0/1',
         entity: 'mark_p1'
       });
       
-      const boardAfter = JSON.stringify(this.board);
+      const boardAfter = JSON.stringify(test.board);
       assert.strictEqual(boardBefore, boardAfter, 'Board should not change');
-      assert.strictEqual(this.currentPlayer, turnBefore, 'Turn should not change');
+      assert.strictEqual(test.currentPlayer, turnBefore, 'Turn should not change');
     });
   }
 
-  async testEdgeCases() {
+  static async testEdgeCases() {
     console.log('\n🔧 Testing Edge Cases\n');
     
-    await this.testScenario('Minimum Moves to Win', async () => {
+    await TicTacToeRegressionTest.runScenario('Minimum Moves to Win', async (test) => {
       const moves = [
         { player: 'p1', row: 0, col: 0 },
         { player: 'p2', row: 1, col: 0 },
@@ -140,34 +267,34 @@ class TicTacToeRegressionTest extends GameTestFramework {
         { player: 'p1', row: 0, col: 2 }, // Fastest possible win
       ];
       
-      await this.playMoves(moves);
-      assert.strictEqual(this.moveCount, 5, 'Minimum 5 moves to win');
-      assert.strictEqual(this.gameStatus?.winner, 'p1', 'P1 wins');
+      await test.playMoves(moves);
+      assert.strictEqual(test.moveCount, 5, 'Minimum 5 moves to win');
+      assert.strictEqual(test.gameStatus?.winner, 'p1', 'P1 wins');
     });
 
-    await this.testScenario('Move After Game End', async () => {
+    await TicTacToeRegressionTest.runScenario('Move After Game End', async (test) => {
       // Play winning game first
-      await this.executeAction('p1', 'placeMarker', {
+      await test.executeAction('p1', 'placeMark', {
         location: '/zones/board/cells/0/0',
         entity: 'mark_p1'
       });
       
-      await this.executeAction('p2', 'placeMarker', {
+      await test.executeAction('p2', 'placeMark', {
         location: '/zones/board/cells/1/0',
         entity: 'mark_p2'
       });
       
-      await this.executeAction('p1', 'placeMarker', {
+      await test.executeAction('p1', 'placeMark', {
         location: '/zones/board/cells/0/1',
         entity: 'mark_p1'
       });
       
-      await this.executeAction('p2', 'placeMarker', {
+      await test.executeAction('p2', 'placeMark', {
         location: '/zones/board/cells/1/1',
         entity: 'mark_p2'
       });
       
-      await this.executeAction('p1', 'placeMarker', {
+      await test.executeAction('p1', 'placeMark', {
         location: '/zones/board/cells/0/2',
         entity: 'mark_p1'
       });
@@ -176,25 +303,25 @@ class TicTacToeRegressionTest extends GameTestFramework {
       await new Promise(resolve => setTimeout(resolve, 200));
       
       // Debug output
-      console.log('      Game ended:', this.gameEnded);
-      console.log('      Game status:', JSON.stringify(this.gameStatus));
-      console.log('      Move count before:', this.moveCount);
+      console.log('      Game ended:', test.gameEnded);
+      console.log('      Game status:', JSON.stringify(test.gameStatus));
+      console.log('      Move count before:', test.moveCount);
       
-      assert(this.gameEnded, 'Game should be ended');
-      assert.strictEqual(this.gameStatus?.winner, 'p1', 'P1 should have won');
+      assert(test.gameEnded, 'Game should be ended');
+      assert.strictEqual(test.gameStatus?.winner, 'p1', 'P1 should have won');
       
       // Try to play after game end
-      const movesBefore = this.moveCount;
-      await this.executeAction('p2', 'placeMarker', {
+      const movesBefore = test.moveCount;
+      await test.executeAction('p2', 'placeMark', {
         location: '/zones/board/cells/2/2'
       });
       
-      console.log('      Move count after:', this.moveCount);
+      console.log('      Move count after:', test.moveCount);
       
       // The move should be rejected - no new moves after game end
-      assert.strictEqual(this.moveCount, movesBefore, 'No moves after game end');
-      assert.strictEqual(this.gameStatus?.state, 'ended', 'Game should remain ended');
-      assert.strictEqual(this.gameStatus?.winner, 'p1', 'Winner should not change');
+      assert.strictEqual(test.moveCount, movesBefore, 'No moves after game end');
+      assert.strictEqual(test.gameStatus?.state, 'ended', 'Game should remain ended');
+      assert.strictEqual(test.gameStatus?.winner, 'p1', 'Winner should not change');
     });
   }
 
@@ -219,7 +346,7 @@ class TicTacToeRegressionTest extends GameTestFramework {
     for (const move of moves) {
       if (this.gameEnded) break;
       if (this.currentPlayer === move.player) {
-        await this.executeAction(move.player, 'placeMarker', {
+        await this.executeAction(move.player, 'placeMark', {
           location: `/zones/board/cells/${move.row}/${move.col}`,
           entity: `mark_${move.player}`
         });
@@ -228,7 +355,7 @@ class TicTacToeRegressionTest extends GameTestFramework {
     this.printBoard();
   }
 
-  // Helper to run a test scenario
+  // Helper to run a test scenario with a fresh game
   async testScenario(name, testFunc) {
     console.log(`  Testing: ${name}`);
     
@@ -240,6 +367,31 @@ class TicTacToeRegressionTest extends GameTestFramework {
       throw error;
     }
   }
+  
+  // Create a fresh game instance for a scenario
+  static async createFreshGame() {
+    const test = new TicTacToeRegressionTest();
+    await test.createLobby();
+    await test.connectPlayers(['Alice', 'Bob']);
+    await test.startGame();
+    return test;
+  }
+  
+  // Run a scenario with a fresh game instance
+  static async runScenario(name, testFunc) {
+    console.log(`  Testing: ${name}`);
+    const test = await TicTacToeRegressionTest.createFreshGame();
+    
+    try {
+      await testFunc(test);
+      console.log(`    ✅ PASSED`);
+      await test.cleanup();
+    } catch (error) {
+      console.log(`    ❌ FAILED: ${error.message}`);
+      await test.cleanup();
+      throw error;
+    }
+  }
 
 }
 
@@ -247,13 +399,20 @@ class TicTacToeRegressionTest extends GameTestFramework {
 async function runTest() {
   let allSuccess = true;
   
+  // Handle cleanup on process termination
+  process.on('SIGINT', async () => {
+    console.log('\n\n⚠️  Test interrupted - cleaning up...');
+    process.exit(1);
+  });
+  
   try {
-    // Run each test group with a fresh lobby
+    // Run each test group - each test method creates its own fresh games
     const testGroups = [
-      { name: 'Win Conditions', method: 'testAllWinConditions' },
-      { name: 'Tie Game', method: 'testTieGame' },
-      { name: 'Invalid Moves', method: 'testInvalidMoves' },
-      { name: 'Edge Cases', method: 'testEdgeCases' }
+      { name: 'Action Maps', method: TicTacToeRegressionTest.testActionMaps },
+      { name: 'Win Conditions', method: TicTacToeRegressionTest.testAllWinConditions },
+      { name: 'Tie Game', method: TicTacToeRegressionTest.testTieGame },
+      { name: 'Invalid Moves', method: TicTacToeRegressionTest.testInvalidMoves },
+      { name: 'Edge Cases', method: TicTacToeRegressionTest.testEdgeCases }
     ];
     
     for (const group of testGroups) {
@@ -261,20 +420,11 @@ async function runTest() {
       console.log(`Running: ${group.name}`);
       console.log(`${'='.repeat(60)}\n`);
       
-      const test = new TicTacToeRegressionTest();
-      
       try {
-        await test.createLobby();
-        await test.connectPlayers(['Alice', 'Bob']);
-        await test.startGame();
-        
-        await test[group.method]();
-        
-        test.cleanup();
+        await group.method();
       } catch (error) {
         console.error(`${group.name} failed:`, error);
         allSuccess = false;
-        test.cleanup();
       }
     }
     

@@ -1,0 +1,14 @@
+{
+  "gameId": "crazy-eights",
+  "version": "1.0",
+  "specVersion": "1.0",
+  "metadata": {
+    "name": "Crazy Eights",
+    "description": "Shedding card game where players match ranks or suits to empty their hands",
+    "author": "Traditional",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  }
+}

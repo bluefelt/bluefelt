@@ -7,6 +7,13 @@ mod validate;
 mod watch;
 mod scaffold;
 mod bundle;
+mod yaml_shortcuts;
+mod yaml_includes;
+mod single_bundle;
+mod action_validation;
+
+#[cfg(test)]
+mod test_yaml_features;
 
 #[derive(Parser)]
 #[command(name = "bluefelt-cli")]
@@ -37,7 +44,7 @@ enum Commands {
         #[arg(long)]
         zip: bool,
 
-        /// Build in release mode (optimize WASM)
+        /// Build in release mode
         #[arg(long)]
         release: bool,
     },
@@ -52,7 +59,7 @@ enum Commands {
         #[arg(short, long, default_value = "bundles")]
         output: PathBuf,
 
-        /// Build in release mode (optimize WASM)
+        /// Build in release mode
         #[arg(long)]
         release: bool,
     },
@@ -66,6 +73,13 @@ enum Commands {
         /// Expected spec version
         #[arg(long, default_value = "1")]
         spec_version: String,
+    },
+
+    /// Validate action names across all games
+    ValidateActions {
+        /// Path to games directory
+        #[arg(default_value = "games")]
+        games_dir: PathBuf,
     },
 
     /// Watch for changes and rebuild automatically
@@ -147,6 +161,9 @@ async fn main() -> Result<()> {
         }
         Commands::Validate { path, spec_version } => {
             validate::run(path, spec_version).await?;
+        }
+        Commands::ValidateActions { games_dir } => {
+            action_validation::validate_action_names(&games_dir)?;
         }
         Commands::Watch { path, serve, open, port } => {
             watch::run(path, serve, open, port).await?;

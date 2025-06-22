@@ -1,0 +1,46 @@
+//! Verb implementations for the simplified state structure
+
+pub mod set_property;
+pub mod transfer_entity;
+pub mod shuffle;
+pub mod deal;
+pub mod set_phase;
+pub mod clear_selection;
+pub mod increment_property;
+pub mod decrement_property;
+pub mod append_to_log;
+pub mod end_game;
+
+use serde_json::Value;
+use crate::bundle::Bundle;
+
+/// Result type for verb operations
+pub type VerbResult = Result<Vec<Value>, String>;
+
+/// Trait for verb implementations
+pub trait Verb {
+    /// Execute the verb on the game state
+    fn execute(&self, bundle: &Bundle, state: &mut Value) -> VerbResult;
+}
+
+/// Execute a verb by name with arguments
+pub fn execute_verb(
+    verb_name: &str,
+    args: &Value,
+    bundle: &Bundle,
+    state: &mut Value,
+) -> VerbResult {
+    match verb_name {
+        "setProperty" => set_property::execute(args, state),
+        "transferEntity" => transfer_entity::execute(args, bundle, state),
+        "shuffle" => shuffle::execute(args, state),
+        "deal" => deal::execute(args, state),
+        "setPhase" => set_phase::execute(args, state),
+        "clearSelection" => clear_selection::execute(state),
+        "incrementProperty" => increment_property::execute(args, state),
+        "decrementProperty" => decrement_property::execute(args, state),
+        "appendToLog" => append_to_log::execute(args, state),
+        "endGame" => end_game::execute(args, state),
+        _ => Err(format!("Unknown verb: {}", verb_name)),
+    }
+}

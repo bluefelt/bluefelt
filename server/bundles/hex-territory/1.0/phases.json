@@ -1,0 +1,51 @@
+[
+  {
+    "id": "main",
+    "phases": [
+      {
+        "id": "setup",
+        "initial": true,
+        "name": "Game Setup",
+        "next": "firstPlacement"
+      },
+      {
+        "allowedActions": [
+          "place_stone"
+        ],
+        "id": "firstPlacement",
+        "name": "Initial Placement",
+        "transitions": [
+          {
+            "to": "expansion",
+            "when": [
+              {
+                "args": {
+                  "value": 3
+                },
+                "condition": "turns.greaterThan"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "allowedActions": [
+          "place_adjacent",
+          "place_shape"
+        ],
+        "id": "expansion",
+        "name": "Territory Expansion",
+        "transitions": [
+          {
+            "to": "gameOver",
+            "when": [
+              {
+                "condition": "gameStatus.completed"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

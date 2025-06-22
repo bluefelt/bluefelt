@@ -1,0 +1,9 @@
+[
+  {
+    "exclude": [
+      "clubs_queen"
+    ],
+    "generate": true,
+    "id": "standardDeck"
+  }
+]

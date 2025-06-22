@@ -1,13 +1,12 @@
-# Bluefelt Testing Guide
+# Testing Guide
 
 ## Overview
 
 Bluefelt uses a comprehensive multi-layer testing architecture to ensure quality at every level of the platform. This document is the primary entry point for understanding our testing approach.
 
-## Related Documentation
-
-- **[Comprehensive Testing Strategy](./comprehensive-testing-strategy.md)** - Detailed testing pyramid with clear criteria for each test level
-- **[UI Zone Test Harness](./ui-zone-test-harness.md)** - Specialized tool for stress testing UI components in isolation
+**Related Resources:**
+- **UI Test Harness** - Available at `/ui-test` in development mode for stress testing zones
+- **GameTestFramework** - Located at `server/tests/regression/framework/GameTestFramework.js`
 
 ## Testing Philosophy
 
@@ -102,6 +101,186 @@ node tests/regression/run-all-tests.js           # Run all games
 node tests/regression/games/test-tic-tac-toe.js  # Run specific game
 ```
 
+## Critical Test Structure Requirements
+
+**DISCOVERED ISSUE**: Many tests fail due to incorrect data structures. Follow these patterns exactly:
+
+### Zone Metadata Must Be Arrays
+```typescript
+// ❌ WRONG - causes "zoneMetadata is not iterable" 
+ui: { zones: {} }
+
+// ✅ CORRECT
+ui: { 
+  zones: [
+    {
+      id: 'choice_p1',
+      name: 'Select Rank',
+      resolved_name: 'Select Rank',
+      visibility: 'owner', 
+      owner: 'p1',
+      layout_order: 0,
+      renderType: 'choice',  // Required for GameZones to render
+      items: [...],
+      prompt: 'Choose a rank'
+    }
+  ]
+}
+```
+
+### Action Map Paths Must Match Client
+```typescript
+// ❌ WRONG - extra path segments
+actionMap: {
+  p1: {
+    '/zones/choice_p1/ranks/a': { ... }  // Extra /ranks/
+  }
+}
+
+// ✅ CORRECT - matches getChoiceActionLocation()
+actionMap: {
+  p1: {
+    '/zones/choice_p1/a': {
+      action: 'selectRank',
+      direction: 'Choose a rank'
+    }
+  }
+}
+```
+
+### Text Content Must Match Actual UI
+```typescript
+// ❌ WRONG - tests expect game description instead of name
+expect(screen.getByText('Three Mens Morris game')).toBeInTheDocument();
+
+// ✅ CORRECT - use actual displayed text or specific selectors
+expect(screen.getByRole('heading', { name: 'Three Mens Morris' })).toBeInTheDocument();
+
+// Or for duplicate text, use more specific selectors
+expect(screen.getByText('Three Mens Morris')).toBeInTheDocument(); // ❌ Fails if text appears multiple times
+expect(screen.getAllByText('Three Mens Morris')).toHaveLength(2); // ✅ Better approach
+```
+
+### Required Test IDs
+Many components need data-testid for tests to work:
+- CardZone: `data-testid="zone-${zoneId}"`
+- ChoiceZone: `data-testid="choice-zone"`
+
+### Animation Context Interface Mismatch
+**MAJOR ISSUE**: Animation tests expect methods that don't exist:
+- Tests expect: `processPatches()`, `getAnimationStatus()`, `engine` property, `state.queue` 
+- Context provides: `updateConfig()`, `isAnimating`, `state`, `addAnimation`, `removeAnimation`, `clearQueue`
+
+This affects 23+ failing tests requiring interface redesign.
+
+### Audio Testing Environment Requirements
+
+**CRITICAL**: AudioManager attempts to create real audio buffers in test environments, causing errors. Tests must detect the environment and skip audio initialization.
+
+#### Required Test Environment Detection
+
+**AudioManager.constructor()** must skip AudioContext initialization in tests:
+```typescript
+// AudioManager.tsx - Test environment detection
+constructor() {
+  // Skip AudioContext in test environment
+  if (typeof window !== 'undefined' && 
+      (window.location?.href?.includes('vitest') || 
+       process.env.NODE_ENV === 'test' ||
+       typeof global !== 'undefined' && global.expect)) {
+    this.audioContext = null;
+    this.soundBuffers = new Map();
+    return;
+  }
+  
+  // Normal initialization for browser
+  this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  this.soundBuffers = new Map();
+}
+```
+
+**AnimationEngine.constructor()** must skip placeholder sound creation:
+```typescript
+// AnimationEngine.ts - Test environment detection  
+constructor(options: AnimationEngineOptions) {
+  this.audioManager = options.audioManager;
+  
+  // Skip placeholder sounds in test environment
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+    return;
+  }
+  
+  // Create placeholder sounds for browser
+  this.createPlaceholderSounds();
+}
+```
+
+**AudioManager.preloadSounds()** must use mock buffers instead of fetch:
+```typescript
+// AudioManager.tsx - Test-safe preloading
+async preloadSounds(sounds: string[]): Promise<void> {
+  if (!this.audioContext) {
+    // Test environment - create mock buffers
+    sounds.forEach(sound => {
+      this.soundBuffers.set(sound, null); // Mock buffer
+    });
+    return;
+  }
+  
+  // Normal fetch and decode for browser
+  const promises = sounds.map(async sound => {
+    const response = await fetch(`/sounds/${sound}.mp3`);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await this.audioContext!.decodeAudioData(arrayBuffer);
+    this.soundBuffers.set(sound, audioBuffer);
+  });
+  
+  await Promise.all(promises);
+}
+```
+
+#### Test Setup Requirements
+
+**Test files must mock audio before importing components:**
+```typescript
+// Before any imports that use AudioManager
+beforeEach(() => {
+  // Mock AudioContext
+  global.AudioContext = vi.fn(() => ({
+    decodeAudioData: vi.fn().mockResolvedValue({}),
+    createBufferSource: vi.fn(() => ({
+      connect: vi.fn(),
+      start: vi.fn(),
+      buffer: null
+    })),
+    destination: {}
+  }));
+  
+  // Mock fetch for audio files
+  global.fetch = vi.fn().mockResolvedValue({
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0))
+  });
+});
+```
+
+**Component tests must provide audio-safe context:**
+```typescript
+// Wrap components with test providers
+const TestWrapper = ({ children }) => (
+  <AnimationProvider audioManager={mockAudioManager}>
+    <PlayerPreferencesProvider>
+      {children}
+    </PlayerPreferencesProvider>
+  </AnimationProvider>
+);
+
+const mockAudioManager = {
+  playSound: vi.fn(),
+  preloadSounds: vi.fn().mockResolvedValue(undefined),
+  setVolume: vi.fn()
+};
+```
+
 ### Layer 2: Client Tests (Mocked Server)
 
 **Location**: `/clients/react/src/__tests__/`
@@ -149,6 +328,40 @@ Will include:
 - Real browser automation
 - Multi-player scenarios
 - Cross-browser testing
+
+## Recent Test Additions (June 2025)
+
+### New Test Files Created
+
+1. **Debug Endpoints Testing** (`server/tests/debug_endpoints_test.rs`)
+   - Tests for `/api/debug` endpoints
+   - Validates debug information structure
+   - Tests error cases for non-existent lobbies
+   - Ensures development-only exposure
+
+2. **Hex Tic-Tac-Toe Integration** (`server/tests/hex_tic_tac_toe_test.rs`)
+   - Tests hexagonal grid coordinate system
+   - Validates hex board shape and configuration
+   - Tests placement on axial coordinates
+   - Verifies tie detection on full board
+
+3. **WebSocket Cleanup Testing** (`server/tests/websocket_cleanup_test.rs`)
+   - Tests normal and abrupt disconnections
+   - Validates rapid reconnection handling
+   - Tests error recovery scenarios
+   - Verifies multiple connections per user
+
+4. **ActionExecutor Integration** (`server/tests/action_executor_integration_test.rs`)
+   - Comprehensive game flow testing
+   - Tests conditional action execution
+   - Validates template variable replacement
+   - Tests depth limit protection
+
+### Test Infrastructure Improvements
+
+- **Debug Mode Support**: Debug endpoints provide deep state inspection during test failures
+- **WebSocket Reliability**: Improved connection cleanup prevents test flakiness
+- **ActionExecutor Coverage**: Unit tests now cover all major verb execution paths
 
 ## Test Coverage Requirements
 
@@ -324,6 +537,61 @@ class MyGameRegressionTest extends GameTestFramework {
 }
 ```
 
+## Test Structure Requirements
+
+### Required Structures in Tests
+
+When writing tests that create or mock Bluefelt structures, ensure they include all required fields:
+
+#### MultiStepState Structure
+```rust
+MultiStepState {
+    action_id: String,
+    player_id: String, 
+    step_index: usize,
+    total_steps: usize,
+    state: serde_json::Value,
+    created_at: SystemTime,     // Required field
+    last_activity: SystemTime,  // Required field
+}
+```
+
+**Common Error**: Forgetting `created_at` and `last_activity` fields will cause compilation errors.
+
+#### Bundle Structure
+When accessing bundles in tests:
+```rust
+// ✅ Correct - Use get_latest
+let bundle = bundles.get_latest("tic-tac-toe").unwrap();
+
+// ❌ Wrong - No get() method exists
+let bundle = bundles.get("tic-tac-toe");
+```
+
+#### Action Map Structure
+Action maps are keyed by player ID, not username:
+```javascript
+// ✅ Correct - Using player ID
+const playerActions = actionMap['p1'];
+
+// ❌ Wrong - Using username (only works before game starts)
+const playerActions = actionMap['alice'];
+```
+
+### Phase System Paths
+Tests must handle both phase system formats:
+
+```javascript
+// Legacy phase system
+const currentPhase = state.phases.game; // Simple string
+
+// Enhanced phase system
+const currentPhase = state.game.phases.game.current; // Nested object
+
+// Safe access that handles both
+const phase = state.phases?.current?.game || state.phases?.game;
+```
+
 ## Writing Effective Tests
 
 ### Server Test Best Practices
@@ -333,6 +601,7 @@ class MyGameRegressionTest extends GameTestFramework {
 3. **Use fresh lobbies for test isolation**
 4. **Clear naming**: `testScenario('Player wins with three in a row', ...)`
 5. **Test both success and failure cases**
+6. **Initialize all required fields in test structures**
 
 ### Client Test Best Practices
 
@@ -341,6 +610,34 @@ class MyGameRegressionTest extends GameTestFramework {
 3. **Verify UI updates from patches**
 4. **Test user interactions**
 5. **Check error handling**
+6. **Use correct animation expectations**
+
+#### Animation Test Expectations
+
+When testing animations, use the current sound and duration values:
+
+```javascript
+// Sound expectations (as of Jan 2025)
+expect(audioManager.playSound).toHaveBeenCalledWith('place_yours_soft');     // Player's piece
+expect(audioManager.playSound).toHaveBeenCalledWith('place_opponent_soft');  // Opponent's piece
+
+// Duration expectations
+const ENTITY_SPAWN_DURATION = 300;  // Not 400ms
+expect(animateCall[1].duration).toBe(300);
+
+// Mock element structure
+const mockElement = {
+  classList: {
+    add: vi.fn(),
+    remove: vi.fn()
+  },
+  appendChild: vi.fn(),  // Required for some animations
+  animate: vi.fn(() => ({
+    finished: Promise.resolve(),
+    addEventListener: vi.fn()
+  }))
+};
+```
 
 ### E2E Test Best Practices (CRITICAL)
 
@@ -444,7 +741,7 @@ expect(mockWebSocket.send).toHaveBeenCalledTimes(1); // Only the first click
 2. **Look for infinite loops**: Repeated log messages
 3. **Verify action definitions**: Check YAML files
 4. **Check phase transitions**: Missing `enterActions`
-5. **Validate state paths**: `/game/...` vs `/ui/...`
+5. **Validate state paths**: Direct paths without prefixes (e.g., `/zones/...`, `/actionMap/...`)
 
 ### Client Test Failures
 
@@ -539,6 +836,153 @@ cd e2e && npm run test
 - Example: `test-tic-tac-toe.js` is the reference implementation
 - Framework: `GameTestFramework.js` has helpful methods
 - Ask questions in GitHub issues
+
+## Test-First Development Strategy
+
+Following the principle from comprehensive testing strategy:
+
+1. **Test-First Development**: Write tests before implementing features
+2. **Comprehensive Coverage**: Every verb, condition, and pattern must have tests
+3. **Continuous Validation**: Automated tests run at every stage
+4. **Real-World Scenarios**: Tests must reflect actual gameplay
+5. **Client-Server Integration**: Tests must verify end-to-end functionality
+
+### Test Templates by Game Type
+
+#### Grid-Based Games (Tic-Tac-Toe, Connect-4, Go)
+```javascript
+// Key test areas:
+// - Line detection (horizontal, vertical, diagonal)
+// - Board full detection
+// - Gravity effects (Connect-4)
+// - Territory calculation (Go)
+
+testPatterns = {
+  winConditions: ['rows', 'columns', 'diagonals'],
+  invalidMoves: ['occupied', 'outOfBounds'],
+  edgeCases: ['cornerMoves', 'centerMove', 'fullBoard']
+};
+```
+
+#### Card Games (Go Fish, Gin Rummy, Hearts)
+```javascript
+// Key test areas:
+// - Deck shuffling determinism
+// - Hand management
+// - Valid play rules
+// - Scoring calculations
+
+testPatterns = {
+  dealing: ['initialDeal', 'drawFromDeck', 'deckEmpty'],
+  playing: ['validCard', 'followSuit', 'trump'],
+  scoring: ['sets', 'runs', 'points']
+};
+```
+
+### Game-Specific Test Templates
+
+Create templates for each game following this structure:
+
+```javascript
+// server/tests/regression/templates/GameTestTemplate.js
+class GameTestTemplate extends GameTestFramework {
+  async runAllTests() {
+    await this.testGameSetup();
+    await this.testAllPhases();
+    await this.testAllActions();
+    await this.testEndConditions();
+    await this.testEdgeCases();
+  }
+  
+  async testGameSetup() {
+    console.log('🎮 Testing Game Setup');
+    
+    // Verify initial phase completes
+    await this.waitForPhase('play', 5000);
+    
+    // Verify all players have initial resources
+    for (const player of this.getPlayers()) {
+      const hasActions = this.playerHasActions(player);
+      if (!hasActions) {
+        throw new Error(`${player} has no available actions after setup`);
+      }
+    }
+  }
+}
+```
+
+### Comprehensive Verb Testing
+
+Every verb must have comprehensive unit tests:
+
+```rust
+// server/tests/unit/verbs/draw_test.rs
+use bluefelt_core::engine::verbs::draw::apply_draw;
+
+#[test]
+fn test_draw_single_card() {
+    let mut state = create_test_state();
+    add_cards_to_zone(&mut state, "/zones/deck", vec!["card_hearts_5"]);
+    
+    let args = json!({
+        "from": "/zones/deck",
+        "to": "/zones/hand_p1",
+        "count": 1
+    });
+    
+    let patches = apply_draw(&mut state, &args).unwrap();
+    
+    assert_eq!(patches.len(), 2); // Remove + Add patches
+    assert_zone_count(&state, "/zones/deck", 0);
+    assert_zone_count(&state, "/zones/hand_p1", 1);
+}
+```
+
+### Automated Test Generation
+
+Generate tests from YAML:
+
+```javascript
+// cli/src/generate-tests.js
+function generateGameTest(gameDir) {
+  const manifest = yaml.load(fs.readFileSync(`${gameDir}/manifest.yaml`));
+  const phases = yaml.load(fs.readFileSync(`${gameDir}/phases.yaml`));
+  const actions = yaml.load(fs.readFileSync(`${gameDir}/actions.yaml`));
+  
+  const testCode = `
+const { GameTestTemplate } = require('../templates/GameTestTemplate');
+
+class ${manifest.gameId}Test extends GameTestTemplate {
+  constructor() {
+    super('${manifest.gameId}');
+  }
+  
+  // Generated phase tests
+  ${generatePhaseTests(phases)}
+  
+  // Generated action tests
+  ${generateActionTests(actions)}
+}
+
+module.exports = { ${manifest.gameId}Test };
+`;
+  
+  fs.writeFileSync(`server/tests/regression/games/test-${manifest.gameId}.js`, testCode);
+}
+```
+
+### Coverage Requirements
+
+- **Unit Tests**: 100% of verbs and conditions
+- **Integration Tests**: 100% of common patterns
+- **E2E Tests**: 100% of games
+- **Action Coverage**: Every action in every game tested
+
+### Quality Metrics
+- **Bug Discovery Rate**: Find bugs before users do
+- **Regression Prevention**: No feature breaks existing games
+- **Performance**: Tests complete in < 5 minutes
+- **Reliability**: Tests pass consistently
 
 ## Summary
 

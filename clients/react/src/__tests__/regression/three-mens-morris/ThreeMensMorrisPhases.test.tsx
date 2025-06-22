@@ -84,15 +84,33 @@ describe('Three Mens Morris Phase Transitions', () => {
       ui: {
         actionMap: {
           p1: {
-            '/zones/board/cells/0/0': { action: 'placeToken' },
-            '/zones/board/cells/0/1': { action: 'placeToken' },
-            '/zones/board/cells/0/2': { action: 'placeToken' },
-            '/zones/board/cells/1/0': { action: 'placeToken' },
-            '/zones/board/cells/1/1': { action: 'placeToken' },
-            '/zones/board/cells/1/2': { action: 'placeToken' },
-            '/zones/board/cells/2/0': { action: 'placeToken' },
-            '/zones/board/cells/2/1': { action: 'placeToken' },
-            '/zones/board/cells/2/2': { action: 'placeToken' }
+            '/zones/board/cells/0/0': { 
+              action: 'placeToken',
+              args: {
+                target: '/zones/board/cells/0/0',
+                location: '/zones/board/cells/0/0',
+                entity: 'piece_p1',
+                player: 'p1'
+              }
+            },
+            '/zones/board/cells/0/1': { 
+              action: 'placeToken',
+              args: {
+                target: '/zones/board/cells/0/1',
+                location: '/zones/board/cells/0/1',
+                entity: 'piece_p1',
+                player: 'p1'
+              }
+            },
+            '/zones/board/cells/0/2': { 
+              action: 'placeToken',
+              args: {
+                target: '/zones/board/cells/0/2',
+                location: '/zones/board/cells/0/2',
+                entity: 'piece_p1',
+                player: 'p1'
+              }
+            }
           }
         },
         players: ['p1', 'p2']
@@ -136,7 +154,9 @@ describe('Three Mens Morris Phase Transitions', () => {
         action: 'placeToken',
         args: {
           target: '/zones/board/cells/0/0',
-          entity: 'piece_p1'
+          location: '/zones/board/cells/0/0',
+          entity: 'piece_p1',
+          player: 'p1'
         }
       })
     );
@@ -178,9 +198,30 @@ describe('Three Mens Morris Phase Transitions', () => {
         ...baseLobbyState.ui!,
         actionMap: {
           p1: {
-            '/zones/board/cells/0/0': { action: 'selectPiece' },
-            '/zones/board/cells/1/0': { action: 'selectPiece' },
-            '/zones/board/cells/2/0': { action: 'selectPiece' }
+            '/zones/board/cells/0/0': { 
+              action: 'selectPiece',
+              args: {
+                target: '/zones/board/cells/0/0',
+                location: '/zones/board/cells/0/0',
+                player: 'p1'
+              }
+            },
+            '/zones/board/cells/1/0': { 
+              action: 'selectPiece',
+              args: {
+                target: '/zones/board/cells/1/0',
+                location: '/zones/board/cells/1/0',
+                player: 'p1'
+              }
+            },
+            '/zones/board/cells/2/0': { 
+              action: 'selectPiece',
+              args: {
+                target: '/zones/board/cells/2/0',
+                location: '/zones/board/cells/2/0',
+                player: 'p1'
+              }
+            }
           }
         }
       }
@@ -197,6 +238,7 @@ describe('Three Mens Morris Phase Transitions', () => {
       JSON.stringify({
         action: 'selectPiece',
         args: {
+          target: '/zones/board/cells/0/0',
           location: '/zones/board/cells/0/0',
           player: 'p1'
         }
@@ -237,9 +279,28 @@ describe('Three Mens Morris Phase Transitions', () => {
         ...baseLobbyState.ui!,
         actionMap: {
           p1: {
-            '/zones/board/cells/0/1': { action: 'moveSelectedPiece' },
-            '/zones/board/cells/1/1': { action: 'moveSelectedPiece' },
-            '/zones/board/cells/0/0': { action: 'clearSelection' }
+            '/zones/board/cells/0/1': { 
+              action: 'moveSelectedPiece',
+              args: {
+                target: '/zones/board/cells/0/1',
+                location: '/zones/board/cells/0/1',
+                player: 'p1'
+              }
+            },
+            '/zones/board/cells/1/1': { 
+              action: 'moveSelectedPiece',
+              args: {
+                target: '/zones/board/cells/1/1',
+                location: '/zones/board/cells/1/1',
+                player: 'p1'
+              }
+            },
+            '_global': { 
+              action: 'clearSelection',
+              args: {
+                player: 'p1'
+              }
+            }
           }
         }
       }
@@ -257,6 +318,7 @@ describe('Three Mens Morris Phase Transitions', () => {
         action: 'moveSelectedPiece',
         args: {
           target: '/zones/board/cells/0/1',
+          location: '/zones/board/cells/0/1',
           player: 'p1'
         }
       })

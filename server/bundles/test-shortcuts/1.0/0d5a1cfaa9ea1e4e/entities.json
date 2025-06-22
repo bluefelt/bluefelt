@@ -1,0 +1,427 @@
+[
+  {
+    "id": "card_a_hearts",
+    "props": {
+      "rank": "a",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_2_hearts",
+    "props": {
+      "rank": "2",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_3_hearts",
+    "props": {
+      "rank": "3",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_4_hearts",
+    "props": {
+      "rank": "4",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_5_hearts",
+    "props": {
+      "rank": "5",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_6_hearts",
+    "props": {
+      "rank": "6",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_7_hearts",
+    "props": {
+      "rank": "7",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_8_hearts",
+    "props": {
+      "rank": "8",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_9_hearts",
+    "props": {
+      "rank": "9",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_10_hearts",
+    "props": {
+      "rank": "10",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_j_hearts",
+    "props": {
+      "rank": "j",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_q_hearts",
+    "props": {
+      "rank": "q",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_k_hearts",
+    "props": {
+      "rank": "k",
+      "suit": "hearts"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_a_diamonds",
+    "props": {
+      "rank": "a",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_2_diamonds",
+    "props": {
+      "rank": "2",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_3_diamonds",
+    "props": {
+      "rank": "3",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_4_diamonds",
+    "props": {
+      "rank": "4",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_5_diamonds",
+    "props": {
+      "rank": "5",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_6_diamonds",
+    "props": {
+      "rank": "6",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_7_diamonds",
+    "props": {
+      "rank": "7",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_8_diamonds",
+    "props": {
+      "rank": "8",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_9_diamonds",
+    "props": {
+      "rank": "9",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_10_diamonds",
+    "props": {
+      "rank": "10",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_j_diamonds",
+    "props": {
+      "rank": "j",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_q_diamonds",
+    "props": {
+      "rank": "q",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_k_diamonds",
+    "props": {
+      "rank": "k",
+      "suit": "diamonds"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_a_clubs",
+    "props": {
+      "rank": "a",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_2_clubs",
+    "props": {
+      "rank": "2",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_3_clubs",
+    "props": {
+      "rank": "3",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_4_clubs",
+    "props": {
+      "rank": "4",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_5_clubs",
+    "props": {
+      "rank": "5",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_6_clubs",
+    "props": {
+      "rank": "6",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_7_clubs",
+    "props": {
+      "rank": "7",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_8_clubs",
+    "props": {
+      "rank": "8",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_9_clubs",
+    "props": {
+      "rank": "9",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_10_clubs",
+    "props": {
+      "rank": "10",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_j_clubs",
+    "props": {
+      "rank": "j",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_q_clubs",
+    "props": {
+      "rank": "q",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_k_clubs",
+    "props": {
+      "rank": "k",
+      "suit": "clubs"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_a_spades",
+    "props": {
+      "rank": "a",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_2_spades",
+    "props": {
+      "rank": "2",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_3_spades",
+    "props": {
+      "rank": "3",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_4_spades",
+    "props": {
+      "rank": "4",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_5_spades",
+    "props": {
+      "rank": "5",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_6_spades",
+    "props": {
+      "rank": "6",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_7_spades",
+    "props": {
+      "rank": "7",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_8_spades",
+    "props": {
+      "rank": "8",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_9_spades",
+    "props": {
+      "rank": "9",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_10_spades",
+    "props": {
+      "rank": "10",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_j_spades",
+    "props": {
+      "rank": "j",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_q_spades",
+    "props": {
+      "rank": "q",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "card_k_spades",
+    "props": {
+      "rank": "k",
+      "suit": "spades"
+    },
+    "type": "card"
+  },
+  {
+    "id": "mark_{player}",
+    "props": {
+      "value": "{player}"
+    },
+    "ui": {
+      "tokenType": "{player}"
+    }
+  }
+]

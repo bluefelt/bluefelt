@@ -1,0 +1,17 @@
+[
+  null,
+  null,
+  {
+    "id": "marker",
+    "properties": {
+      "symbol": {
+        "enum": [
+          "X",
+          "O"
+        ],
+        "type": "string"
+      }
+    },
+    "type": "token"
+  }
+]

@@ -6,6 +6,19 @@ import type { DiffMessage, GameStartedMessage } from '../types/messages';
 // Mock the underlying WebSocket hook
 vi.mock('../ws/useReconnectingWebSocket');
 
+// Mock the AnimationContext
+vi.mock('../context/AnimationContext', () => ({
+  useAnimationsEnabled: vi.fn(() => true),
+  useAnimation: vi.fn(() => ({
+    state: { isAnimating: false, config: { enableAnimations: true } },
+    updateConfig: vi.fn(),
+    addAnimation: vi.fn(),
+    removeAnimation: vi.fn(),
+    clearQueue: vi.fn(),
+    isAnimating: false
+  }))
+}));
+
 describe('State Synchronization Tests', () => {
   const mockSend = vi.fn();
   const mockConnect = vi.fn();

@@ -1,108 +1,130 @@
 use axum::{
-    routing::{get, post},
+    routing::{get, post, delete},
     Router,
 };
 use std::net::SocketAddr;
-use tower_http::cors::{CorsLayer, Any};
-use axum::extract::ws::Message;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tower_http::cors::{Any, CorsLayer};
 
 mod bundle;
-mod engine;
-mod lobby;
-mod utils;
-mod shorthand;
-mod validation;
-mod message_format;
-mod http_handlers;
-mod ws_handlers;
 mod conditions;
-mod test_states;
+mod engine;
+mod http_handlers;
+mod lobby;
+mod lobby_map;
+mod message_format;
+mod shorthand;
+mod utils;
+mod app_state;
+mod validation;
+mod ws_handlers;
+#[cfg(debug_assertions)]
+mod debug_handlers;
+#[cfg(debug_assertions)]
+mod reload_notifier;
+#[cfg(debug_assertions)]
+mod reload_handlers;
 
-use bundle::BundleMap;
-use lobby::LobbyMap;
-use http_handlers::{create_lobby, list_lobbies, list_games, get_game, get_lobby};
-use ws_handlers::{lobbies_ws_handler, ws_handler};
-use test_states::get_test_state;
-
-const DEFAULT_PORT: u16 = 8000;
-const LOBBY_UPDATE_CHANNEL_SIZE: usize = 16;
+use crate::bundle::BundleMap;
+use crate::lobby_map::create_lobby_map;
+use crate::app_state::AppState;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let bundles = load_bundles()?;
-    let (lobbies, lobby_updates_tx) = setup_lobby_system();
-    let app = build_app(bundles, lobbies, lobby_updates_tx);
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let bundles = Arc::new(bundle::load_bundles_from_dir("bundles").map_err(|e| e.to_string())?);
+    let lobbies = create_lobby_map();
     
-    let addr = SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
-    println!("Server started on http://{}", addr);
+    // Create resource managers
+    let (connection_manager, cleanup_rx) = lobby::connection_manager::ConnectionManager::new();
+    let connection_manager = Arc::new(connection_manager);
+    let memory_manager = Arc::new(lobby::memory_manager::MemoryManager::new(Default::default()));
     
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    // Start cleanup tasks
+    let connections = Arc::clone(&connection_manager.connections);
+    let lobbies_for_cleanup = Arc::clone(&connection_manager.lobbies);
+    let reconnection_tokens = Arc::clone(&connection_manager.reconnection_tokens);
+    tokio::spawn(lobby::connection_manager::ConnectionManager::start_cleanup_task(
+        connections,
+        lobbies_for_cleanup,
+        cleanup_rx,
+        reconnection_tokens,
+    ));
+    
+    let memory_manager_clone = Arc::clone(&memory_manager);
+    let lobbies_for_memory = Arc::clone(&lobbies);
+    tokio::spawn(lobby::memory_manager::MemoryManager::run_cleanup_task(
+        memory_manager_clone,
+        lobbies_for_memory,
+    ));
+    
+    let state = AppState::new(
+        bundles.clone(),
+        lobbies.clone(),
+        connection_manager.clone(),
+        memory_manager.clone(),
+    );
+    
+    let app = Router::new()
+        // Health check
+        .route("/health", get(|| async { "OK" }))
+        
+        // API routes
+        .route("/api/lobbies", 
+            post(http_handlers::create_lobby)
+            .get(http_handlers::list_lobbies)
+        )
+        .route("/api/lobbies/:lobby_id", 
+            get(http_handlers::get_lobby)
+            .delete(http_handlers::delete_lobby)
+        )
+        .route("/api/lobbies/:lobby_id/ws", get(ws_handlers::websocket_handler))
+        .route("/api/games", get(http_handlers::list_games))
+        
+        // Table management routes
+        .route("/api/lobbies/:lobby_id/tables", 
+            post(http_handlers::create_table)
+            .get(http_handlers::list_tables)
+        )
+        .route("/api/lobbies/:lobby_id/tables/:table_id", 
+            delete(http_handlers::delete_table)
+        )
+        .route("/api/lobbies/:lobby_id/tables/:table_id/seats/:seat_index/claim", 
+            post(http_handlers::claim_seat)
+        )
+        .route("/api/lobbies/:lobby_id/tables/:table_id/seats/:seat_index/release", 
+            post(http_handlers::release_seat)
+        )
+        .route("/api/lobbies/:lobby_id/tables/:table_id/ready", 
+            post(http_handlers::set_ready_state)
+        );
+        
+    // Add debug routes in debug builds
+    #[cfg(debug_assertions)]
+    let app = app
+        .route("/api/debug", get(debug_handlers::debug_info))
+        .route("/api/debug/lobby/:lobby_id", get(debug_handlers::debug_lobby))
+        .route("/api/debug/lobby/:lobby_id/table/:table_id/state", 
+            get(debug_handlers::debug_game_state))
+        .route("/api/debug/test-state", post(debug_handlers::create_test_state))
+        .route("/api/reload/ws", get(reload_handlers::reload_websocket))
+        .route("/api/reload/bundles", post(reload_handlers::reload_bundles))
+        .route("/api/reload/status", get(reload_handlers::reload_status));
+        
+    let app = app
+        // CORS for development
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .with_state(state);
+    
+    let addr: SocketAddr = "0.0.0.0:8000".parse()?;
+    println!("Starting server on {}", addr);
+    
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    
     Ok(())
 }
-
-fn load_bundles() -> anyhow::Result<BundleMap> {
-    let bundles_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("bundles");
-    BundleMap::load_dir(bundles_dir.to_str().unwrap())
-}
-
-fn setup_lobby_system() -> (Arc<LobbyMap>, broadcast::Sender<Message>) {
-    let lobbies = Arc::new(LobbyMap::default());
-    let (lobby_updates_tx, _) = broadcast::channel::<Message>(LOBBY_UPDATE_CHANNEL_SIZE);
-    (lobbies, lobby_updates_tx)
-}
-
-fn build_app(
-    bundles: BundleMap,
-    lobbies: Arc<LobbyMap>,
-    lobby_updates_tx: broadcast::Sender<Message>,
-) -> Router {
-    // Clone for each route handler
-    let bundles_for_games = bundles.clone();
-    let bundles_for_lobbies = bundles.clone();
-    let bundles_for_manifest = bundles.clone();
-    let lobbies_for_lobbies_route = lobbies.clone();
-    let lobbies_for_ws = lobbies.clone();
-    let lobbies_for_create = lobbies.clone();
-    let lobbies_for_ws_list = lobbies.clone();
-    let lobby_updates_for_create = lobby_updates_tx.clone();
-    let lobby_updates_for_ws_list = lobby_updates_tx.clone();
-
-    let cors = build_cors_layer();
-
-    Router::new()
-        .route("/api/games", get(move || list_games(bundles_for_games.clone())))
-        .route("/api/games/:id", get(move |path| get_game(path, bundles_for_manifest.clone())))
-        .route("/api/lobbies", post(
-            move |req| create_lobby(
-                req,
-                bundles_for_lobbies.clone(),
-                lobbies_for_create.clone(),
-                lobby_updates_for_create.clone(),
-            )
-        ).get(
-            move || list_lobbies(lobbies_for_lobbies_route.clone())
-        ))
-        .route("/api/lobbies/:id", get(move |path| get_lobby(path, lobbies.clone())))
-        .route("/api/lobbies/ws", get(
-            move |ws| lobbies_ws_handler(ws, lobby_updates_for_ws_list.clone(), lobbies_for_ws_list.clone())
-        ))
-        .route("/api/lobbies/:id/ws", get(
-            move |path, ws, query| ws_handler(path, ws, query, lobbies_for_ws.clone())
-        ))
-        .route("/api/test-states/:test_type", post(get_test_state))
-        .layer(cors)
-}
-
-fn build_cors_layer() -> CorsLayer {
-    CorsLayer::new()
-        .allow_origin(Any)       // Allow any origin for development
-        .allow_methods(Any)      // Allow all methods 
-        .allow_headers(Any)      // Allow all headers
-        .allow_credentials(false) // Must be false when using wildcard headers
-        .expose_headers(Any)     // Use Any to expose all headers
-}
-

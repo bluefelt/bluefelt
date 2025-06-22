@@ -1,0 +1,41 @@
+[
+  {
+    "id": "game",
+    "name": "Crazy Eights Game",
+    "phases": [
+      {
+        "enterActions": [
+          "dealCardsP1",
+          "dealCardsP2",
+          "startDiscard",
+          "beginPlay"
+        ],
+        "id": "setup",
+        "initial": true,
+        "name": "Setting up the game"
+      },
+      {
+        "id": "play",
+        "name": "Playing cards",
+        "playerAction": true,
+        "possibleActions": [
+          "playCard",
+          "drawCard"
+        ]
+      },
+      {
+        "id": "chooseSuit",
+        "name": "Choose suit after playing 8",
+        "playerAction": true,
+        "possibleActions": [
+          "chooseSuit"
+        ]
+      },
+      {
+        "final": true,
+        "id": "gameOver",
+        "name": "Game finished"
+      }
+    ]
+  }
+]

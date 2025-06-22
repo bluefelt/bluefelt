@@ -17,9 +17,10 @@ interface ChoiceZoneProps {
   onSelect: (choice: string) => void;
   isActive?: boolean;
   className?: string;
+  multiStepState?: any;
 }
 
-export function ChoiceZone({ zone, onSelect, isActive = true, className = '' }: ChoiceZoneProps) {
+export function ChoiceZone({ zone, onSelect, isActive = true, className = '', multiStepState }: ChoiceZoneProps) {
   const choices = zone.items || [];
   
   if (!isActive || choices.length === 0) {
@@ -27,7 +28,7 @@ export function ChoiceZone({ zone, onSelect, isActive = true, className = '' }: 
   }
 
   return (
-    <div className={`choice-zone p-4 bg-gray-100 rounded-lg ${className}`} data-testid="choice-zone">
+    <div className={`choice-zone p-4 bg-gray-100 rounded-lg relative ${className}`} data-testid="choice-zone">
       {zone.prompt && (
         <div className="prompt mb-3 text-lg font-medium text-gray-800">
           {zone.prompt}

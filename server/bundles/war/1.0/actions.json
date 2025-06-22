@@ -1,0 +1,499 @@
+[
+  {
+    "auto": true,
+    "id": "dealCards",
+    "then": [
+      {
+        "action": "transitionToReady"
+      }
+    ],
+    "ui": {
+      "logTemplate": "Dealing all cards to players"
+    },
+    "uses": "dealToAllPlayers",
+    "with": {
+      "count": 1,
+      "from": "/zones/deck",
+      "mode": "dealAll",
+      "toZonePattern": "/zones/deck_{player}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "transitionToReady",
+    "uses": "setPhase",
+    "with": {
+      "phase": "ready",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "id": "battleStart",
+    "ui": {
+      "direction": "Click to flip cards!",
+      "logTemplate": "Starting new battle"
+    },
+    "uses": "setPhase",
+    "when": [
+      {
+        "condition": "phase.is",
+        "with": {
+          "phase": "ready",
+          "phaseSet": "game"
+        }
+      }
+    ],
+    "with": {
+      "phase": "battle",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "revealCards",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "type": "zone.count",
+        "with": {
+          "operator": ">=",
+          "value": 1,
+          "zone": "/zones/deck_p1"
+        }
+      },
+      "ifFalse": [
+        {
+          "action": "endGame"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "flipP1Card"
+        },
+        {
+          "action": "flipP2Card"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "flipP1Card",
+    "uses": "draw",
+    "with": {
+      "count": 1,
+      "from": "/zones/deck_p1",
+      "to": "/zones/battle_p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "flipP2Card",
+    "uses": "draw",
+    "with": {
+      "count": 1,
+      "from": "/zones/deck_p2",
+      "to": "/zones/battle_p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkForWar",
+    "then": [
+      {
+        "action": "checkCardValues"
+      }
+    ],
+    "uses": "setState",
+    "with": {
+      "path": "/game/isWar",
+      "value": false
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkCardValues",
+    "then": [
+      {
+        "action": "evaluateWarCondition"
+      }
+    ],
+    "uses": "compareCardsEqual",
+    "with": {
+      "card1": "/zones/battle_p1/items/0",
+      "card2": "/zones/battle_p2/items/0"
+    }
+  },
+  {
+    "auto": true,
+    "id": "evaluateWarCondition",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "type": "state.value",
+        "with": {
+          "path": "/game/lastComparison/equal",
+          "value": true
+        }
+      },
+      "ifFalse": [
+        {
+          "action": "conditionalPhase"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "setWarTrue"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "setWarTrue",
+    "then": [
+      {
+        "action": "conditionalPhase"
+      }
+    ],
+    "uses": "setState",
+    "with": {
+      "path": "/game/isWar",
+      "value": true
+    }
+  },
+  {
+    "auto": true,
+    "id": "conditionalPhase",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "type": "state.value",
+        "with": {
+          "path": "/game/isWar",
+          "value": true
+        }
+      },
+      "ifFalse": [
+        {
+          "action": "goToResolve"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "goToWar"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "goToWar",
+    "uses": "setPhase",
+    "with": {
+      "phase": "war",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "goToResolve",
+    "uses": "setPhase",
+    "with": {
+      "phase": "resolve",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "placeWarCards",
+    "then": [
+      {
+        "action": "placeP2WarCards"
+      }
+    ],
+    "uses": "draw",
+    "with": {
+      "count": 3,
+      "from": "/zones/deck_p1",
+      "to": "/zones/war_pile_p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "placeP2WarCards",
+    "uses": "draw",
+    "with": {
+      "count": 3,
+      "from": "/zones/deck_p2",
+      "to": "/zones/war_pile_p2"
+    }
+  },
+  {
+    "id": "warReveal",
+    "ui": {
+      "direction": "Reveal war cards!"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "battle",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "awardCards",
+    "then": [
+      {
+        "action": "determineRoundWinner"
+      }
+    ],
+    "uses": "setState",
+    "with": {
+      "path": "/game/roundWinner",
+      "value": "p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "determineRoundWinner",
+    "then": [
+      {
+        "action": "evaluateWinner"
+      }
+    ],
+    "uses": "compareCardsGreater",
+    "with": {
+      "card1": "/zones/battle_p2/items/0",
+      "card2": "/zones/battle_p1/items/0"
+    }
+  },
+  {
+    "auto": true,
+    "id": "evaluateWinner",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "type": "state.value",
+        "with": {
+          "path": "/game/lastComparison/greater",
+          "value": true
+        }
+      },
+      "ifFalse": [
+        {
+          "action": "moveAllCards"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "setP2Winner"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "setP2Winner",
+    "then": [
+      {
+        "action": "moveAllCards"
+      }
+    ],
+    "uses": "setState",
+    "with": {
+      "path": "/game/roundWinner",
+      "value": "p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "moveAllCards",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "type": "state.value",
+        "with": {
+          "path": "/game/roundWinner",
+          "value": "p1"
+        }
+      },
+      "ifFalse": [
+        {
+          "action": "moveToP2Deck"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "moveToP1Deck"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "moveToP1Deck",
+    "then": [
+      {
+        "action": "readyNext"
+      }
+    ],
+    "uses": "transferMatching",
+    "with": {
+      "conditions": [
+        {
+          "any": true
+        }
+      ],
+      "from": [
+        "/zones/battle_p1",
+        "/zones/battle_p2",
+        "/zones/war_pile_p1",
+        "/zones/war_pile_p2"
+      ],
+      "to": "/zones/deck_p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "moveToP2Deck",
+    "then": [
+      {
+        "action": "readyNext"
+      }
+    ],
+    "uses": "transferMatching",
+    "with": {
+      "conditions": [
+        {
+          "any": true
+        }
+      ],
+      "from": [
+        "/zones/battle_p1",
+        "/zones/battle_p2",
+        "/zones/war_pile_p1",
+        "/zones/war_pile_p2"
+      ],
+      "to": "/zones/deck_p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "readyNext",
+    "uses": "setPhase",
+    "with": {
+      "phase": "ready",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkGameEnd",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "conditions": [
+          {
+            "condition": "zone.count",
+            "with": {
+              "operator": "==",
+              "value": 0,
+              "zone": "/zones/deck_p1"
+            }
+          },
+          {
+            "condition": "zone.count",
+            "with": {
+              "operator": "==",
+              "value": 0,
+              "zone": "/zones/deck_p2"
+            }
+          }
+        ],
+        "type": "anyTrue"
+      },
+      "ifTrue": [
+        {
+          "action": "declareWinner"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "declareWinner",
+    "then": [
+      {
+        "action": "determineGameWinner"
+      }
+    ],
+    "uses": "setState",
+    "with": {
+      "path": "/game/gameStatus/state",
+      "value": "ended"
+    }
+  },
+  {
+    "auto": true,
+    "id": "determineGameWinner",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "type": "zone.count",
+        "with": {
+          "operator": ">",
+          "value": 0,
+          "zone": "/zones/deck_p1"
+        }
+      },
+      "ifFalse": [
+        {
+          "action": "setP2GameWinner"
+        }
+      ],
+      "ifTrue": [
+        {
+          "action": "setP1GameWinner"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "setP1GameWinner",
+    "then": [
+      {
+        "action": "endGame"
+      }
+    ],
+    "uses": "setState",
+    "with": {
+      "path": "/game/gameStatus/winner",
+      "value": "p1"
+    }
+  },
+  {
+    "auto": true,
+    "id": "setP2GameWinner",
+    "then": [
+      {
+        "action": "endGame"
+      }
+    ],
+    "uses": "setState",
+    "with": {
+      "path": "/game/gameStatus/winner",
+      "value": "p2"
+    }
+  },
+  {
+    "auto": true,
+    "id": "endGame",
+    "uses": "setPhase",
+    "with": {
+      "phase": "gameOver",
+      "phaseSet": "game"
+    }
+  }
+]

@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useCardStyle } from '../hooks/useCardStyle';
+import { usePlayerCardStyles } from '../hooks/usePlayerCardStyles';
 
 interface CardProps {
   suit?: string;
@@ -8,6 +10,9 @@ interface CardProps {
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   size?: 'small' | 'medium' | 'large';
+  // Props for card style customization
+  playerId?: string; // Which player this card belongs to
+  playerPreferences?: Record<string, any>; // All player preferences for style lookup
 }
 
 const SUIT_SYMBOLS: Record<string, string> = {
@@ -31,9 +36,13 @@ export default function Card({
   isSelectable = false,
   isSelected = false,
   onClick,
-  size = 'medium'
+  size = 'medium',
+  playerId,
+  playerPreferences
 }: CardProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const { currentStyle, generateCardBackSVG } = useCardStyle();
+  const { getPlayerCardStyle, getPlayerCardBackSVG } = usePlayerCardStyles(playerPreferences);
 
   const sizeStyles = {
     small: { width: 60, height: 84, fontSize: 22 },
@@ -45,14 +54,25 @@ export default function Card({
   const symbol = SUIT_SYMBOLS[suit] || '?';
   const color = SUIT_COLORS[suit] || '#000000';
 
+  // Determine which card style to use based on player
+  const effectiveStyle = playerId ? getPlayerCardStyle(playerId) : currentStyle;
+  const effectiveGenerateCardBack = playerId ? 
+    (w?: number, h?: number) => getPlayerCardBackSVG(playerId, w, h) : 
+    generateCardBackSVG;
+
+  // Get card style colors
+  const frontColors = effectiveStyle?.front.colors || {
+    background: '#FFFFFF',
+    border: '#000000',
+    text: '#000000'
+  };
+
   const cardStyle: React.CSSProperties = {
     width: currentSize.width,
     height: currentSize.height,
-    borderRadius: 8,
-    border: `2px solid ${isSelected ? '#FFD700' : isSelectable ? '#6B8BFF' : '#333'}`,
-    backgroundColor: isFaceUp ? '#FFFFFF' : '#2B5CE6',
-    backgroundImage: !isFaceUp ? 'linear-gradient(45deg, #2B5CE6 25%, #1E40AF 25%, #1E40AF 50%, #2B5CE6 50%, #2B5CE6 75%, #1E40AF 75%, #1E40AF)' : 'none',
-    backgroundSize: '20px 20px',
+    borderRadius: effectiveStyle?.front.cornerStyle === 'rounded' ? 12 : 8,
+    border: `2px solid ${isSelected ? '#FFD700' : isSelectable ? '#6B8BFF' : (isFaceUp ? frontColors.border : '#333')}`,
+    backgroundColor: isFaceUp ? frontColors.background : 'transparent',
     cursor: isSelectable ? 'pointer' : 'default',
     transition: 'all 0.2s ease',
     transform: isHovered && isSelectable ? 'translateY(-5px)' : 'none',
@@ -62,19 +82,20 @@ export default function Card({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    userSelect: 'none'
+    userSelect: 'none',
+    overflow: 'hidden'
   };
 
   const rankStyle: React.CSSProperties = {
     fontSize: currentSize.fontSize,
     fontWeight: 'bold',
-    color: color,
+    color: isFaceUp ? color : frontColors.text,
     lineHeight: 1
   };
 
   const suitStyle: React.CSSProperties = {
     fontSize: currentSize.fontSize * 0.8,
-    color: color,
+    color: isFaceUp ? color : frontColors.text,
     marginTop: 4
   };
 
@@ -82,7 +103,7 @@ export default function Card({
     position: 'absolute',
     fontSize: currentSize.fontSize * 0.5,
     fontWeight: 'bold',
-    color: color,
+    color: isFaceUp ? color : frontColors.text,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -117,14 +138,11 @@ export default function Card({
           </div>
         </>
       ) : (
-        // Card back design - could be customized
-        <div style={{ 
-          width: '80%', 
-          height: '80%', 
-          border: '2px solid #FFD700',
-          borderRadius: 4,
-          backgroundColor: '#1E40AF'
-        }} />
+        // Card back design using custom style
+        <div 
+          className="w-full h-full"
+          dangerouslySetInnerHTML={{ __html: effectiveGenerateCardBack(currentSize.width, currentSize.height) }}
+        />
       )}
     </div>
   );

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "stone_p1",
+    "ui": {
+      "color": "#3B82F6",
+      "glyph": "●",
+      "name": "Blue Stone"
+    }
+  },
+  {
+    "id": "stone_p2",
+    "ui": {
+      "color": "#EF4444",
+      "glyph": "●",
+      "name": "Red Stone"
+    }
+  },
+  {
+    "id": "stone_p3",
+    "ui": {
+      "color": "#10B981",
+      "glyph": "●",
+      "name": "Green Stone"
+    }
+  },
+  {
+    "id": "stone_p4",
+    "ui": {
+      "color": "#F59E0B",
+      "glyph": "●",
+      "name": "Yellow Stone"
+    }
+  },
+  {
+    "id": "wall",
+    "ui": {
+      "color": "#6B7280",
+      "glyph": "■",
+      "name": "Wall"
+    }
+  }
+]

@@ -57,6 +57,24 @@ Key principles:
         display: "Game Over"
 ```
 
+### Important: Legacy vs Enhanced Phase System
+
+Bluefelt supports two phase formats for backward compatibility:
+
+1. **Legacy Format (Simple)**:
+   - Phase state stored directly: `phases.game = "play"`
+   - Used in simpler games without enter/exit actions
+   
+2. **Enhanced Format (Nested)**:
+   - Phase state stored under `current`: `phases.current.game = "play"`
+   - Used when phases have `enterActions` or other advanced features
+   - **CRITICAL**: All phase patches must use `/phases/current/[phaseSet]` format
+
+When writing tests or debugging:
+- Check both `phases.game` and `phases.current.game` for compatibility
+- Always generate patches using the enhanced `/current/` path structure
+- The server automatically handles the format based on phase complexity
+
 ### Real Example: Gin Rummy Phases
 
 ```yaml

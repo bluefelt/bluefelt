@@ -1,0 +1,96 @@
+# Main action - place a mark on the hex board
+- id: place_mark
+  uses: place
+  with:
+    location: "{args.location}"
+    entity: "mark_{currentPlayer}"
+  ui:
+    direction: "Click an empty hex to place your mark"
+    logTemplate: "{currentPlayer} placed a mark at {args.location}"
+  when:
+    - condition: zone.isEmpty
+      with:
+        zone: "{args.location}"
+    - condition: player.isActor
+    - condition: phase.is
+      with:
+        phaseSet: game
+        phase: playing
+  then:
+    - action: checkWin
+
+# Check for winning condition on hex grid
+- id: checkWin
+  uses: checkHexWin
+  auto: true
+  with:
+    zone: "/zones/hex_board"
+    player: "{currentPlayer}"
+    lineLength: 3
+    lastMove: "{args.location}"
+  then:
+    - action: conditionalAction
+      with:
+        conditions:
+          - condition: property.exists
+            with:
+              path: "/meta/winner"
+        ifTrue:
+          - action: declareWinner
+        ifFalse:
+          - action: checkTie
+
+# Check if board is full (tie game)
+- id: checkTie
+  uses: conditionalAction
+  auto: true
+  with:
+    conditions:
+      - condition: zone.isFull
+        with:
+          zone: "/zones/hex_board"
+    ifTrue:
+      - action: declareTie
+    ifFalse:
+      - action: advanceTurn
+
+# Declare winner
+- id: declareWinner
+  uses: setState
+  auto: true
+  with:
+    gameStatus:
+      state: "ended"
+      winner: "{meta.winner}"
+  ui:
+    logTemplate: "{meta.winner} wins!"
+  then:
+    - action: endGame
+
+# Declare tie
+- id: declareTie
+  uses: setState
+  auto: true
+  with:
+    gameStatus:
+      state: "ended"
+      result: "tie"
+  ui:
+    logTemplate: "It's a tie! The board is full."
+  then:
+    - action: endGame
+
+# End the game
+- id: endGame
+  uses: setPhase
+  auto: true
+  with:
+    phaseSet: game
+    phase: game_over
+
+# Advance turn
+- id: advanceTurn
+  uses: nextTurn
+  auto: true
+  ui:
+    logTemplate: "Turn passes to {nextPlayer}"

@@ -1,0 +1,56 @@
+[
+  {
+    "id": "game",
+    "phases": [
+      {
+        "enterActions": [
+          "dealCards",
+          "transitionToReady"
+        ],
+        "id": "setup",
+        "initial": true
+      },
+      {
+        "id": "ready",
+        "possibleActions": [
+          "battleStart"
+        ],
+        "ui": {
+          "display": "Click to battle!"
+        }
+      },
+      {
+        "enterActions": [
+          "revealCards",
+          "checkForWar"
+        ],
+        "id": "battle"
+      },
+      {
+        "enterActions": [
+          "placeWarCards"
+        ],
+        "id": "war",
+        "possibleActions": [
+          "warReveal"
+        ],
+        "ui": {
+          "display": "WAR! Place cards and reveal"
+        }
+      },
+      {
+        "enterActions": [
+          "awardCards",
+          "checkGameEnd"
+        ],
+        "id": "resolve"
+      },
+      {
+        "id": "gameOver",
+        "ui": {
+          "display": "Game Over - {winner} wins!"
+        }
+      }
+    ]
+  }
+]

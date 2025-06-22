@@ -1,4 +1,4 @@
-# Presentation Layer Architecture & Visual Affordances
+# Bluefelt Design Philosophy
 
 Bluefelt uses a **presentation-separated architecture** that enables the same game logic to render across multiple client types (2D, VR, AR, mobile) without code changes. This document covers both the technical architecture and the visual design principles for creating intuitive, accessible game interfaces.
 

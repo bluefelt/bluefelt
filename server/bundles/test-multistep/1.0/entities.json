@@ -1,0 +1,16 @@
+[
+  {
+    "id": "token_p1",
+    "ui": {
+      "player": "p1",
+      "tokenType": "circle"
+    }
+  },
+  {
+    "id": "token_p2",
+    "ui": {
+      "player": "p2",
+      "tokenType": "circle"
+    }
+  }
+]

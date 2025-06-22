@@ -1,0 +1,39 @@
+{
+  "gameId": "war",
+  "version": "1.0",
+  "specVersion": "1.0",
+  "metadata": {
+    "name": "War",
+    "description": "A simple card game of chance where highest card wins",
+    "author": "Bluefelt Team",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  },
+  "zoneGroups": [
+    {
+      "id": "your_area",
+      "title": "Your Deck",
+      "zones": [
+        "deck_{player}"
+      ]
+    },
+    {
+      "id": "battle_area",
+      "title": "Battle",
+      "zones": [
+        "battle_p1",
+        "battle_p2"
+      ]
+    },
+    {
+      "id": "war_area",
+      "title": "War Pile",
+      "zones": [
+        "war_pile_p1",
+        "war_pile_p2"
+      ]
+    }
+  ]
+}

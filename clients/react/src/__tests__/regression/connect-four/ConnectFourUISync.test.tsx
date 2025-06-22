@@ -79,6 +79,50 @@ vi.mock('../../../context/PlayerContext', () => ({
   })
 }));
 
+// Mock the AnimationContext
+vi.mock('../../../context/AnimationContext', () => ({
+  useAnimationsEnabled: vi.fn(() => true),
+  useAnimation: vi.fn(() => ({
+    state: { isAnimating: false, config: { enableAnimations: true } },
+    updateConfig: vi.fn(),
+    addAnimation: vi.fn(),
+    removeAnimation: vi.fn(),
+    clearQueue: vi.fn(),
+    isAnimating: false
+  }))
+}));
+
+// Mock the PlayerPreferencesContext
+vi.mock('../../../context/PlayerPreferencesContext', () => ({
+  usePlayerPreferences: vi.fn(() => ({
+    preferences: { 
+      username: 'Alice', 
+      color: '#ff0000',
+      tokenId: 'classic',
+      showOpponentTokens: true,
+      colorSchemeId: 'default',
+      cardStyleId: 'classic'
+    },
+    isLoggedIn: true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    updatePreferences: vi.fn(),
+    updateToken: vi.fn(),
+    updateColorScheme: vi.fn(),
+    updatePlayerColor: vi.fn(),
+    updateShowOpponentTokens: vi.fn(),
+    updateCardStyle: vi.fn(),
+    updateColor: vi.fn()
+  })),
+  PlayerPreferencesProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePlayer: vi.fn(() => ({
+    player: { username: 'Alice', color: '#ff0000' },
+    login: vi.fn(),
+    logout: vi.fn(),
+    updateColor: vi.fn()
+  }))
+}));
+
 // Mock useLobbyWebSocket hook
 const mockSendMessage = vi.fn();
 const mockLobbyWebSocketReturn = {
@@ -131,7 +175,6 @@ describe('Connect Four UI Synchronization', () => {
         ],
         zones: {
           board: {
-            type: 'grid',
             cells: Array(6).fill(null).map(() => Array(7).fill(null))
           }
         },
@@ -161,10 +204,10 @@ describe('Connect Four UI Synchronization', () => {
         zones: [
           { 
             id: 'board', 
-            type: 'grid', 
-            name: 'Game Board', 
+            renderType: 'grid', 
+            name: 'Board', 
             visibility: 'all',
-            gridProps: { rows: 6, cols: 7 }
+            gridDimensions: { rows: 6, cols: 7 }
           }
         ],
         gameLog: [],
@@ -207,7 +250,7 @@ describe('Connect Four UI Synchronization', () => {
 
     // Wait for board to render
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
     
     // Check board structure
@@ -240,7 +283,7 @@ describe('Connect Four UI Synchronization', () => {
 
     // Wait for game to load
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
 
     // Hover over column 0
@@ -275,7 +318,7 @@ describe('Connect Four UI Synchronization', () => {
 
     // Wait for game to load
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
 
     // In Connect Four, cells in any row of a column trigger the column action
@@ -312,7 +355,7 @@ describe('Connect Four UI Synchronization', () => {
 
     // Wait for game to load
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
 
     // Simulate piece placement in column 3, row 5 (bottom)
@@ -407,7 +450,7 @@ describe('Connect Four UI Synchronization', () => {
 
     // Wait for game to load
     await waitFor(() => {
-      expect(screen.getByText('Game Board')).toBeInTheDocument();
+      expect(screen.getByText('Board')).toBeInTheDocument();
     });
 
     // Column 2 cells should be full and not clickable

@@ -1,0 +1,542 @@
+/// Multi-Step Action Library
+/// 
+/// This module provides a collection of common multi-step action patterns
+/// that games can use directly or customize.
+
+use serde_json::{json, Value};
+use crate::bundle::Bundle;
+use crate::engine::verbs::multi_step::{MultiStepAction, MultiStepState, execute_multi_step_initiate};
+use std::collections::HashMap;
+
+/// Register all multi-step library actions
+pub fn register_multi_step_library() -> HashMap<String, MultiStepAction> {
+    let mut library = HashMap::new();
+    
+    // Trading/Exchange pattern
+    library.insert("ms.trade".to_string(), create_trade_action());
+    
+    // Complex movement pattern (select piece, then destination)
+    library.insert("ms.moveWithSelection".to_string(), create_move_with_selection());
+    
+    // Card exchange pattern (select cards to give, select cards to receive)
+    library.insert("ms.cardExchange".to_string(), create_card_exchange());
+    
+    // Resource conversion pattern
+    library.insert("ms.convertResources".to_string(), create_resource_conversion());
+    
+    // Auction/Bidding pattern
+    library.insert("ms.placeBid".to_string(), create_auction_bid());
+    
+    // Complex placement (choose type, then location, then orientation)
+    library.insert("ms.complexPlacement".to_string(), create_complex_placement());
+    
+    // Multi-target selection (e.g., area of effect)
+    library.insert("ms.multiTarget".to_string(), create_multi_target());
+    
+    // Sequential decision making
+    library.insert("ms.sequentialChoice".to_string(), create_sequential_choice());
+    
+    library
+}
+
+/// Trade action: Select items to give, then items to receive
+fn create_trade_action() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.trade".to_string(),
+        steps: vec![
+            json!({
+                "id": "select_offer",
+                "type": "selection",
+                "prompt": "Select items to offer",
+                "filter": {
+                    "type": "playerOwns",
+                    "player": "{currentPlayer}"
+                },
+                "multiple": true,
+                "min": 1,
+                "max": 5
+            }),
+            json!({
+                "id": "select_request",
+                "type": "selection",
+                "prompt": "Select items to request",
+                "filter": {
+                    "type": "not",
+                    "condition": {
+                        "type": "playerOwns",
+                        "player": "{currentPlayer}"
+                    }
+                },
+                "multiple": true,
+                "min": 1,
+                "max": 5
+            }),
+            json!({
+                "id": "confirm_trade",
+                "type": "confirmation",
+                "prompt": "Confirm trade: {stored_data.select_offer} for {stored_data.select_request}?"
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Trade",
+            "description": "Exchange items with other players or the bank"
+        }),
+    }
+}
+
+/// Move with selection: First select a piece, then select destination
+fn create_move_with_selection() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.moveWithSelection".to_string(),
+        steps: vec![
+            json!({
+                "id": "select_piece",
+                "type": "selection",
+                "prompt": "Select a piece to move",
+                "filter": {
+                    "type": "and",
+                    "conditions": [
+                        {
+                            "type": "hasEntity"
+                        },
+                        {
+                            "type": "entityOwnedBy",
+                            "player": "{currentPlayer}"
+                        }
+                    ]
+                }
+            }),
+            json!({
+                "id": "select_destination",
+                "type": "selection",
+                "prompt": "Select destination",
+                "filter": {
+                    "type": "validMoveDestination",
+                    "from": "{stored_data.select_piece}",
+                    "entity": "{stored_data.select_piece.entity}"
+                }
+            }),
+            json!({
+                "id": "confirm_move",
+                "type": "confirmation",
+                "prompt": "Move {stored_data.select_piece.entity} to {stored_data.select_destination}?",
+                "optional": true
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Move Piece",
+            "description": "Select and move one of your pieces"
+        }),
+    }
+}
+
+/// Card exchange: Select cards to give, then cards to receive
+fn create_card_exchange() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.cardExchange".to_string(),
+        steps: vec![
+            json!({
+                "id": "select_cards_to_give",
+                "type": "card_selection",
+                "prompt": "Select cards to give",
+                "source": "hand_{currentPlayer}",
+                "multiple": true,
+                "min": "{params.minGive}",
+                "max": "{params.maxGive}"
+            }),
+            json!({
+                "id": "select_cards_to_receive",
+                "type": "card_selection", 
+                "prompt": "Select cards to receive",
+                "source": "{params.exchangeSource}",
+                "multiple": true,
+                "count": "{stored_data.select_cards_to_give.length}"
+            }),
+            json!({
+                "id": "confirm_exchange",
+                "type": "confirmation",
+                "prompt": "Exchange {stored_data.select_cards_to_give.length} cards?"
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Exchange Cards",
+            "description": "Trade cards with another source"
+        }),
+    }
+}
+
+/// Resource conversion: Select resources to convert, then choose conversion
+fn create_resource_conversion() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.convertResources".to_string(),
+        steps: vec![
+            json!({
+                "id": "select_resources",
+                "type": "resource_selection",
+                "prompt": "Select resources to convert",
+                "filter": {
+                    "type": "playerOwns",
+                    "player": "{currentPlayer}"
+                },
+                "multiple": true
+            }),
+            json!({
+                "id": "choose_conversion",
+                "type": "choice",
+                "prompt": "Choose conversion",
+                "choices": {
+                    "type": "validConversions",
+                    "input": "{stored_data.select_resources}"
+                }
+            }),
+            json!({
+                "id": "confirm_conversion",
+                "type": "confirmation",
+                "prompt": "Convert {stored_data.select_resources} to {stored_data.choose_conversion}?"
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Convert Resources",
+            "description": "Transform resources into other types"
+        }),
+    }
+}
+
+/// Auction bid: Choose item to bid on, then place bid
+fn create_auction_bid() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.placeBid".to_string(),
+        steps: vec![
+            json!({
+                "id": "select_item",
+                "type": "selection",
+                "prompt": "Select item to bid on",
+                "filter": {
+                    "type": "inAuction"
+                }
+            }),
+            json!({
+                "id": "enter_bid",
+                "type": "numeric_input",
+                "prompt": "Enter your bid",
+                "min": "{stored_data.select_item.currentBid + 1}",
+                "max": "{player.money}",
+                "increment": "{params.bidIncrement}"
+            }),
+            json!({
+                "id": "confirm_bid",
+                "type": "confirmation",
+                "prompt": "Place bid of {stored_data.enter_bid} on {stored_data.select_item.name}?"
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Place Bid",
+            "description": "Bid on auction items"
+        }),
+    }
+}
+
+/// Complex placement: Choose type, location, then orientation
+fn create_complex_placement() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.complexPlacement".to_string(),
+        steps: vec![
+            json!({
+                "id": "choose_type",
+                "type": "choice",
+                "prompt": "Choose what to place",
+                "choices": {
+                    "type": "availableToPlace",
+                    "player": "{currentPlayer}"
+                }
+            }),
+            json!({
+                "id": "select_location",
+                "type": "selection",
+                "prompt": "Select placement location",
+                "filter": {
+                    "type": "validPlacement",
+                    "entity": "{stored_data.choose_type}"
+                }
+            }),
+            json!({
+                "id": "choose_orientation",
+                "type": "choice",
+                "prompt": "Choose orientation",
+                "choices": [
+                    { "id": "0", "label": "Normal" },
+                    { "id": "90", "label": "Rotated 90°" },
+                    { "id": "180", "label": "Rotated 180°" },
+                    { "id": "270", "label": "Rotated 270°" }
+                ],
+                "condition": {
+                    "type": "requiresOrientation",
+                    "entity": "{stored_data.choose_type}"
+                }
+            }),
+            json!({
+                "id": "confirm_placement",
+                "type": "confirmation",
+                "prompt": "Place {stored_data.choose_type} at {stored_data.select_location}?"
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Complex Placement",
+            "description": "Place items with multiple options"
+        }),
+    }
+}
+
+/// Multi-target selection for area effects
+fn create_multi_target() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.multiTarget".to_string(),
+        steps: vec![
+            json!({
+                "id": "select_origin",
+                "type": "selection",
+                "prompt": "Select origin point",
+                "filter": {
+                    "type": "any"
+                }
+            }),
+            json!({
+                "id": "select_targets",
+                "type": "selection",
+                "prompt": "Select affected targets",
+                "multiple": true,
+                "filter": {
+                    "type": "withinRange",
+                    "origin": "{stored_data.select_origin}",
+                    "range": "{params.range}"
+                },
+                "min": 1,
+                "max": "{params.maxTargets}"
+            }),
+            json!({
+                "id": "confirm_targets",
+                "type": "confirmation",
+                "prompt": "Affect {stored_data.select_targets.length} targets?"
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Area Effect",
+            "description": "Select multiple targets in an area"
+        }),
+    }
+}
+
+/// Sequential choice making
+fn create_sequential_choice() -> MultiStepAction {
+    MultiStepAction {
+        id: "ms.sequentialChoice".to_string(),
+        steps: vec![
+            json!({
+                "id": "first_choice",
+                "type": "choice",
+                "prompt": "{params.prompt1}",
+                "choices": "{params.choices1}"
+            }),
+            json!({
+                "id": "second_choice",
+                "type": "choice",
+                "prompt": "{params.prompt2}",
+                "choices": {
+                    "type": "conditional",
+                    "basedOn": "{stored_data.first_choice}",
+                    "mapping": "{params.choiceMapping}"
+                }
+            }),
+            json!({
+                "id": "third_choice",
+                "type": "choice",
+                "prompt": "{params.prompt3}",
+                "choices": {
+                    "type": "conditional",
+                    "basedOn": ["{stored_data.first_choice}", "{stored_data.second_choice}"],
+                    "mapping": "{params.finalMapping}"
+                },
+                "optional": true
+            })
+        ],
+        can_cancel: true,
+        ui: json!({
+            "name": "Sequential Choices",
+            "description": "Make a series of related decisions"
+        }),
+    }
+}
+
+/// Helper function to validate multi-step action usage
+pub fn validate_multi_step_usage(
+    action_id: &str,
+    params: &Value,
+    bundle: &Bundle,
+) -> Result<(), String> {
+    // Check if action exists in library
+    let library = register_multi_step_library();
+    if !library.contains_key(action_id) {
+        return Err(format!("Unknown multi-step action: {}", action_id));
+    }
+    
+    // Validate required parameters based on action type
+    match action_id {
+        "ms.trade" => {
+            // No required params, uses defaults
+            Ok(())
+        }
+        "ms.moveWithSelection" => {
+            // No required params, uses game state
+            Ok(())
+        }
+        "ms.cardExchange" => {
+            // Requires exchange parameters
+            if params.get("minGive").is_none() {
+                return Err("cardExchange requires 'minGive' parameter".to_string());
+            }
+            if params.get("maxGive").is_none() {
+                return Err("cardExchange requires 'maxGive' parameter".to_string());
+            }
+            if params.get("exchangeSource").is_none() {
+                return Err("cardExchange requires 'exchangeSource' parameter".to_string());
+            }
+            Ok(())
+        }
+        "ms.convertResources" => {
+            // No required params, uses game-specific conversion rules
+            Ok(())
+        }
+        "ms.placeBid" => {
+            // Optionally uses bidIncrement
+            Ok(())
+        }
+        "ms.complexPlacement" => {
+            // No required params, uses game state
+            Ok(())
+        }
+        "ms.multiTarget" => {
+            // Requires range and maxTargets
+            if params.get("range").is_none() {
+                return Err("multiTarget requires 'range' parameter".to_string());
+            }
+            if params.get("maxTargets").is_none() {
+                return Err("multiTarget requires 'maxTargets' parameter".to_string());
+            }
+            Ok(())
+        }
+        "ms.sequentialChoice" => {
+            // Requires prompts and choices configuration
+            if params.get("prompt1").is_none() || params.get("choices1").is_none() {
+                return Err("sequentialChoice requires prompt1 and choices1".to_string());
+            }
+            if params.get("prompt2").is_none() || params.get("choiceMapping").is_none() {
+                return Err("sequentialChoice requires prompt2 and choiceMapping".to_string());
+            }
+            Ok(())
+        }
+        _ => Ok(())
+    }
+}
+
+/// Execute a library multi-step action
+pub fn execute_library_multi_step(
+    action_id: &str,
+    state: &mut Value,
+    player_id: &str,
+    params: &Value,
+    bundle: &Bundle,
+) -> Result<Value, String> {
+    // Validate usage
+    validate_multi_step_usage(action_id, params, bundle)?;
+    
+    // Get the action definition
+    let library = register_multi_step_library();
+    let action = library.get(action_id)
+        .ok_or_else(|| format!("Multi-step action not found: {}", action_id))?;
+    
+    // Create initial multi-step state
+    let mut multi_step_state = MultiStepState {
+        action_id: action_id.to_string(),
+        action_type: action_id.to_string(),
+        current_step: 0,
+        total_steps: action.steps.len(),
+        stored_data: params.as_object()
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default(),
+        can_cancel: action.can_cancel,
+    };
+    
+    // Initiate the multi-step action
+    execute_multi_step_initiate(
+        bundle,
+        state,
+        player_id,
+        &mut multi_step_state,
+        action,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_library_registration() {
+        let library = register_multi_step_library();
+        
+        // Check all expected actions are registered
+        assert!(library.contains_key("ms.trade"));
+        assert!(library.contains_key("ms.moveWithSelection"));
+        assert!(library.contains_key("ms.cardExchange"));
+        assert!(library.contains_key("ms.convertResources"));
+        assert!(library.contains_key("ms.placeBid"));
+        assert!(library.contains_key("ms.complexPlacement"));
+        assert!(library.contains_key("ms.multiTarget"));
+        assert!(library.contains_key("ms.sequentialChoice"));
+    }
+    
+    #[test]
+    fn test_trade_action_structure() {
+        let library = register_multi_step_library();
+        let trade_action = library.get("ms.trade").unwrap();
+        
+        assert_eq!(trade_action.steps.len(), 3);
+        assert!(trade_action.can_cancel);
+        
+        // Check first step
+        assert_eq!(trade_action.steps[0]["id"], "select_offer");
+        assert_eq!(trade_action.steps[0]["type"], "selection");
+    }
+    
+    #[test]
+    fn test_parameter_validation() {
+        let bundle = Bundle::default();
+        
+        // Test valid cases
+        assert!(validate_multi_step_usage("ms.trade", &json!({}), &bundle).is_ok());
+        assert!(validate_multi_step_usage("ms.moveWithSelection", &json!({}), &bundle).is_ok());
+        
+        // Test missing required params
+        assert!(validate_multi_step_usage("ms.cardExchange", &json!({}), &bundle).is_err());
+        assert!(validate_multi_step_usage("ms.multiTarget", &json!({}), &bundle).is_err());
+        
+        // Test with required params
+        assert!(validate_multi_step_usage("ms.cardExchange", &json!({
+            "minGive": 1,
+            "maxGive": 3,
+            "exchangeSource": "deck"
+        }), &bundle).is_ok());
+        
+        assert!(validate_multi_step_usage("ms.multiTarget", &json!({
+            "range": 3,
+            "maxTargets": 5
+        }), &bundle).is_ok());
+    }
+}

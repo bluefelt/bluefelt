@@ -40,6 +40,7 @@ Thumbs.db
 
 .nx/cache
 .nx/workspace-data
+.nx/*.log
 
 
 # Added by cargo
@@ -47,8 +48,22 @@ Thumbs.db
 /target
 **/*.rs.bk
 games/*/*/target
+**/venv
 
 /game-concepts
 /game-concepts/*
 
+# Log files
 *.log
+*.txt
+logs/
+server_log*
+client_log*
+server_output*
+test_output*
+debug_*
+*_debug.*
+
+# Temporary test outputs
+*.tmp
+*.out

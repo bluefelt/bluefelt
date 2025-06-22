@@ -1,6 +1,12 @@
 # Player markers - X for player 1, O for player 2
-- id: mark_{player}
+- id: mark_p1
   props:
-    value: "{player}"
+    value: "p1"
   ui:
-    tokenType: "{player}"  # Will render as "x" for p1, "o" for p2
+    glyph: "X"
+    
+- id: mark_p2
+  props:
+    value: "p2"
+  ui:
+    glyph: "O"

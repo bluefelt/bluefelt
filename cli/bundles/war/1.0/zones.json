@@ -1,0 +1,49 @@
+[
+  {
+    "contents": "standardDeck",
+    "id": "deck",
+    "shape": "stack",
+    "shapeMeta": {
+      "shuffle": true
+    },
+    "tier": "ambient",
+    "visibility": "hidden"
+  },
+  {
+    "id": "deck_{player}",
+    "name": "{player}'s Deck",
+    "owner": "{player}",
+    "shape": "stack",
+    "tier": "hand",
+    "ui": {
+      "layout": "stack",
+      "showCount": true,
+      "showTop": false
+    },
+    "visibility": "private"
+  },
+  {
+    "id": "battle_{player}",
+    "name": "{player}'s Card",
+    "owner": "{player}",
+    "shape": "list",
+    "tier": "tactical",
+    "ui": {
+      "layout": "single",
+      "showTop": true
+    },
+    "visibility": "public"
+  },
+  {
+    "id": "war_pile_{player}",
+    "name": "{player}'s War Pile",
+    "owner": "{player}",
+    "shape": "list",
+    "tier": "tactical",
+    "ui": {
+      "layout": "spread",
+      "showCount": true
+    },
+    "visibility": "private"
+  }
+]

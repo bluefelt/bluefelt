@@ -1,6 +1,7 @@
 # Three Men's Morris board - 3x3 grid
 - id: "board"
   shape: "grid"
+  tier: tactical  # Main game board for piece placement and movement
   shapeMeta:
     rows: 3
     cols: 3

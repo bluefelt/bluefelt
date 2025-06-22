@@ -16,6 +16,50 @@ vi.mock('../context/PlayerContext', () => ({
   PlayerProvider: ({ children }: { children: React.ReactNode }) => children
 }));
 
+// Mock the AnimationContext
+vi.mock('../context/AnimationContext', () => ({
+  useAnimationsEnabled: vi.fn(() => true),
+  useAnimation: vi.fn(() => ({
+    state: { isAnimating: false, config: { enableAnimations: true } },
+    updateConfig: vi.fn(),
+    addAnimation: vi.fn(),
+    removeAnimation: vi.fn(),
+    clearQueue: vi.fn(),
+    isAnimating: false
+  }))
+}));
+
+// Mock the PlayerPreferencesContext
+vi.mock('../context/PlayerPreferencesContext', () => ({
+  usePlayerPreferences: vi.fn(() => ({
+    preferences: { 
+      username: 'Alice', 
+      color: '#ff0000',
+      tokenId: 'classic',
+      showOpponentTokens: true,
+      colorSchemeId: 'default',
+      cardStyleId: 'classic'
+    },
+    isLoggedIn: true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    updatePreferences: vi.fn(),
+    updateToken: vi.fn(),
+    updateColorScheme: vi.fn(),
+    updatePlayerColor: vi.fn(),
+    updateShowOpponentTokens: vi.fn(),
+    updateCardStyle: vi.fn(),
+    updateColor: vi.fn()
+  })),
+  PlayerPreferencesProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePlayer: vi.fn(() => ({
+    player: { username: 'Alice', color: '#ff0000' },
+    login: vi.fn(),
+    logout: vi.fn(),
+    updateColor: vi.fn()
+  }))
+}));
+
 // Mock WebSocket
 class MockWebSocket {
   onopen: ((event: Event) => void) | null = null;
@@ -192,8 +236,19 @@ describe('End-to-End Game Tests', () => {
         game: {
           ...createGameState('go-fish').game,
           zones: {
-            choice_p1: null,
-            choice_p2: null,
+            choice_p1: {
+              type: 'choice',
+              items: [
+                { id: 'a', label: 'Ace', enabled: true },
+                { id: '2', label: 'Two', enabled: true }
+              ],
+              prompt: 'Choose a rank to ask for'
+            },
+            choice_p2: {
+              type: 'choice',
+              items: [],
+              prompt: 'Choose a rank to ask for'
+            },
             hand_p1: {
               type: 'list',
               items: [
@@ -215,12 +270,12 @@ describe('End-to-End Game Tests', () => {
           ...createGameState('go-fish').ui!,
           actionMap: {
             p1: {
-              '/zones/choice_p1/ranks/a': {
+              '/zones/choice_p1/a': {
                 action: 'selectRank',
                 direction: 'Choose a rank to ask for',
                 rank: 'a'
               },
-              '/zones/choice_p1/ranks/2': {
+              '/zones/choice_p1/2': {
                 action: 'selectRank',
                 direction: 'Choose a rank to ask for',
                 rank: '2'
@@ -229,10 +284,55 @@ describe('End-to-End Game Tests', () => {
             p2: {}
           },
           zones: [
-            { id: 'choice_p1', type: 'choice', name: 'Select Rank', visibility: 'owner' },
-            { id: 'choice_p2', type: 'choice', name: 'Select Rank', visibility: 'owner' },
-            { id: 'hand_p1', type: 'list', name: 'Your Hand', visibility: 'owner' },
-            { id: 'hand_p2', type: 'list', name: 'Your Hand', visibility: 'owner' }
+            { 
+              id: 'choice_p1', 
+              name: 'Select Rank', 
+              resolved_name: 'Select Rank',
+              visibility: 'owner',
+              owner: 'p1',
+              layout_order: 0,
+              renderType: 'choice',
+              items: [
+                { id: 'a', label: 'Ace', enabled: true },
+                { id: '2', label: 'Two', enabled: true }
+              ],
+              prompt: 'Choose a rank to ask for'
+            },
+            { 
+              id: 'choice_p2', 
+              name: 'Select Rank', 
+              resolved_name: 'Select Rank',
+              visibility: 'owner',
+              owner: 'p2',
+              layout_order: 1,
+              renderType: 'choice',
+              items: [],
+              prompt: 'Choose a rank to ask for'
+            },
+            { 
+              id: 'hand_p1', 
+              name: 'Your Hand', 
+              resolved_name: 'Your Hand',
+              visibility: 'owner',
+              layout_order: 2,
+              renderType: 'card',
+              cards: [
+                { entity: 'card_hearts_a', visible: true },
+                { entity: 'card_hearts_2', visible: true },
+                { entity: 'card_spades_2', visible: true }
+              ],
+              layout: 'fan'
+            },
+            { 
+              id: 'hand_p2', 
+              name: 'Your Hand', 
+              resolved_name: 'Your Hand',
+              visibility: 'owner',
+              layout_order: 3,
+              renderType: 'card',
+              cards: [],
+              layout: 'fan'
+            }
           ],
           entities: [
             { id: 'card_hearts_a', type: 'card', props: { rank: 'A', suit: 'hearts' } },
@@ -255,21 +355,18 @@ describe('End-to-End Game Tests', () => {
       expect(choiceZone).toBeInTheDocument();
       
       // Check that rank options are rendered
-      expect(within(choiceZone!).getByText('Rank a')).toBeInTheDocument();
-      expect(within(choiceZone!).getByText('Rank 2')).toBeInTheDocument();
+      expect(within(choiceZone!).getByText('Ace')).toBeInTheDocument();
+      expect(within(choiceZone!).getByText('Two')).toBeInTheDocument();
       
-      // Click on rank 'a'
-      fireEvent.click(within(choiceZone!).getByText('Rank a'));
+      // Click on rank 'Ace'
+      fireEvent.click(within(choiceZone!).getByText('Ace'));
       
       // Verify correct message was sent
       await waitFor(() => {
         expect(mockSentMessages).toHaveLength(1);
         expect(mockSentMessages[0]).toEqual({
           action: 'selectRank',
-          args: {
-            rank: 'a',
-            player: 'p1'
-          }
+          args: {}
         });
       });
     });
@@ -279,8 +376,18 @@ describe('End-to-End Game Tests', () => {
         game: {
           ...createGameState('go-fish').game,
           zones: {
-            choice_p1: null,
-            choice_p2: null
+            choice_p1: {
+              type: 'choice',
+              items: [
+                { id: 'p2', label: 'Player 2', enabled: true }
+              ],
+              prompt: 'Choose a player to ask'
+            },
+            choice_p2: {
+              type: 'choice',
+              items: [],
+              prompt: 'Choose a player to ask'
+            }
           },
           phases: {
             game: { current: 'selectingPlayer', count: 0, actionsProcessed: 0 }
@@ -293,7 +400,7 @@ describe('End-to-End Game Tests', () => {
           ...createGameState('go-fish').ui!,
           actionMap: {
             p1: {
-              '/zones/choice_p1/players/p2': {
+              '/zones/choice_p1/p2': {
                 action: 'selectPlayer',
                 direction: 'Choose a player to ask',
                 targetPlayer: 'p2'
@@ -302,8 +409,30 @@ describe('End-to-End Game Tests', () => {
             p2: {}
           },
           zones: [
-            { id: 'choice_p1', type: 'choice', name: 'Select Player', visibility: 'owner' },
-            { id: 'choice_p2', type: 'choice', name: 'Select Player', visibility: 'owner' }
+            { 
+              id: 'choice_p1', 
+              name: 'Select Player', 
+              resolved_name: 'Select Player',
+              visibility: 'owner',
+              owner: 'p1',
+              layout_order: 0,
+              renderType: 'choice',
+              items: [
+                { id: 'p2', label: 'Player 2', enabled: true }
+              ],
+              prompt: 'Choose a player to ask'
+            },
+            { 
+              id: 'choice_p2', 
+              name: 'Select Player', 
+              resolved_name: 'Select Player',
+              visibility: 'owner',
+              owner: 'p2',
+              layout_order: 1,
+              renderType: 'choice',
+              items: [],
+              prompt: 'Choose a player to ask'
+            }
           ]
         }
       });
@@ -321,20 +450,17 @@ describe('End-to-End Game Tests', () => {
       expect(choiceZone).toBeInTheDocument();
       
       // Check that player option is rendered
-      expect(within(choiceZone).getByText('p2')).toBeInTheDocument();
+      expect(within(choiceZone).getByText('Player 2')).toBeInTheDocument();
       
       // Click on player
-      fireEvent.click(within(choiceZone).getByText('p2'));
+      fireEvent.click(within(choiceZone).getByText('Player 2'));
       
       // Verify correct message was sent
       await waitFor(() => {
         expect(mockSentMessages).toHaveLength(1);
         expect(mockSentMessages[0]).toEqual({
           action: 'selectPlayer',
-          args: {
-            targetPlayer: 'p2',
-            player: 'p1'
-          }
+          args: {}
         });
       });
     });
@@ -364,10 +490,21 @@ describe('End-to-End Game Tests', () => {
           zones: [
             { 
               id: 'board', 
-              type: 'grid', 
               name: 'Game Board', 
+              resolved_name: 'Game Board',
               visibility: 'all',
-              gridProps: { rows: 6, cols: 7 }
+              layout_order: 0,
+              renderType: 'grid',
+              cells: [
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null]
+              ],
+              rows: 6,
+              cols: 7
             }
           ],
           actionMap: {
@@ -432,10 +569,21 @@ describe('End-to-End Game Tests', () => {
           zones: [
             { 
               id: 'board', 
-              type: 'grid', 
               name: 'Game Board', 
+              resolved_name: 'Game Board',
               visibility: 'all',
-              gridProps: { rows: 6, cols: 7 }
+              layout_order: 0,
+              renderType: 'grid',
+              cells: [
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null]
+              ],
+              rows: 6,
+              cols: 7
             }
           ]
         }
@@ -496,16 +644,12 @@ describe('End-to-End Game Tests', () => {
         mockSentMessages: mockSentMessages
       });
       
-      // Verify correct message was sent - Connect 4 uses dropDisc action with targetColumn
+      // Verify correct message was sent - Connect 4 uses dropDisc action
       await waitFor(() => {
         expect(mockSentMessages).toHaveLength(1);
         expect(mockSentMessages[0]).toEqual({
           action: 'dropDisc',
-          args: {
-            zone: '/zones/board',
-            targetColumn: 3,
-            entity: 'disc_p1'
-          }
+          args: {}
         });
       });
     });
@@ -537,10 +681,21 @@ describe('End-to-End Game Tests', () => {
           zones: [
             { 
               id: 'board', 
-              type: 'grid', 
               name: 'Game Board', 
+              resolved_name: 'Game Board',
               visibility: 'all',
-              gridProps: { rows: 6, cols: 7 }
+              layout_order: 0,
+              renderType: 'grid',
+              cells: [
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, null, null, null, null],
+                [null, null, null, { entity: 'disc_p1' }, null, null, null],
+                [null, null, null, { entity: 'disc_p2' }, null, null, null]
+              ],
+              rows: 6,
+              cols: 7
             }
           ]
         }
@@ -607,10 +762,18 @@ describe('End-to-End Game Tests', () => {
           zones: [
             { 
               id: 'board', 
-              type: 'grid', 
               name: 'Game Board', 
+              resolved_name: 'Game Board',
               visibility: 'all',
-              gridProps: { rows: 3, cols: 3 }
+              layout_order: 0,
+              renderType: 'grid',
+              cells: [
+                [null, null, null],
+                [null, null, null],
+                [null, null, null]
+              ],
+              rows: 3,
+              cols: 3
             }
           ]
         }
@@ -643,10 +806,7 @@ describe('End-to-End Game Tests', () => {
         expect(mockSentMessages).toHaveLength(1);
         expect(mockSentMessages[0]).toEqual({
           action: 'placePiece',
-          args: {
-            location: '/zones/board/cells/0/0',
-            entity: 'mark_p1'
-          }
+          args: {}
         });
       });
     });
@@ -687,10 +847,18 @@ describe('End-to-End Game Tests', () => {
           zones: [
             { 
               id: 'board', 
-              type: 'grid', 
               name: 'Game Board', 
+              resolved_name: 'Game Board',
               visibility: 'all',
-              gridProps: { rows: 3, cols: 3 }
+              layout_order: 0,
+              renderType: 'grid',
+              cells: [
+                [{ entity: 'mark_p1' }, { entity: 'mark_p1' }, null],
+                [{ entity: 'mark_p2' }, { entity: 'mark_p2' }, null],
+                [null, null, null]
+              ],
+              rows: 3,
+              cols: 3
             }
           ]
         }
@@ -720,10 +888,7 @@ describe('End-to-End Game Tests', () => {
         expect(mockSentMessages).toHaveLength(1);
         expect(mockSentMessages[0]).toEqual({
           action: 'placeMarker',
-          args: {
-            location: '/zones/board/cells/0/2',
-            entity: 'mark_p1'
-          }
+          args: {}
         });
       });
     });

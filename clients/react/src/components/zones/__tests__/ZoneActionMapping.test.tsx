@@ -1,7 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PlayerProvider } from '../../../context/PlayerContext';
+import { PlayerPreferencesProvider } from '../../../context/PlayerPreferencesContext';
+import { AnimationProvider } from '../../../context/AnimationContext';
 import GameZones from '../../GameZones';
+
+// Test wrapper component with all required providers
+const TestWrapper = ({ children, initialPlayerName = 'Alice' }: { children: React.ReactNode; initialPlayerName?: string }) => (
+  <PlayerPreferencesProvider>
+    <PlayerProvider initialPlayerName={initialPlayerName}>
+      <AnimationProvider>
+        {children}
+      </AnimationProvider>
+    </PlayerProvider>
+  </PlayerPreferencesProvider>
+);
 
 describe('Zone Action Mapping', () => {
   const mockOnCellClick = vi.fn();
@@ -15,11 +28,13 @@ describe('Zone Action Mapping', () => {
   describe('Action Map to Zone Integration', () => {
     it('maps grid cell actions correctly', () => {
       const zones = {
-        board: [
-          [null, null, null],
-          [null, null, null],
-          [null, null, null]
-        ]
+        board: {
+          cells: [
+            [null, null, null],
+            [null, null, null],
+            [null, null, null]
+          ]
+        }
       };
 
       const actionMap = {
@@ -29,11 +44,11 @@ describe('Zone Action Mapping', () => {
       };
 
       const zoneMetadata = [
-        { id: 'board', type: 'grid', name: 'Game Board', visibility: 'all', gridProps: { rows: 3, cols: 3 } }
+        { id: 'board', renderType: 'grid', name: 'Game Board', visibility: 'all', gridProps: { rows: 3, cols: 3 } }
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -42,7 +57,7 @@ describe('Zone Action Mapping', () => {
             isMyTurn={true}
             you="p1"
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Check that the board zone is rendered
@@ -67,13 +82,7 @@ describe('Zone Action Mapping', () => {
 
     it('maps card actions correctly', () => {
       const zones = {
-        hand_p1: {
-          items: [
-            { entity: 'card1', id: 'card1', props: { rank: '2', suit: 'hearts' } },
-            { entity: 'card2', id: 'card2', props: { rank: '5', suit: 'clubs' } },
-            { entity: 'card3', id: 'card3', props: { rank: 'K', suit: 'spades' } }
-          ]
-        }
+        hand_p1: ['card1', 'card2', 'card3']
       };
 
       const actionMap = {
@@ -82,7 +91,13 @@ describe('Zone Action Mapping', () => {
       };
 
       const zoneMetadata = [
-        { id: 'hand_p1', shape: 'list', type: 'hand', name: 'Hand', visibility: 'owner' }
+        { 
+          id: 'hand_p1', 
+          renderType: 'card', 
+          name: 'Hand', 
+          visibility: 'all',
+          cards: ['card1', 'card2', 'card3']
+        }
       ];
       
       const entityDefinitions = [
@@ -92,7 +107,7 @@ describe('Zone Action Mapping', () => {
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -102,7 +117,7 @@ describe('Zone Action Mapping', () => {
             isMyTurn={true}
             you="p1"
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Card zones should be rendered with their cards
@@ -117,9 +132,16 @@ describe('Zone Action Mapping', () => {
       expect(mockOnCardAction).not.toHaveBeenCalled();
     });
 
-    it('converts action map to choice items for empty choice zones', () => {
+    it('renders server-provided choice zones', () => {
       const zones = {
-        choice_p1: {}  // Empty choice zone
+        choice_p1: {
+          items: [
+            { id: '2', label: '2' },
+            { id: '5', label: '5' },
+            { id: 'K', label: 'K' }
+          ],
+          prompt: 'Select a rank'
+        }
       };
 
       const actionMap = {
@@ -129,11 +151,21 @@ describe('Zone Action Mapping', () => {
       };
 
       const zoneMetadata = [
-        { id: 'choice_p1', type: 'choice' }
+        { 
+          id: 'choice_p1', 
+          renderType: 'choice',
+          visibility: 'all',
+          items: [
+            { id: '2', label: '2' },
+            { id: '5', label: '5' },
+            { id: 'K', label: 'K' }
+          ],
+          prompt: 'Select a rank'
+        }
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -142,23 +174,22 @@ describe('Zone Action Mapping', () => {
             isMyTurn={true}
             you="p1"
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
-      // Should render choices from action map
-      expect(screen.getByText('Rank 2')).toBeInTheDocument();
-      expect(screen.getByText('Rank 5')).toBeInTheDocument();
-      expect(screen.getByText('Rank K')).toBeInTheDocument();
+      // Should render choices from server-provided data
+      expect(screen.getByText('Select a rank')).toBeInTheDocument();
+      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('5')).toBeInTheDocument();
+      expect(screen.getByText('K')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByText('Rank 5'));
+      fireEvent.click(screen.getByText('5'));
       expect(mockOnChoiceSelect).toHaveBeenCalledWith('choice_p1', '5');
     });
 
     it('handles zone-level actions', () => {
       const zones = {
-        deck: {
-          items: Array(30).fill(null).map((_, i) => ({ entity: `card_back_${i}` }))
-        }
+        deck: Array(30).fill(null).map((_, i) => `card_back_${i}`)
       };
 
       const actionMap = {
@@ -166,11 +197,18 @@ describe('Zone Action Mapping', () => {
       };
 
       const zoneMetadata = [
-        { id: 'deck', shape: 'stack' }
+        { 
+          id: 'deck', 
+          renderType: 'card', 
+          name: 'Deck',
+          visibility: 'all',
+          layout: 'stack',
+          cards: Array(30).fill(null).map((_, i) => `card_back_${i}`)
+        }
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -179,13 +217,13 @@ describe('Zone Action Mapping', () => {
             isMyTurn={true}
             you="p1"
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Zone-level actions are complex to test since they involve 
       // click handlers on the zone itself rather than individual cards
-      // Let's just verify the deck zone is rendered
-      expect(screen.getByText('deck')).toBeInTheDocument();
+      // Let's just verify the deck zone is rendered - it shows as 'Deck' (with capital D)
+      expect(screen.getByText('Deck')).toBeInTheDocument();
       
       // Verify no actions have been triggered yet
       expect(mockOnCardAction).not.toHaveBeenCalled();
@@ -196,13 +234,13 @@ describe('Zone Action Mapping', () => {
     it('handles mixed zone types with actions', () => {
       const zones = {
         board: {
-          type: 'grid',
-          cells: [[null, { entity: 'piece1' }]]
+          cells: [[null, 'piece1']]
         },
-        hand_p1: {
-          items: [{ entity: 'card1' }]
-        },
-        choice_p1: {}
+        hand_p1: ['card1'],
+        choice_p1: {
+          items: ['yes', 'no'],
+          prompt: 'Confirm?'
+        }
       };
 
       const actionMap = {
@@ -212,13 +250,13 @@ describe('Zone Action Mapping', () => {
       };
 
       const zoneMetadata = [
-        { id: 'board', type: 'grid', name: 'Board', visibility: 'all', gridProps: { rows: 1, cols: 2 } },
-        { id: 'hand_p1', shape: 'list', type: 'hand', name: 'Player Hand', visibility: 'private' },
-        { id: 'choice_p1', type: 'choice', name: 'Choice', visibility: 'private' }
+        { id: 'board', renderType: 'grid', name: 'Board', visibility: 'all', gridProps: { rows: 1, cols: 2 } },
+        { id: 'hand_p1', renderType: 'card', name: 'Player Hand', visibility: 'all', cards: ['card1'] },
+        { id: 'choice_p1', renderType: 'choice', name: 'Choice', visibility: 'all', items: ['yes', 'no'], prompt: 'Confirm?' }
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -229,7 +267,7 @@ describe('Zone Action Mapping', () => {
             isMyTurn={true}
             you="p1"
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // All three zone types should be rendered with their actions
@@ -240,8 +278,17 @@ describe('Zone Action Mapping', () => {
 
     it('handles player-specific choice zones', () => {
       const zones = {
-        choice_p1: {},
-        choice_p2: {}
+        choice_p1: {
+          items: [
+            { id: 'p2', label: 'Player 2' },
+            { id: 'p3', label: 'Player 3' }
+          ],
+          prompt: 'Select a player'
+        },
+        choice_p2: {
+          items: [],
+          prompt: 'Waiting...'
+        }
       };
 
       const actionMap = {
@@ -250,12 +297,22 @@ describe('Zone Action Mapping', () => {
       };
 
       const zoneMetadata = [
-        { id: 'choice_p1', type: 'choice' },
-        { id: 'choice_p2', type: 'choice' }
+        { 
+          id: 'choice_p1', 
+          renderType: 'choice', 
+          visibility: 'owner', 
+          owner: 'p1', 
+          items: [
+            { id: 'p2', label: 'Player 2' },
+            { id: 'p3', label: 'Player 3' }
+          ], 
+          prompt: 'Select a player' 
+        },
+        { id: 'choice_p2', renderType: 'choice', visibility: 'owner', owner: 'p2', items: [], prompt: 'Waiting...' }
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -265,14 +322,14 @@ describe('Zone Action Mapping', () => {
             you="p1"
             playerNames={['Player 1', 'Player 2', 'Player 3']}
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
-      // Should show player selection for p1 - choices show as p2, p3
-      expect(screen.getByText('p2')).toBeInTheDocument();
-      expect(screen.getByText('p3')).toBeInTheDocument();
+      // Should show player selection for p1 - choices show as Player 2, Player 3
+      expect(screen.getByText('Player 2')).toBeInTheDocument();
+      expect(screen.getByText('Player 3')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByText('p2'));
+      fireEvent.click(screen.getByText('Player 2'));
       expect(mockOnChoiceSelect).toHaveBeenCalledWith('choice_p1', 'p2');
     });
   });
@@ -280,7 +337,10 @@ describe('Zone Action Mapping', () => {
   describe('Edge Cases', () => {
     it('handles malformed action paths gracefully', () => {
       const zones = {
-        choice_p1: {}
+        choice_p1: {
+          items: [],
+          prompt: 'No valid choices'
+        }
       };
 
       const actionMap = {
@@ -291,11 +351,11 @@ describe('Zone Action Mapping', () => {
       };
 
       const zoneMetadata = [
-        { id: 'choice_p1', type: 'choice' }
+        { id: 'choice_p1', renderType: 'choice', visibility: 'all', items: [], prompt: 'No valid choices' }
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -304,7 +364,7 @@ describe('Zone Action Mapping', () => {
             isMyTurn={true}
             you="p1"
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Should handle gracefully without crashing
@@ -316,19 +376,19 @@ describe('Zone Action Mapping', () => {
 
     it('handles empty action maps', () => {
       const zones = {
-        board: { type: 'grid', cells: [[null]] },
-        hand_p1: { items: [{ entity: 'card1' }] },
-        choice_p1: {}
+        board: { cells: [[null]] },
+        hand_p1: ['card1'],
+        choice_p1: { items: [], prompt: 'No choices' }
       };
 
       const zoneMetadata = [
-        { id: 'board', type: 'grid', name: 'Board', visibility: 'all', gridProps: { rows: 1, cols: 1 } },
-        { id: 'hand_p1', shape: 'list', type: 'hand', name: 'Player Hand', visibility: 'private' },
-        { id: 'choice_p1', type: 'choice', name: 'Choice', visibility: 'private' }
+        { id: 'board', renderType: 'grid', name: 'Board', visibility: 'all', gridProps: { rows: 1, cols: 1 } },
+        { id: 'hand_p1', renderType: 'card', name: 'Player Hand', visibility: 'all', cards: ['card1'] },
+        { id: 'choice_p1', renderType: 'choice', name: 'Choice', visibility: 'all', items: [], prompt: 'No choices' }
       ];
 
       render(
-        <PlayerProvider initialPlayerName="Alice">
+        <TestWrapper>
           <GameZones
             zones={zones}
             zoneMetadata={zoneMetadata}
@@ -339,7 +399,7 @@ describe('Zone Action Mapping', () => {
             isMyTurn={true}
             you="p1"
           />
-        </PlayerProvider>
+        </TestWrapper>
       );
 
       // Zones should render but without interactive elements

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "game",
+    "name": "Old Maid Game",
+    "phases": [
+      {
+        "enterActions": [
+          {
+            "action": "shuffleDeck"
+          },
+          {
+            "action": "dealToP1"
+          },
+          {
+            "action": "dealToP2"
+          },
+          {
+            "action": "beginPlay"
+          }
+        ],
+        "id": "setup",
+        "initial": true,
+        "name": "Setting up the game"
+      },
+      {
+        "id": "play",
+        "name": "Drawing cards",
+        "playerAction": true
+      },
+      {
+        "final": true,
+        "id": "gameOver",
+        "name": "Game finished"
+      }
+    ]
+  }
+]

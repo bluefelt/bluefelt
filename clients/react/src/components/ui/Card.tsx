@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
-import { theme, cn } from '../../theme/constants';
+import { theme } from '../../theme/constants';
+import { cn } from '../../utils/cn';
 
 interface CardProps {
   children: ReactNode;
@@ -7,7 +8,7 @@ interface CardProps {
   variant?: 'default' | 'secondary';
 }
 
-export default function Card({ children, className, variant = 'default' }: CardProps) {
+function Card({ children, className, variant = 'default' }: CardProps) {
   const variantClasses = {
     default: theme.colors.background.secondary,
     secondary: theme.colors.background.tertiary
@@ -23,3 +24,6 @@ export default function Card({ children, className, variant = 'default' }: CardP
     </div>
   );
 }
+
+export default Card;
+export { Card };

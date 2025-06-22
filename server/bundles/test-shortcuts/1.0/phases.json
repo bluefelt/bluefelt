@@ -1,0 +1,17 @@
+[
+  {
+    "id": "game",
+    "phases": [
+      {
+        "id": "main",
+        "initial": true,
+        "possibleActions": [
+          "place",
+          "deal",
+          "next",
+          "end"
+        ]
+      }
+    ]
+  }
+]

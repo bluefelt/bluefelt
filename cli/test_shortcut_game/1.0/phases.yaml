@@ -1,0 +1,20 @@
+phases:
+  - id: setup
+    auto: true
+    onEnter:
+      # Use bf.shuffle shortcut
+      - uses: bf.shuffle
+        with:
+          zone: deck
+          
+      # Use bf.deal shortcut
+      - uses: bf.deal
+        with:
+          count: 7
+          
+      - uses: setPhase
+        with:
+          phase: main
+          
+  - id: main
+    turn: true

@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../../context/PlayerContext.tsx';
-import ColorPicker from '../ColorPicker.tsx';
+import PreferencesModal from '../preferences/PreferencesModal';
 
 export default function SiteHeader() {
   const { player, logout } = usePlayer();
   const navigate = useNavigate();
+  const [showPreferences, setShowPreferences] = useState(false);
+  
   if (!player) return null;
 
   const handleSignOut = () => {
@@ -29,7 +32,13 @@ export default function SiteHeader() {
         />
       </a>
       <div style={styles.colorPickerWrapper}>
-        <ColorPicker />
+        <button
+          onClick={() => setShowPreferences(true)}
+          style={styles.preferencesButton}
+          title="Player Preferences"
+        >
+          ⚙️
+        </button>
       </div>
       <div style={styles.playerProfileTop}>
         <div style={styles.playingAsText}>
@@ -44,6 +53,11 @@ export default function SiteHeader() {
       <div style={styles.playerProfileBottom}>
         <button onClick={handleSignOut} style={styles.signOutButton}>Sign Out</button>
       </div>
+      
+      <PreferencesModal
+        isOpen={showPreferences}
+        onClose={() => setShowPreferences(false)}
+      />
     </nav>
   );
 }
@@ -115,5 +129,18 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "0 0.8em",
     fontFamily: "Josefin Sans, sans-serif",
     fontWeight: "bold",
+  },
+  preferencesButton: {
+    backgroundColor: "#D8B260",
+    color: "black",
+    border: "2px solid #1E2939",
+    borderRadius: "4px",
+    width: "32px",
+    height: "32px",
+    cursor: "pointer",
+    fontSize: "16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
   }
 };

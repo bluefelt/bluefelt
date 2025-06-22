@@ -1,0 +1,17 @@
+# Test YAML includes functionality
+
+manifest:
+  game_id: test-game
+  version: 1.0
+
+# Test include directive in string
+test_string: !include test_included.yaml
+
+# Test $include at mapping level
+$include: test_mapping.yaml
+
+# Test $include with array
+zones:
+  $include:
+    - test_zone1.yaml
+    - test_zone2.yaml

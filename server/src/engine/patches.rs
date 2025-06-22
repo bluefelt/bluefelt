@@ -2,32 +2,217 @@ use serde_json::{json, Value};
 use crate::bundle::Bundle;
 use crate::engine::path::set_value_at_path;
 use crate::engine::verbs::apply_verb;
+use crate::engine::phase_validation::{validate_phase_state};
+use crate::engine::enhanced_phases::process_phase_transitions;
 use regex;
 use chrono;
+use std::collections::HashSet;
+
+const MAX_PHASE_ITERATIONS: usize = 50;
+
+// Animation delay configuration
+#[derive(Debug, Clone)]
+pub struct AnimationConfig {
+    pub enabled: bool,
+    pub delay_ms: u64,
+}
+
+impl Default for AnimationConfig {
+    fn default() -> Self {
+        AnimationConfig {
+            enabled: false,
+            delay_ms: 100,
+        }
+    }
+}
+
+// Result of a discrete state update
+#[derive(Debug, Clone)]
+pub struct DiscreteUpdate {
+    pub patches: Vec<Value>,
+    pub delay_ms: u64,
+    pub description: Option<String>,
+}
 
 pub fn process_phases(bundle: &Bundle, state: &mut Value) -> Result<Vec<Value>, String> {
+    process_phases_with_animation(bundle, state, &AnimationConfig::default())
+}
+
+pub fn process_phases_with_animation(
+    bundle: &Bundle, 
+    state: &mut Value,
+    animation_config: &AnimationConfig
+) -> Result<Vec<Value>, String> {
     let mut patches = Vec::new();
+    let mut iteration_count = 0;
+    let mut processed_phases = HashSet::new();
     
-    // Get current phase states
-    let phase_states = state["phases"].as_object()
-        .ok_or("Missing phase states")?
-        .clone();
+    // Validate phase state before processing
+    validate_phase_state(&state["phases"], &bundle.phases)
+        .map_err(|e| format!("Phase state validation failed: {}", e))?;
     
-    // Check each phase set for enterActions
-    if let Some(phase_sets) = bundle.phases.as_array() {
-        for (phase_set_id, current_phase_id) in phase_states.iter() {
-            process_phase_set(
-                bundle,
-                phase_sets,
-                phase_set_id,
-                current_phase_id,
-                state,
-                &mut patches
-            )?;
+    // Check if using enhanced phase system
+    let use_enhanced = state["phases"].get("current").is_some();
+    
+    if use_enhanced {
+        // Use enhanced phase processing with enter/exit actions
+        loop {
+            iteration_count += 1;
+            
+            // Safety check for excessive iterations
+            if iteration_count > MAX_PHASE_ITERATIONS {
+                return Err(format!(
+                    "Phase processing exceeded maximum iterations ({}). Possible infinite loop in phase transitions.",
+                    MAX_PHASE_ITERATIONS
+                ));
+            }
+            
+            let initial_patch_count = patches.len();
+            
+            // Process phase transitions with enter/exit actions
+            println!("[DEBUG process_phases] Before process_phase_transitions, patches: {}", patches.len());
+            process_phase_transitions(bundle, state, &mut patches)?;
+            println!("[DEBUG process_phases] After process_phase_transitions, patches: {}", patches.len());
+            
+            // If no new patches were generated, we're done
+            if patches.len() == initial_patch_count {
+                println!("[DEBUG process_phases] No new patches, breaking loop");
+                break;
+            }
+        }
+    } else {
+        // Use legacy phase processing
+        loop {
+            iteration_count += 1;
+            
+            // Safety check for excessive iterations
+            if iteration_count > MAX_PHASE_ITERATIONS {
+                return Err(format!(
+                    "Phase processing exceeded maximum iterations ({}). Possible infinite loop in phase transitions.",
+                    MAX_PHASE_ITERATIONS
+                ));
+            }
+            
+            let initial_patch_count = patches.len();
+            
+            // Get current phase states
+            let phase_states = state["phases"].as_object()
+                .ok_or("Missing phase states")?
+                .clone();
+            
+            // Check each phase set for enterActions
+            if let Some(phase_sets) = bundle.phases.as_array() {
+                for (phase_set_id, current_phase_id) in phase_states.iter() {
+                    let phase_key = format!("{}.{}", 
+                        phase_set_id, 
+                        current_phase_id.as_str().unwrap_or("")
+                    );
+                    
+                    // Skip if we've already processed this exact phase combination
+                    if processed_phases.contains(&phase_key) {
+                        continue;
+                    }
+                    
+                    let initial_patches_for_phase = patches.len();
+                    
+                    process_phase_set(
+                        bundle,
+                        phase_sets,
+                        phase_set_id,
+                        current_phase_id,
+                        state,
+                        &mut patches,
+                        animation_config
+                    )?;
+                    
+                    // Only mark as processed if it produced patches (state changes)
+                    if patches.len() > initial_patches_for_phase {
+                        processed_phases.insert(phase_key);
+                    }
+                }
+            }
+            
+            // If no new patches were generated, we're done
+            if patches.len() == initial_patch_count {
+                break;
+            }
+            
+            // Clear processed phases for next iteration to detect state changes
+            processed_phases.clear();
         }
     }
     
     Ok(patches)
+}
+
+// Process verb and return discrete updates for animation
+pub fn apply_verb_with_animation(
+    state: &mut Value,
+    verb: &str,
+    args: &Value,
+    bundle: &Bundle,
+    animation_config: &AnimationConfig
+) -> Result<Vec<DiscreteUpdate>, String> {
+    // For now, just wrap regular patches in DiscreteUpdate
+    // In the future, certain verbs can return multiple discrete updates
+    let patches = apply_verb(state, verb, args, bundle)?;
+    
+    if !animation_config.enabled {
+        // No animation, return all patches at once
+        return Ok(vec![DiscreteUpdate {
+            patches,
+            delay_ms: 0,
+            description: None,
+        }]);
+    }
+    
+    // Check if this verb supports discrete updates
+    match verb {
+        "moveEntity" => {
+            // For card movement, we might want to animate each card separately
+            if let Some(from_path) = args["from"].as_str() {
+                if from_path.contains("/cards/") || from_path.contains("/hand/") {
+                    return Ok(patches.into_iter().map(|patch| {
+                        DiscreteUpdate {
+                            patches: vec![patch],
+                            delay_ms: animation_config.delay_ms,
+                            description: Some("Moving card".to_string()),
+                        }
+                    }).collect());
+                }
+            }
+        }
+        "shuffle" => {
+            // For shuffling, we might animate the shuffle process
+            return Ok(vec![DiscreteUpdate {
+                patches,
+                delay_ms: animation_config.delay_ms * 3, // Longer delay for shuffle
+                description: Some("Shuffling cards".to_string()),
+            }]);
+        }
+        "formPairs" => {
+            // For pair formation, animate each pair separately
+            if patches.len() > 1 {
+                let mut updates = Vec::new();
+                for (i, patch) in patches.into_iter().enumerate() {
+                    updates.push(DiscreteUpdate {
+                        patches: vec![patch],
+                        delay_ms: animation_config.delay_ms,
+                        description: Some(format!("Forming pair {}", i + 1)),
+                    });
+                }
+                return Ok(updates);
+            }
+        }
+        _ => {}
+    }
+    
+    // Default: return all patches at once
+    Ok(vec![DiscreteUpdate {
+        patches,
+        delay_ms: 0,
+        description: None,
+    }])
 }
 
 fn process_phase_set(
@@ -37,6 +222,7 @@ fn process_phase_set(
     current_phase_id: &Value,
     state: &mut Value,
     patches: &mut Vec<Value>,
+    animation_config: &AnimationConfig,
 ) -> Result<(), String> {
     // Find the phase set definition
     if let Some(phase_set) = phase_sets.iter()
@@ -44,17 +230,25 @@ fn process_phase_set(
         
         // Find the current phase within the set
         if let Some(phases) = phase_set["phases"].as_array() {
+            println!("[DEBUG process_phase_set] Looking for phase {} in {} phases", 
+                current_phase_id.as_str().unwrap_or(""), phases.len());
+            
             if let Some(current_phase) = phases.iter()
                 .find(|p| p["id"].as_str() == Some(current_phase_id.as_str().unwrap_or(""))) {
                 
+                println!("[DEBUG process_phase_set] Found phase, calling process_enter_actions");
                 process_enter_actions(
                     bundle,
                     current_phase,
                     phase_set_id,
                     current_phase_id,
                     state,
-                    patches
+                    patches,
+                    animation_config
                 )?;
+            } else {
+                println!("[DEBUG process_phase_set] Phase {} not found in phase set {}", 
+                    current_phase_id.as_str().unwrap_or(""), phase_set_id);
             }
         }
     }
@@ -69,13 +263,18 @@ fn process_enter_actions(
     current_phase_id: &Value,
     state: &mut Value,
     patches: &mut Vec<Value>,
+    animation_config: &AnimationConfig,
 ) -> Result<(), String> {
+    println!("[DEBUG process_enter_actions] Checking phase {}.{} for enterActions", 
+        phase_set_id, current_phase_id.as_str().unwrap_or(""));
+    
     if let Some(enter_actions) = current_phase["enterActions"].as_array() {
-        println!("[DEBUG process_phases] Found enterActions for phase {}.{}", 
-            phase_set_id, current_phase_id.as_str().unwrap_or(""));
+        println!("[DEBUG process_enter_actions] Found {} enterActions for phase {}.{}", 
+            enter_actions.len(), phase_set_id, current_phase_id.as_str().unwrap_or(""));
         
         // Process each enter action
-        for action in enter_actions {
+        for (idx, action) in enter_actions.iter().enumerate() {
+            println!("[DEBUG process_enter_actions] Processing enterAction[{}]: {:?}", idx, action);
             if let Some(transition_to) = action["transitionToPhase"].as_str() {
                 process_phase_transition(
                     phase_set_id,
@@ -97,7 +296,32 @@ fn process_enter_actions(
                             state,
                             action_def,
                             action_id,
-                            patches
+                            patches,
+                            animation_config
+                        )?;
+                    } else {
+                        println!("[ERROR process_phases] Action {} not found in bundle", action_id);
+                        return Err(format!("Action {} not found", action_id));
+                    }
+                } else {
+                    return Err("Bundle missing actions array".to_string());
+                }
+            } else if let Some(action_id) = action["action"].as_str() {
+                // Handle object format with action field (like {"action": "dealCards"})
+                println!("[DEBUG process_phases] Processing enterAction object: {}", action_id);
+                
+                // Find the action in the bundle
+                if let Some(actions) = bundle.actions.as_array() {
+                    if let Some(action_def) = actions.iter()
+                        .find(|a| a["id"].as_str() == Some(action_id)) {
+                        
+                        process_action_with_then(
+                            bundle,
+                            state,
+                            action_def,
+                            action_id,
+                            patches,
+                            animation_config
                         )?;
                     } else {
                         println!("[ERROR process_phases] Action {} not found in bundle", action_id);
@@ -169,6 +393,7 @@ fn process_action_with_then(
     action_def: &Value,
     action_id: &str,
     patches: &mut Vec<Value>,
+    animation_config: &AnimationConfig,
 ) -> Result<(), String> {
     // Get verb and args from action definition
     if let (Some(verb), Some(args)) = (
@@ -194,65 +419,60 @@ fn process_action_with_then(
         
         // Apply the action to the state
         // Note: For auto actions in enterActions, we don't need an actor
-        // Apply verb directly to get patches
-        let action_patches = apply_verb(state, actual_verb, &processed_args, bundle);
-        match action_patches {
-            Ok(verb_patches) => {
-                let num_patches = verb_patches.len();
-                let has_patches = !verb_patches.is_empty();
-                patches.extend(verb_patches);
-                println!("[DEBUG process_phases] Action {} generated {} patches", 
-                    action_id, num_patches);
+        // Apply verb with animation support
+        let discrete_updates = apply_verb_with_animation(state, actual_verb, &processed_args, bundle, animation_config)?;
+        
+        // Convert discrete updates to patches
+        let mut verb_patches = Vec::new();
+        for update in discrete_updates {
+            verb_patches.extend(update.patches);
+            // TODO: In future, we could yield control here for animation delays
+        }
+        
+        let num_patches = verb_patches.len();
+        let has_patches = !verb_patches.is_empty();
+        patches.extend(verb_patches);
+        println!("[DEBUG process_phases] Action {} generated {} patches", 
+            action_id, num_patches);
+        
+        // Generate log entry for automatic actions if they have a logTemplate
+        if has_patches {
+            if let Some(log_template) = action_def["ui"]["logTemplate"].as_str() {
+                println!("[DEBUG process_phases] Generating log for automatic action {}", action_id);
+                let log_patch = generate_log_patch(state, action_def, &processed_args, log_template);
+                println!("[DEBUG process_phases] Generated log patch: {:?}", log_patch);
+                patches.push(log_patch);
+            } else {
+                println!("[DEBUG process_phases] No logTemplate found for action {}", action_id);
+            }
+        }
+        
+        // Process "then" actions if the initial action succeeded
+        if has_patches {
+            if let Some(then_actions) = action_def.get("then").and_then(|t| t.as_array()) {
+                println!("[DEBUG process_phases] Found {} 'then' actions for {}", then_actions.len(), action_id);
                 
-                // Generate log entry for automatic actions if they have a logTemplate
-                if has_patches {
-                    if let Some(log_template) = action_def["ui"]["logTemplate"].as_str() {
-                        println!("[DEBUG process_phases] Generating log for automatic action {}", action_id);
-                        let log_patch = generate_log_patch(state, action_def, &processed_args, log_template);
-                        println!("[DEBUG process_phases] Generated log patch: {:?}", log_patch);
-                        patches.push(log_patch);
-                    } else {
-                        println!("[DEBUG process_phases] No logTemplate found for action {}", action_id);
-                    }
-                }
-                
-                // Process "then" actions if the initial action succeeded
-                if has_patches {
-                    if let Some(then_actions) = action_def.get("then").and_then(|t| t.as_array()) {
-                        println!("[DEBUG process_phases] Found {} 'then' actions for {}", then_actions.len(), action_id);
+                for then_action in then_actions {
+                    if let Some(then_action_id) = then_action["action"].as_str() {
+                        println!("[DEBUG process_phases] Processing 'then' action: {}", then_action_id);
                         
-                        for then_action in then_actions {
-                            if let Some(then_action_id) = then_action["action"].as_str() {
-                                println!("[DEBUG process_phases] Processing 'then' action: {}", then_action_id);
-                                
-                                // Find the then action definition
-                                if let Some(actions) = bundle.actions.as_array() {
-                                    if let Some(then_action_def) = actions.iter().find(|a| a["id"].as_str() == Some(then_action_id)) {
-                                        // Recursively process this action with its own "then" actions
-                                        process_action_with_then(
-                                            bundle,
-                                            state,
-                                            then_action_def,
-                                            then_action_id,
-                                            patches
-                                        )?;
-                                    } else {
-                                        println!("[ERROR process_phases] 'then' action {} not found in bundle", then_action_id);
-                                    }
-                                }
+                        // Find the then action definition
+                        if let Some(actions) = bundle.actions.as_array() {
+                            if let Some(then_action_def) = actions.iter().find(|a| a["id"].as_str() == Some(then_action_id)) {
+                                // Recursively process this action with its own "then" actions
+                                process_action_with_then(
+                                    bundle,
+                                    state,
+                                    then_action_def,
+                                    then_action_id,
+                                    patches,
+                                    animation_config
+                                )?;
+                            } else {
+                                println!("[ERROR process_phases] 'then' action {} not found in bundle", then_action_id);
                             }
                         }
                     }
-                }
-            }
-            Err(e) => {
-                println!("[ERROR process_phases] Failed to execute action {}: {}", action_id, e);
-                // Don't return error for then actions that fail
-                if action_id != "dealCards" {
-                    // For non-critical actions, just log the error and continue
-                    println!("[WARN process_phases] Continuing despite error in action {}", action_id);
-                } else {
-                    return Err(format!("Failed to execute enterAction {}: {}", action_id, e));
                 }
             }
         }
@@ -465,6 +685,16 @@ pub fn apply_action(
     player_id: &str,
     action: &Value,
 ) -> Result<Vec<Value>, String> {
+    apply_action_with_animation(bundle, state, player_id, action, &AnimationConfig::default())
+}
+
+pub fn apply_action_with_animation(
+    bundle: &Bundle,
+    state: &mut Value,
+    player_id: &str,
+    action: &Value,
+    animation_config: &AnimationConfig,
+) -> Result<Vec<Value>, String> {
     // Extract verb and args from action
     if let (Some(verb), Some(args)) = (
         action.get("verb").and_then(|v| v.as_str()),
@@ -476,7 +706,17 @@ pub fn apply_action(
         // Also handle {actor} template with the player_id
         processed_args = replace_actor_template(&processed_args, player_id);
         
-        apply_verb(state, verb, &processed_args, bundle)
+        // Apply verb with animation support
+        let discrete_updates = apply_verb_with_animation(state, verb, &processed_args, bundle, animation_config)?;
+        
+        // For now, flatten discrete updates into patches
+        // In the future, we might return DiscreteUpdate directly
+        let mut patches = Vec::new();
+        for update in discrete_updates {
+            patches.extend(update.patches);
+        }
+        
+        Ok(patches)
     } else {
         Err("Invalid action format".to_string())
     }

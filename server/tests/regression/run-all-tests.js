@@ -12,7 +12,9 @@ const gameTests = [
   { name: 'Tic-Tac-Toe', file: 'test-tic-tac-toe.js' },
   { name: 'Connect Four', file: 'test-connect-four.js' },
   { name: 'Three Men\'s Morris', file: 'test-three-mens-morris.js' },
-  { name: 'Go Fish', file: 'test-go-fish.js' }
+  { name: 'Go Fish', file: 'test-go-fish.js' },
+  { name: 'Player Count Validation', file: 'test-player-counts.js' },
+  { name: 'Table Lifecycle', file: 'test-table-lifecycle.js' }
 ];
 
 async function runTest(testFile, testName) {
@@ -43,8 +45,8 @@ async function runAllTests() {
 ╔═══════════════════════════════════════════════════════════════╗
 ║           BLUEFELT GAME REGRESSION TEST SUITE                 ║
 ║                                                               ║
-║  Testing: Connect Four, Three Men's Morris, Go Fish           ║
-║           and Tic-Tac-Toe                                     ║
+║  Testing: Connect Four, Three Men's Morris, Go Fish,          ║
+║           Tic-Tac-Toe, and Table Lifecycle                    ║
 ╚═══════════════════════════════════════════════════════════════╝
 `);
 

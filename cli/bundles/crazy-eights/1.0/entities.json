@@ -1,0 +1,12 @@
+[
+  {
+    "generate": true,
+    "id": "standardDeck"
+  },
+  {
+    "id": "currentSuit",
+    "name": "Current Suit",
+    "type": "state",
+    "value": ""
+  }
+]

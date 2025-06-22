@@ -7,7 +7,7 @@
         - transitionToPhase: game.play
     
     - id: play
-      possibleActions: [dropDisc]
+      possibleActions: [dropChecker]
       ui:
         display: "{actor}'s turn"
         

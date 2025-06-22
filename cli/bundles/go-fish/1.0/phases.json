@@ -1,0 +1,37 @@
+[
+  {
+    "id": "game",
+    "name": "Go Fish Game",
+    "phases": [
+      {
+        "enterActions": [
+          "dealCards"
+        ],
+        "id": "dealing",
+        "initial": true,
+        "name": "Dealing cards to players"
+      },
+      {
+        "enterActions": [
+          "checkGameEnd",
+          "populateRankChoices"
+        ],
+        "id": "selectingRank",
+        "name": "Player's turn",
+        "possibleActions": [
+          "askForCards"
+        ],
+        "ui": {
+          "prompt": "Your turn - ask another player for cards"
+        }
+      },
+      {
+        "id": "gameOver",
+        "name": "Game Over",
+        "possibleActions": [
+          "calculateWinner"
+        ]
+      }
+    ]
+  }
+]

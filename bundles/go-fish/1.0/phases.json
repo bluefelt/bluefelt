@@ -13,58 +13,16 @@
       },
       {
         "enterActions": [
-          "startTurn"
+          "checkGameEnd"
         ],
         "id": "selectingRank",
-        "name": "Choose a rank to ask for",
+        "name": "Player's turn",
         "possibleActions": [
-          "selectRank"
+          "askForCards"
         ],
         "ui": {
-          "prompt": "Choose a rank to ask for"
+          "prompt": "Your turn - ask another player for cards"
         }
-      },
-      {
-        "id": "selectingPlayer",
-        "name": "Choose a player to ask",
-        "possibleActions": [
-          "selectPlayer"
-        ],
-        "ui": {
-          "prompt": "Choose which player to ask for cards"
-        }
-      },
-      {
-        "enterActions": [
-          "checkPlayerCards"
-        ],
-        "id": "responding",
-        "name": "Responding to request",
-        "possibleActions": [
-          "checkPlayerCards",
-          "goFish"
-        ]
-      },
-      {
-        "enterActions": [
-          "goFish"
-        ],
-        "id": "fishing",
-        "name": "Drawing from pool",
-        "possibleActions": [
-          "goFish"
-        ]
-      },
-      {
-        "enterActions": [
-          "checkForBooks"
-        ],
-        "id": "checkingPairs",
-        "name": "Checking for pairs",
-        "possibleActions": [
-          "checkForBooks",
-          "checkGameEnd"
-        ]
       },
       {
         "id": "gameOver",

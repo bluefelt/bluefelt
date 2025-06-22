@@ -1,4 +1,4 @@
-use bluefelt_core::{bundle::BundleMap, engine::load_initial_state};
+use bluefelt_core::{bundle::BundleMap, engine::load_initial_state, lobby::action_map::compute_action_map};
 
 #[test]
 fn test_connect_four_game_setup() {
@@ -38,6 +38,31 @@ fn test_connect_four_game_setup() {
             assert!(cell.is_null());
         }
     }
+    
+    // Verify action map - p1 should have 7 available actions (one per column)
+    let action_map = compute_action_map(&state, &bundle);
+    let p1_actions = action_map.get("p1").and_then(|v| v.as_object()).unwrap();
+    
+    // Debug: print actual action map keys
+    println!("P1 action map keys: {:?}", p1_actions.keys().collect::<Vec<_>>());
+    
+    assert_eq!(p1_actions.len(), 7, "P1 should have 7 available columns to drop disc");
+    
+    // Verify all columns are clickable
+    for col in 0..7 {
+        let column_path = format!("/zones/board/columns/{}", col);
+        assert!(p1_actions.contains_key(&column_path), 
+            "Column {} should be clickable", col);
+        
+        // Verify action details
+        let action = p1_actions.get(&column_path).unwrap();
+        assert_eq!(action["action"], "dropChecker");
+        assert_eq!(action["direction"], "Click a column to drop your disc");
+    }
+    
+    // P2 should have no actions (not their turn)
+    let p2_actions = action_map.get("p2").and_then(|v| v.as_object()).unwrap();
+    assert_eq!(p2_actions.len(), 0, "P2 should have no actions when it's not their turn");
 }
 
 #[test]
@@ -53,8 +78,8 @@ fn test_connect_four_gameplay() {
     
     // Find the dropDisc action
     let drop_action = actions.iter()
-        .find(|a| a["id"].as_str() == Some("dropDisc"))
-        .expect("dropDisc action not found");
+        .find(|a| a["id"].as_str() == Some("dropChecker"))
+        .expect("dropChecker action not found");
     
     assert_eq!(drop_action["uses"].as_str(), Some("placeWithGravity"));
     assert!(drop_action["ui"]["direction"].as_str()
@@ -149,6 +174,18 @@ fn test_connect_four_gravity_mechanics() {
     
     let result_full = apply_verb(&mut state, "placeWithGravity", &place_args_full, &bundle);
     assert!(result_full.is_err(), "Placing in full column should fail");
+    
+    // Verify action map - column 3 should not be clickable anymore
+    let action_map = compute_action_map(&state, &bundle);
+    let current_player = state["currentPlayer"].as_str().unwrap();
+    let player_actions = action_map.get(current_player).and_then(|v| v.as_object()).unwrap();
+    
+    // Column 3 should not be in action map since it's full
+    assert!(!player_actions.contains_key("/zones/board/columns/3"), 
+        "Full column 3 should not be clickable");
+    
+    // Other columns should still be available (6 remaining)
+    assert_eq!(player_actions.len(), 6, "Should have 6 available columns after filling one");
 }
 
 #[test]

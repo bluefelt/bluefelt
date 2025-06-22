@@ -1,0 +1,14 @@
+{
+  "gameId": "test-shortcuts",
+  "version": "1.0",
+  "specVersion": "1",
+  "metadata": {
+    "name": "Test Shortcuts",
+    "description": "Testing YAML shortcuts and includes",
+    "author": "Test",
+    "players": {
+      "min": 2,
+      "max": 2
+    }
+  }
+}

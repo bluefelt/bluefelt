@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic-Tac-Toe Browser Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .instructions {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .instructions h1 {
+            margin-top: 0;
+            color: #333;
+        }
+        .instructions ol {
+            line-height: 1.8;
+        }
+        .instructions code {
+            background-color: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .game-frame {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        iframe {
+            width: 100%;
+            height: 800px;
+            border: none;
+        }
+        .console-tips {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .console-tips h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="instructions">
+            <h1>Tic-Tac-Toe Browser Test</h1>
+            
+            <div id="error-message" class="error">
+                <strong>Error:</strong> Cannot connect to React client. Make sure the dev server is running on port 5173.
+            </div>
+            
+            <h2>Setup Instructions:</h2>
+            <ol>
+                <li>Start the server: <code>cd server && cargo run</code></li>
+                <li>Start the React client: <code>cd clients/react && pnpm dev</code></li>
+                <li>Open Developer Tools (F12) and go to the Console tab</li>
+                <li>Navigate to Lobbies → Create a Tic-Tac-Toe lobby → Join with two players</li>
+                <li>Start the game and make moves while watching the console</li>
+            </ol>
+            
+            <div class="console-tips">
+                <h3>🔍 What to look for in the console:</h3>
+                <ul>
+                    <li><strong>Entity definitions:</strong> Look for <code>entityDefs</code> in the game state</li>
+                    <li><strong>Zone contents:</strong> Check <code>zones.board.contents</code> for cell data</li>
+                    <li><strong>Render calls:</strong> Look for "Rendering cell" logs</li>
+                    <li><strong>WebSocket messages:</strong> Monitor patch operations</li>
+                    <li><strong>State updates:</strong> Watch for state changes after moves</li>
+                </ul>
+                
+                <h4>Useful console commands:</h4>
+                <pre>
+// Get current game state
+const state = window.__BLUEFELT_STATE__;
+console.log('Entity definitions:', state?.game?.entityDefs);
+console.log('Board contents:', state?.game?.zones?.board?.contents);
+console.log('Current player:', state?.game?.currentPlayer);
+
+// Check specific cell
+const cell = state?.game?.zones?.board?.contents?.[0];
+console.log('First cell:', cell);
+                </pre>
+            </div>
+        </div>
+        
+        <div class="game-frame">
+            <iframe id="game-iframe" src="http://localhost:5173" onload="handleLoad()" onerror="handleError()"></iframe>
+        </div>
+    </div>
+    
+    <script>
+        // Helper function to inject debugging into the iframe
+        function handleLoad() {
+            try {
+                const iframe = document.getElementById('game-iframe');
+                const iframeWindow = iframe.contentWindow;
+                
+                // Try to access the iframe content (will fail due to CORS, but that's OK)
+                console.log('React client loaded successfully');
+                
+                // Make state accessible globally for debugging
+                setInterval(() => {
+                    try {
+                        // This will fail due to CORS, but the attempt helps with debugging
+                        iframeWindow.postMessage({ type: 'DEBUG_REQUEST' }, '*');
+                    } catch (e) {
+                        // Expected due to CORS
+                    }
+                }, 5000);
+            } catch (e) {
+                console.log('Cannot access iframe content due to CORS (this is normal)');
+            }
+        }
+        
+        function handleError() {
+            document.getElementById('error-message').style.display = 'block';
+            console.error('Failed to load React client. Make sure it\'s running on port 5173');
+        }
+        
+        // Listen for debug messages (if the React app supports it)
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'DEBUG_RESPONSE') {
+                window.__BLUEFELT_STATE__ = event.data.state;
+                console.log('State updated:', event.data.state);
+            }
+        });
+        
+        // Add some helpful console messages
+        console.log('%c🎮 Tic-Tac-Toe Browser Test', 'font-size: 20px; color: blue; font-weight: bold');
+        console.log('%cOpen this file directly in your browser (file:// protocol)', 'color: green');
+        console.log('%cMake sure both server (port 8000) and client (port 5173) are running', 'color: orange');
+        console.log('\nUseful debugging tips:');
+        console.log('1. Use the Network tab to monitor WebSocket messages');
+        console.log('2. Set breakpoints in BoardCell.tsx to debug rendering');
+        console.log('3. Use React DevTools to inspect component props');
+        console.log('4. Check for console errors after each move');
+    </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "gameId": "hex-territory",
+  "version": "1.0",
+  "specVersion": "1.0",
+  "metadata": {
+    "name": "Hex Territory",
+    "description": "A strategic hex-based territory control game demonstrating Phase 3 features",
+    "author": "Bluefelt",
+    "players": {
+      "min": 2,
+      "max": 4
+    },
+    "tags": [
+      "strategy",
+      "territory",
+      "hex",
+      "phase3-demo"
+    ]
+  }
+}

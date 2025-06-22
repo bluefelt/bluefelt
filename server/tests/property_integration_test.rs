@@ -22,7 +22,6 @@ fn create_go_fish_test_bundle() -> bundle::Bundle {
         zones: json!([]),
         actions: json!([]),
         phases: json!([]),
-        _hooks: None,
     }
 }
 

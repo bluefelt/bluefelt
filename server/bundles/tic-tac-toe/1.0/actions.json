@@ -1,0 +1,155 @@
+[
+  {
+    "auto": true,
+    "id": "transitionToPlay",
+    "uses": "setPhase",
+    "with": {
+      "phase": "play",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "id": "placeMark",
+    "then": [
+      {
+        "action": "checkWinOrAdvance"
+      }
+    ],
+    "ui": {
+      "direction": "Click an empty cell to place your mark",
+      "logTemplate": "{player} placed their mark at ({row}, {col})"
+    },
+    "uses": "place",
+    "when": [
+      {
+        "condition": "game.notEnded"
+      },
+      {
+        "condition": "zone.isEmpty",
+        "with": {
+          "zone": "{args.location}"
+        }
+      },
+      {
+        "condition": "player.isActor"
+      }
+    ],
+    "with": {
+      "entity": "mark_{player}",
+      "location": "{args.location}"
+    }
+  },
+  {
+    "auto": true,
+    "id": "checkWinOrAdvance",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "condition": "grid.lineOfMarks",
+        "with": {
+          "directions": [
+            "horizontal",
+            "vertical",
+            "diagonal"
+          ],
+          "entity": "mark_{player}",
+          "lineLength": 3,
+          "zone": "zones/board"
+        }
+      },
+      "else": [
+        {
+          "action": "advanceTurn"
+        }
+      ],
+      "then": [
+        {
+          "action": "setGamePhase"
+        },
+        {
+          "action": "setWinner"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "setGamePhase",
+    "ui": {
+      "logTemplate": "Game over!"
+    },
+    "uses": "setPhase",
+    "with": {
+      "phase": "end",
+      "phaseSet": "game"
+    }
+  },
+  {
+    "auto": true,
+    "id": "setWinner",
+    "ui": {
+      "logTemplate": "{player} wins!"
+    },
+    "uses": "setState",
+    "with": {
+      "path": "/gameStatus",
+      "value": {
+        "state": "ended",
+        "tie": false,
+        "winner": "{player}"
+      }
+    }
+  },
+  {
+    "auto": true,
+    "id": "advanceTurn",
+    "then": [
+      {
+        "action": "checkForTie"
+      }
+    ],
+    "ui": {
+      "logTemplate": "Turn passes to {nextPlayer}"
+    },
+    "uses": "nextTurn"
+  },
+  {
+    "auto": true,
+    "id": "checkForTie",
+    "uses": "conditionalAction",
+    "with": {
+      "condition": {
+        "condition": "zone.isEmpty",
+        "negate": true,
+        "with": {
+          "checkAll": true,
+          "zone": "/zones/board"
+        }
+      },
+      "then": [
+        {
+          "action": "setGamePhase"
+        },
+        {
+          "action": "setTie"
+        }
+      ]
+    }
+  },
+  {
+    "auto": true,
+    "id": "setTie",
+    "ui": {
+      "logTemplate": "It's a tie! The board is full."
+    },
+    "uses": "setState",
+    "with": {
+      "path": "/gameStatus",
+      "value": {
+        "state": "ended",
+        "tie": true,
+        "winner": null
+      }
+    }
+  }
+]

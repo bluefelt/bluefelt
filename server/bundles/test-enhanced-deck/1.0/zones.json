@@ -1,0 +1,19 @@
+[
+  {
+    "contents": "empty",
+    "id": "deck",
+    "type": "deck"
+  },
+  {
+    "contents": "empty",
+    "id": "hand_{player}",
+    "type": "list",
+    "visibility": "owner"
+  },
+  {
+    "contents": "empty",
+    "id": "melds_{player}",
+    "type": "list",
+    "visibility": "all"
+  }
+]
